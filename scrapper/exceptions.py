@@ -1,0 +1,2 @@
+class TwitterEmailNotFound(Exception):
+    pass
