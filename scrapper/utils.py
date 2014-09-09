@@ -1,20 +1,15 @@
 # -*- coding: utf-8 -*-
-import cStringIO
 import os
-from django.core.files.uploadedfile import InMemoryUploadedFile
 from fake_useragent import UserAgent
 import random
 import time
 import string
 import names
 import datetime
-import sys
 import requests
 from requests.packages.urllib3 import Timeout
 import simplejson
-from scrapper import PROJECT_ROOT
-from scrapper.logger import LOGGER
-import urllib
+from .logger import LOGGER
 
 
 def generate_random_string(size=None, with_special_chars=False, only_lowercase=False):

@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 
-import logging
 import os
 from PIL import Image
 import requests
 import simplejson
 import time
-from scrapper import settings, LOGGER
+from scrapper import settings
 from scrapper.captcha_resolvers import deathbycaptcha
+from scrapper.logger import LOGGER
 
 
 DEFAULT_TIMEOUT = 30

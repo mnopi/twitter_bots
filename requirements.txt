@@ -8,6 +8,5 @@ pytz==2014.4
 requests==2.3.0
 selenium==2.42.1
 simplejson==3.5.3
-splinter==0.6.0
 stem==1.2.2
 wsgiref==0.1.2

@@ -4,13 +4,11 @@ import os
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 import pytz
-from selenium.common.exceptions import TimeoutException
-from scrapper import Scrapper
+from scrapper.scrapper import Scrapper
 from scrapper.accounts.twitter import TwitterScrapper
 from scrapper.managers import TwitterBotManager
-from scrapper import settings
+from twitter_bots import settings
 
-from twitter_bots.settings import LOGGER
 from scrapper.utils import *
 from scrapper import delay
 
@@ -101,14 +99,20 @@ class TwitterBot(models.Model):
         """Pilla el dominio de ese email (por ejemplo @gmail.com)"""
         return self.email.split('@')[1]
 
+    def proxy_works_ok(self):
+        """Mira si el proxy que el bot tiene asignado funciona correctamente"""
+        sc = Scrapper(self)
+        sc.check_proxy_works_ok()
+
     def assign_proxy(self, proxy=None, proxy_provider=None):
         """Busca un proxy disponible y se lo asigna"""
-        def proxy_is_avaiable(proxy):
+
+        def check_avaiable_proxy(proxy):
             """
-            Para que un proxy esté disponible se tiene que cumplir:
-                -   que el número de bots con ese proxy no superen el máximo por proxy
+            Para que un proxy esté disponible para el bot se tiene que cumplir:
+                -   que el número de bots con ese proxy no superen el máximo por proxy (space_ok)
                 -   que el último usuario que se registró usando ese proxy lo haya hecho
-                    hace más de el periodo mínimo de días
+                    hace más de el periodo mínimo de días (diff_ok)
             """
             if proxy:
                 num_users_with_that_proxy = self.__class__.objects.filter(proxy=proxy).count()
@@ -147,7 +151,7 @@ class TwitterBot(models.Model):
                         for proxy in proxies_lines:
                             proxy = proxy.replace('\n', '')
                             proxy = proxy.replace(' ', '')
-                            found_avaiable_proxy = proxy_is_avaiable(proxy)
+                            found_avaiable_proxy = check_avaiable_proxy(proxy)
                             if found_avaiable_proxy:
                                 self.proxy = proxy
                                 self.proxy_provider = filename.split('.')[0]
@@ -158,6 +162,10 @@ class TwitterBot(models.Model):
                 raise Exception('There are not avaiable proxies to connect bot with username=%s, id=%i'
                                 % (self.username, self.id))
 
+    def has_proxy_listed(self):
+        "Mira si el proxy del usuario aparece en alguno de los .txt de la carpeta proxies"
+        return self.__class__.objects.check_listed_proxy(self.proxy)
+
     def perform_registrations(self):
         def automate_registrations():
             """Abre una ventana del navegador con varias pestañas y va haciendo todo"""
@@ -166,7 +174,6 @@ class TwitterBot(models.Model):
                     LOGGER.warning('Fast mode is enabled!')
 
                 ts = TwitterScrapper(self)
-                ts.open_browser()
                 ts.signup_email_account()
                 ts.sign_up()
                 ts.confirm_user_email()
@@ -257,28 +264,3 @@ class TwitterBot(models.Model):
         ts.close_browser()
         self.twitter_profile_completed = True
         self.save()
-
-    def check_proxy_avaiable(self):
-        """Mira si su proxy está en las listas de proxies actuales, por si el usuario no se usó hace
-        mucho tiempo y se refrescó la lista de proxies con los proveedores, ya que lo hacen cada mes normalmente"""
-        if not settings.TOR_MODE:
-            proxy_exists = False
-            proxies_folder = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'proxies')
-            for (dirpath, dirnames, filenames) in os.walk(proxies_folder):
-                if proxy_exists: break
-                for filename in filenames:  # myprivateproxy.txt
-                    if proxy_exists: break
-                    with open(os.path.join(dirpath, filename)) as f:
-                        proxies_lines = f.readlines()
-                        for proxy in proxies_lines:
-                            proxy = proxy.replace('\n', '')
-                            proxy = proxy.replace(' ', '')
-                            if proxy == self.proxy:
-                                proxy_exists = True
-                                break
-
-            if not proxy_exists:
-                LOGGER.info('Proxy %s @ %s not avaiable for %s. Assigning another avaiable proxy..'
-                            % (self.proxy, self.proxy_provider, self.username))
-                self.assign_proxy()
-                LOGGER.info('\t.. new proxy %s @ %s assigned ok' % (self.proxy, self.proxy_provider))

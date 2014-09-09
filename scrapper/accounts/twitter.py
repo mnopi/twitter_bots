@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 import os
 
-from scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG, LOGGER
+from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG, LOGGER
 from scrapper.captcha_resolvers import DeathByCaptchaResolver
 from scrapper.exceptions import TwitterEmailNotFound
 from scrapper.utils import *
-from scrapper import settings
+from twitter_bots import settings
 from scrapper import delay
 
 
@@ -82,6 +82,7 @@ class TwitterScrapper(Scrapper):
 
                 self.wait_to_page_loaded()
                 delay.seconds(7)
+                self.close_browser()
 
                 # comprobamos que la cuenta de twitter está operativa
                 #self.check_twitter_signup_ok()

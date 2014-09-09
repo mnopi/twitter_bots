@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from selenium.webdriver.common.keys import Keys
 
-from scrapper import Scrapper
+from scrapper.scrapper import Scrapper
 from scrapper.captcha_resolvers import DeathByCaptchaResolver
 from scrapper.exceptions import TwitterEmailNotFound
 from scrapper.utils import *

@@ -1,46 +1,12 @@
 # -*- coding: utf-8 -*-
-import re
-import datetime
+import os
 
 from django.db import models
-import time
-from django.db.models import Q
-from scrapper import settings, Scrapper
-from scrapper.settings import REUSE_BOTS, TOR_MODE
+from twitter_bots import settings
 from twitter_bots.settings import LOGGER
 
 
 class TwitterBotManager(models.Manager):
-    # def create(self, **kwargs):
-    #
-    #     super(TwitterBotManager, self).create(**kwargs)
-
-    def get_not_registered_ok_bots(self, num_bots=None):
-        """
-        Coje todos los bots que no se hayan registrado del todo, es decir aquellos que:
-            NO cumplan alguna de las siguientes condiciones:
-                - no hayan creado su email
-                - no hayan creado su twitter
-                - no hayan confirmado su email en twitter y además no tengan marcado como "no recibido" dicho email de confirmación,
-                    ya que hay usuarios a los que twitter no se los manda (puede ser por tema de la IP)
-            Y cumplan las siguientes:
-                - no esté marcado como spam por twitter (it_works)
-                - no sea un bot creado manualmente para pruebas
-        """
-        bots = self.filter(
-            (Q(email_registered_ok=False) | Q(twitter_registered_ok=False) | Q(twitter_confirmed_email_ok=False)),
-            it_works=True,
-            is_manually_registered=False
-        )
-
-        if TOR_MODE:
-            bots = bots.filter(proxy='tor')
-
-        if num_bots:
-            return list(bots[:num_bots])
-        else:
-            return list(bots)
-
     def create_new_bot(self):
         """Mira qué proxy hay sin usar y devuelve objeto TwitterBot con ese proxy ya reservado"""
         empty_bot = self.create()
@@ -48,26 +14,33 @@ class TwitterBotManager(models.Manager):
         empty_bot.assign_proxy()
         return empty_bot
 
-    def create_new_bots(self, num_bots):
+    def create_bots(self, num_bots):
         """Devuelve una lista de bots con sus respectivos proxies ya reservados"""
         return [self.create_new_bot() for _ in range(0, num_bots)]
 
-    def create_new_bots_including_reusable(self, num_bots):
-        """Devuelve bots reusables a partir de un número de bots dado"""
-        reusable_bots = self.get_not_registered_ok_bots()[:num_bots]
+    def check_listed_proxy(self, proxy):
+        """Mira si el proxy está en las listas de proxies actuales, por si el usuario no se usó hace
+        mucho tiempo y se refrescó la lista de proxies con los proveedores, ya que lo hacen cada mes normalmente"""
+        if not settings.TOR_MODE:
+            found_listed_proxy = False
+            proxies_folder = os.path.join(settings.PROJECT_ROOT, 'core', 'proxies')
+            for (dirpath, dirnames, filenames) in os.walk(proxies_folder):
+                if found_listed_proxy: break
+                for filename in filenames:  # myprivateproxy.txt
+                    if found_listed_proxy: break
+                    with open(os.path.join(dirpath, filename)) as f:
+                        proxies_lines = f.readlines()
+                        for pl in proxies_lines:
+                            pl = pl.replace('\n', '')
+                            pl = pl.replace(' ', '')
+                            if pl == proxy:
+                                found_listed_proxy = True
+                                break
 
-        # sólo asignamos proxies nuevamente a aquellos bots que no tengan ninguna cuenta registrada
-        for b in reusable_bots:
-            if b.has_no_accounts() and not b.proxy:
-                b.assign_proxy()
+            if not found_listed_proxy:
+                LOGGER.info('Proxy %s @ %s not listed' % (self.proxy, self.proxy_provider))
 
-        num_new_bots = num_bots - len(reusable_bots)
-        new_bots = self.create_new_bots(num_new_bots)
-        return reusable_bots + new_bots
-
-    def create_bots(self, num_bots):
-        if REUSE_BOTS:
-            return self.create_new_bots_including_reusable(num_bots)
+            return found_listed_proxy
         else:
-            return self.create_new_bots(num_bots)
-
+            # si estamos en modo TOR siempre vamos a decir que el proxy está en listas
+            return True

@@ -5,7 +5,7 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import render_to_response
 from core.forms import MyUserChangeForm, TwitterBotForm
 from core.models import User, TwitterBot
-from scrapper import Scrapper
+from scrapper.scrapper import Scrapper
 from django.contrib import messages
 from scrapper.accounts.twitter import TwitterScrapper
 from twitter_bots.settings import LOGGER
@@ -90,7 +90,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
     def create_new_bot(self, request, queryset):
         bot = None
         try:
-            bot = TwitterBot.objects.create_new_bot()
+            bot = TwitterBot.objects.create_bots(1)[0]
             bot.perform_registrations()
             self.message_user(request, "Bot %s created successfully" % bot.username)
         except Exception:

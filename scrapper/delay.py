@@ -2,7 +2,7 @@
 
 import random
 import time
-from scrapper import settings
+from . import settings
 
 
 def _delay(t1, t2, ignore_fast_mode=False):

@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
 
-PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
-
 MNOPI_PROXY = "54.197.231.98:8000"
 
 TOR_CTRL_PORT = 9051
@@ -50,7 +48,6 @@ if not REGISTER_EMAIL:
 
 MAX_THREADS = 3  # máximo de hilos para procesar los bots
 USE_PROXY = True
-REUSE_BOTS = True  # para en lugar de crear bots nuevos, continuar con los que ya habían creados
 
 BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha de nacimiento del bot
 
@@ -62,7 +59,7 @@ MAX_TWT_BOTS_PER_PROXY = 2
 # mínimo de días que tienen que pasar para que un bot se registre después de el anterior usando el mismo proxy
 DAYS_BETWEEN_REGISTRATIONS_PER_PROXY = 5
 
-PAGE_LOAD_TIMEOUT = 60
+PAGE_LOAD_TIMEOUT = 35
 EMAIL_ACCOUNT_TYPE = 'hotmail.com'
 
 RANDOM_OFFSETS_ON_EL_CLICK = False  # activar offset al hacer click con el ratón sobre un elemento dado
@@ -72,7 +69,6 @@ TYPING_SPEED = (20, 40)  # en ms, el tiempo que pasa entre que se presiona/levan
 if TOR_MODE:
     FAST_MODE = True
     USE_PROXY = True
-    REUSE_BOTS = False
     REGISTER_EMAIL = True
     TW_CONFIRM_EMAIL = True
 
