@@ -10,7 +10,7 @@ from scrapper import delay
 
 
 class HotmailScrapper(Scrapper):
-    PHANTOMJS_SCREENSHOTS_SCRAPPER_FOLDER = 'hotmail'
+    SCREENSHOTS_DIR = 'hotmail'
 
     def sign_up(self):
         def resolve_captcha():
@@ -23,9 +23,9 @@ class HotmailScrapper(Scrapper):
             # username
             if self.check_visibility('#iPwd'):
                 self.click('#iPwd')
-            if self.check_visibility('#iMembernameLiveError', timeout=7) or \
+            if self.check_visibility('#iMembernameLiveError', timeout=5) or \
                     self.check_visibility('#iLiveMessageError'):
-                self.take_ph_screenshot('form_wrong_username')
+                self.take_screenshot('form_wrong_username')
                 errors = True
                 if self.check_visibility('#sug'):
                     suggestions = self.get_css_elements('#sug #mysugs div a', timeout=10)
@@ -46,7 +46,7 @@ class HotmailScrapper(Scrapper):
 
             def check_form():
                 errors = False
-                self.take_ph_screenshot('checking_form_after_submit')
+                self.take_screenshot('checking_form_after_submit')
 
                 delay.seconds(7)  # todo: comprobar después de captcha
                 fix_username(errors)
@@ -59,13 +59,17 @@ class HotmailScrapper(Scrapper):
                     self.fill_input_text('#iRetypePwd', self.user.password_email)
 
                 # error en captcha
-                captcha_error = None if self.check_invisibility('.hipErrorText') \
-                    else self.get_css_elements('.hipErrorText')[2]
-                if self.check_visibility(captcha_error, timeout=5):
+                captcha_errors = self.get_css_elements('.hipErrorText')
+                captcha_error_visible = captcha_errors and \
+                                        (
+                                            self.check_visibility(captcha_errors[1], timeout=5) or
+                                            self.check_visibility(captcha_errors[2], timeout=5)
+                                        )
+                if captcha_error_visible:
                     self.click('#iHipHolder input.hipInputText')
-                    self.take_ph_screenshot('form_wrong_captcha')
+                    self.take_screenshot('form_wrong_captcha')
                     errors = True
-                    captcha_resolver.report_wrong_captcha()
+                    #captcha_resolver.report_wrong_captcha()
                     resolve_captcha()
 
                 return errors
@@ -128,8 +132,9 @@ class HotmailScrapper(Scrapper):
             LOGGER.exception('There was an error signing up %s' % self.user.email)
             raise e
 
-        # comprobamos que la cuenta está operativa
-        self.login()
+        # lo dejamos en la bandeja de entrada
+        self.go_to(settings.URLS['hotmail_login'])
+        self._quit_inbox_shit()
 
     def login(self):
         def submit_form(attempts=0):
@@ -148,7 +153,7 @@ class HotmailScrapper(Scrapper):
                         # si no hay captcha entonces lo damos por email malo y lanzamos excepción
                         self.user.email_registered_ok = False
                         self.user.save()
-                        self.take_ph_screenshot('wrong_email_account_for_login')
+                        self.take_screenshot('wrong_email_account_for_login')
                         self.close_browser()
                         raise
                 return errors
@@ -156,7 +161,7 @@ class HotmailScrapper(Scrapper):
             if attempts > 1:
                 self.user.email_registered_ok = False
                 self.user.save()
-                self.take_ph_screenshot('too_many_attempts')
+                self.take_screenshot('too_many_attempts')
                 self.close_browser()
                 raise Exception('too many attempts to login %s' % self.user.email)
 
@@ -166,26 +171,28 @@ class HotmailScrapper(Scrapper):
                 submit_form(attempts+1)
 
         try:
-            self.open_browser()
             self.go_to(settings.URLS['hotmail_login'])
             self.fill_input_text('#idDiv_PWD_UsernameTb input', self.user.email)
             self.fill_input_text('#idDiv_PWD_PasswordTb input', self.user.password_email)
             submit_form()
-
-            # en el caso de aparecer esto tras el login le damos al enlace que aparece en la página
-            if check_condition(lambda: 'BrowserSupport' in self.browser.current_url):
-                self.take_ph_screenshot('continue_to_your_inbox_link')
-                self.browser.find_element_by_partial_link_text('continue to your inbox').click()
-
-            # si nos salta el mensaje de bienvenida
-            if self.check_visibility('#notificationContainer button', timeout=10):
-                self.click('#notificationContainer button')
+            self._quit_inbox_shit()
         except Exception as ex:
             LOGGER.exception('The was a problem loggin in %s' % self.user.email)
             raise ex
 
+    def _quit_inbox_shit(self):
+        # en el caso de aparecer esto tras el login le damos al enlace que aparece en la página
+        if check_condition(lambda: 'BrowserSupport' in self.browser.current_url):
+            self.take_screenshot('continue_to_your_inbox_link')
+            self.browser.find_element_by_partial_link_text('continue to your inbox').click()
+
+        # si nos salta el mensaje de bienvenida
+        if self.check_visibility('#notificationContainer button', timeout=10):
+            self.click('#notificationContainer button')
+
     def confirm_tw_email(self):
-        self.login()
+        # refrescamos
+        self.go_to(settings.URLS['hotmail_login'])
 
         twitter_email_title = get_element(lambda: self.browser.find_element_by_partial_link_text('Twitter account'))
         if twitter_email_title:
@@ -198,10 +205,13 @@ class HotmailScrapper(Scrapper):
                 self.switch_to_window(-1)
                 self.wait_to_page_loaded()
                 delay.seconds(3)
-                self.fill_input_text('input[name="session[username_or_email]"]', self.user.email)
-                self.fill_input_text('input[name="session[password]"]', self.user.password_twitter)
-                self.click('button[type="submit"]')
+                self.send_keys(self.user.username)
+                self.send_special_key(Keys.TAB)
+                self.send_keys(self.user.password_twitter)
+                self.send_special_key(Keys.ENTER)
                 delay.seconds(7)
+                self.user.twitter_confirmed_email_ok = True
+                self.user.save()
             else:
                 LOGGER.error('Error clicking confirm_tw_email button on twitter email body for user %s' % self.user.username)
         else:

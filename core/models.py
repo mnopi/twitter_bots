@@ -44,8 +44,8 @@ class TwitterBot(models.Model):
     email_registered_ok = models.BooleanField(default=False)
     twitter_registered_ok = models.BooleanField(default=False)
     twitter_confirmed_email_ok = models.BooleanField(default=False)
-    cookies = models.TextField(null=True, blank=True)
     twitter_profile_completed = models.BooleanField(default=False)
+    cookies = models.TextField(null=True, blank=True)
     FIREFOX = 'FI'
     CHROME = 'CH'
     PHANTOMJS = 'PH'
@@ -78,6 +78,9 @@ class TwitterBot(models.Model):
 
     def has_to_confirm_tw_email(self):
         return settings.TW_CONFIRM_EMAIL and not self.twitter_confirmed_email_ok
+
+    def has_to_complete_tw_profile(self):
+        return not self.twitter_profile_completed
 
     def mark_as_suspended(self):
         self.it_works = False
@@ -167,22 +170,7 @@ class TwitterBot(models.Model):
         return self.__class__.objects.check_listed_proxy(self.proxy)
 
     def perform_registrations(self):
-        def automate_registrations():
-            """Abre una ventana del navegador con varias pestañas y va haciendo todo"""
-            try:
-                if settings.FAST_MODE:
-                    LOGGER.warning('Fast mode is enabled!')
-
-                ts = TwitterScrapper(self)
-                ts.signup_email_account()
-                ts.sign_up()
-                ts.confirm_user_email()
-                ts.close_browser()
-            except Exception as ex:
-                LOGGER.exception('Automated registrations failed for "%s"' % self.username)
-                raise ex
-
-        def manual_registrations():
+        def open_windows():
             """Abre las ventanas iniciales y espera a que estén todas cerradas para continuar
             con el registro del usuario en BD, entendiendo así que ya se hizo todo el registro, comprobar email, etc"""
             try:
@@ -220,9 +208,9 @@ class TwitterBot(models.Model):
             t1 = datetime.datetime.utcnow()
             if settings.MANUAL_MODE:
                 self.is_manually_registered = True
-                manual_registrations()
+                open_windows()
             else:
-                automate_registrations()
+                TwitterScrapper(self).create_bot()
 
             t2 = datetime.datetime.utcnow()
             diff_secs = (t2 - t1).seconds
@@ -233,7 +221,7 @@ class TwitterBot(models.Model):
             if self.has_to_register_twitter():
                 LOGGER.warning('\t"%s": error al registrar twitter' % self.username)
         except Exception as ex:
-            LOGGER.exception('Error performing registration for bot id=%i, username=%s' % self.pk, self.username)
+            LOGGER.exception('Error performing registration for bot id=%i, username=%s' % (self.pk, self.username))
             raise ex
 
     def populate(self):
@@ -264,3 +252,9 @@ class TwitterBot(models.Model):
         ts.close_browser()
         self.twitter_profile_completed = True
         self.save()
+
+    def confirm_tw_email(self):
+        ts = TwitterScrapper(self)
+        ts.set_email_scrapper()
+        ts.email_scrapper.login()
+        ts.email_scrapper.confirm_tw_email()

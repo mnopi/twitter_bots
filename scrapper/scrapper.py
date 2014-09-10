@@ -23,7 +23,7 @@ INVALID_EMAIL_DOMAIN_MSG = 'Invalid email domain used, only accepts: hushmail.co
 
 class Scrapper(object):
     # cada scrapper (hotmail, twitter..) tendrá su propia carpeta para capturar los pantallazos
-    PHANTOMJS_SCREENSHOTS_SCRAPPER_FOLDER = ''
+    SCREENSHOTS_DIR = ''
     CMD_KEY = Keys.COMMAND if sys.platform == 'darwin' else Keys.CONTROL
 
     def __init__(self, user=None, force_firefox=False):
@@ -36,22 +36,18 @@ class Scrapper(object):
         self.captcha_sol = None  # parte del DOM donde se introducirá solución al captcha
         self.captcha_res = None  # solución al captcha ofrecida por deathbycaptcha
         self.form_errors = {}  # errores que ocurran en algún formulario
-        self.phantomjs_screenshot_num = 1  # contador para capturas de pantalla
+        self.screenshot_num = 1  # contador para capturas de pantalla
         self.current_mouse_position = {'x': 0, 'y': 0}
 
     def check_proxy_works_ok(self):
         """Mira si funciona correctamente el proxy que se supone que tenemos contratado"""
-        self.open_browser()
-        self.browser.set_page_load_timeout(10)
+        self.browser.set_page_load_timeout(15)
         try:
             self.go_to('http://twitter.com')
-            proxy_works = True
+            self.browser.set_page_load_timeout(settings.PAGE_LOAD_TIMEOUT)
         except Exception:
-            proxy_works = False
-        finally:
-            self.close_browser()
-
-        return proxy_works
+            LOGGER.error('Proxy %s @ %s can\'t load twitter.com' % (self.user.proxy, self.user.proxy_provider))
+            raise
 
     def open_browser(self, renew_user_agent=False):
         """Devuelve el navegador a usar"""
@@ -189,8 +185,13 @@ class Scrapper(object):
         self.browser.get(url)
 
     def open_url_in_new_window(self, url):
-        #self.browser.execute_script("window.open('" + url + "');")
-        ActionChains(self.browser).key_down(self.CMD_KEY).send_keys('n').key_up(self.CMD_KEY).perform()
+        """
+        NO FUNCIONA CON PHANTOMJS!
+        """
+        if self.user.webdriver == 'PH':
+            self.browser.execute_script("window.open('" + url + "');")
+        else:
+            ActionChains(self.browser).key_down(self.CMD_KEY).send_keys('n').key_up(self.CMD_KEY).perform()
         self.switch_to_window(-1)
         self.go_to(url)
 
@@ -209,8 +210,8 @@ class Scrapper(object):
         else:
             self.close_browser()
 
-        # cambiamos el proxy si es un bot aún sin cuentas creadas
-        if self.user.has_no_accounts():
+        # cambiamos el proxy si es un proxy que no pertenece a las listas actuales
+        if not self.user.has_proxy_listed():
             self.user.assign_proxy()
 
         raise e
@@ -238,18 +239,24 @@ class Scrapper(object):
         )
 
     def get_css_element(self, css_selector, timeout=7):
-        return WebDriverWait(self.browser, timeout).until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, css_selector)
+        try:
+            return WebDriverWait(self.browser, timeout).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, css_selector)
+                )
             )
-        )
+        except Exception:
+            return None
 
     def get_css_elements(self, css_selector, timeout=7):
-        return WebDriverWait(self.browser, timeout).until(
-            EC.presence_of_all_elements_located(
-                (By.CSS_SELECTOR, css_selector)
+        try:
+            return WebDriverWait(self.browser, timeout).until(
+                EC.presence_of_all_elements_located(
+                    (By.CSS_SELECTOR, css_selector)
+                )
             )
-        )
+        except Exception:
+            return None
 
     def check_visibility(self, el, **kwargs):
         """
@@ -308,24 +315,24 @@ class Scrapper(object):
         else:
             return is_invisible_obj()
 
+    def set_email_scrapper(self):
+        LOGGER.info('Signing up %s..' % self.user.email)
+        from .accounts.hotmail import HotmailScrapper
+
+        email_domain = self.user.get_email_account_domain()
+        if email_domain == 'hotmail.com' or email_domain == 'outlook.com':
+            self.email_scrapper = HotmailScrapper(self.user)
+        else:
+            raise Exception(INVALID_EMAIL_DOMAIN_MSG)
+
+        self.email_scrapper.open_browser()
+
     def signup_email_account(self):
-        if self.user.has_to_register_email():
-            LOGGER.info('Signing up %s..' % self.user.email)
-            from .accounts.hotmail import HotmailScrapper
-
-            email_domain = self.user.get_email_account_domain()
-            if email_domain == 'hotmail.com' or email_domain == 'outlook.com':
-                self.email_scrapper = HotmailScrapper(self.user)
-            else:
-                raise Exception(INVALID_EMAIL_DOMAIN_MSG)
-
-            self.email_scrapper.open_browser()
-            self.email_scrapper.sign_up()
-            self.email_scrapper.take_ph_screenshot('signed_up_sucessfully')
-            self.email_scrapper.close_browser()
-            self.user.email_registered_ok = True
-            self.user.save()
-            LOGGER.info('%s signed up ok' % self.user.email)
+        self.email_scrapper.sign_up()
+        self.email_scrapper.take_screenshot('signed_up_sucessfully')
+        self.user.email_registered_ok = True
+        self.user.save()
+        LOGGER.info('%s signed up ok' % self.user.email)
 
     def login_email_account(self):
         from .accounts.hotmail import HotmailScrapper
@@ -390,7 +397,7 @@ class Scrapper(object):
 
     def wait_to_page_loaded(self):
         wait_condition(lambda: self.browser.execute_script("return document.readyState;") == 'complete')
-        self.take_ph_screenshot('page_loaded')
+        self.take_screenshot('page_loaded')
 
     def switch_to_frame(self, frame, timeout=20):
         wait_start = datetime.datetime.now()
@@ -403,14 +410,15 @@ class Scrapper(object):
                 raise Exception('Waiting iframe %s timeout' % frame)
             self.switch_to_frame(frame, timeout)
 
-    def go_to(self, url):
+    def go_to(self, url, wait_page_loaded=False):
         try:
             self.browser.get(url)
             LOGGER.info('go_to: %s' % url)
             if 'about:blank' in self.browser.current_url:
                 raise
-            self.take_ph_screenshot('browser.get')
-            self.wait_to_page_loaded()
+            self.take_screenshot('go_to')
+            if wait_page_loaded:
+                self.wait_to_page_loaded()
             self.check_user_agent_compatibility()
             self._quit_focus_from_address_bar()
         except Exception, e:
@@ -433,7 +441,7 @@ class Scrapper(object):
     def fill_input_text(self, el, txt, attempt=0):
         """mousemoving"""
         # si hay algo ya escrito se limpia
-        if attempt > 10:
+        if attempt > 3:
             LOGGER.exception('Too many fill_input_text attempts!')
             raise
 
@@ -507,7 +515,7 @@ class Scrapper(object):
 
         # si el es un selector css entonces hacemos captura de pantalla cómo queda después del click
         if el_str:
-            self.take_ph_screenshot('click_%s' % el_str)
+            self.take_screenshot('click_%s' % el_str)
             LOGGER.info('click %s' % el_str)
 
     def _quit_focus_from_address_bar(self):
@@ -536,20 +544,23 @@ class Scrapper(object):
         """Pilla de google una imágen y la guarda en disco"""
         def get_img():
             "Devuelve la imágen de la lista de resultados sobre la que luego haremos click para descargarla"
-            self.fill_input_text('input[name="q"]', names.get_full_name(gender=self.user.get_gender_display()))
-            self.send_special_key(Keys.ENTER)
+            g_scrapper.fill_input_text(
+                'input[name="q"]',
+                names.get_full_name(gender=self.user.get_gender_display())
+            )
+            g_scrapper.send_special_key(Keys.ENTER)
             delay.seconds(3)
 
             # en la página de resultados encuentra el botón-pestaña entre web | videos | images..
-            tabs_btns = self.browser.find_elements_by_css_selector('#hdtb_msb div')
+            tabs_btns = g_scrapper.get_css_elements('#hdtb_msb div')
             for t in tabs_btns:
                 if t.text == 'Images':
                     img_tab_btn = t
                     break
 
-            self.click(img_tab_btn.find_element_by_css_selector('a'))
-            self.wait_to_page_loaded()
-            imgs = self.browser.find_elements_by_css_selector('#rg_s .rg_di')
+            g_scrapper.click(img_tab_btn.find_element_by_css_selector('a'))
+            g_scrapper.wait_to_page_loaded()
+            imgs = g_scrapper.get_css_elements('#rg_s .rg_di')
             if imgs:
                 num_attempts = 0
                 while num_attempts < SEARCH_ATTEMPTS:
@@ -563,47 +574,52 @@ class Scrapper(object):
                 # si no se encontró ninguna imagen con el suficiente tamaño se vuelve a buscar con otro nombre
                 get_img()
 
+        g_scrapper = Scrapper(self.user)
+        g_scrapper.open_browser()
         try:
             MIN_RES = 80  # mínima resolución que debe tener cada imagen encontrada, en px
             SEARCH_ATTEMPTS = 10
-            self.open_url_in_new_window('http://www.google.com')
+            g_scrapper.go_to('http://www.google.com')
             img = get_img()
-            self.click(img)
-            self.wait_to_page_loaded()
-            img_button = self.browser.find_element_by_css_selector('#irc_cl').find_element_by_partial_link_text('View image')
-            self.click(img_button)
-            self.wait_to_page_loaded()
+            g_scrapper.click(img)
+            g_scrapper.wait_to_page_loaded()
+            img_button = g_scrapper.browser.find_element_by_partial_link_text('View image')
+            g_scrapper.click(img_button)
+            g_scrapper.wait_to_page_loaded()
             urllib.urlretrieve(
-                self.browser.current_url,
-                os.path.join(settings.PROJECT_ROOT, 'avatars', '%s.png' % self.user.username)
+                g_scrapper.browser.current_url,
+                os.path.join(settings.PROJECT_ROOT, 'scrapper', 'avatars', '%s.png' % self.user.username)
             )
-            self.switch_to_window(0)
         except Exception, e:
             LOGGER.exception('Could not download picture from google for user "%s"' % self.user.username)
-            self._request_error_callback(e)
+            g_scrapper._request_error_callback(e)
+        finally:
+            g_scrapper.close_browser()
 
     def get_quote(self, max_len=160):
-        self.open_url_in_new_window('http://www.quotationspage.com/random.php3')
+        q_scrapper = Scrapper(self.user)
+        q_scrapper.open_browser()
+        q_scrapper.go_to('http://www.quotationspage.com/random.php3')
 
         # a veces se abre ventanita de spam mierda como la última en window_handles, así que vamos pasando
         # desde la última a la primera
         i = -1
         while True:
-            self.switch_to_window(i)
-            if self.browser.get_window_size()['height'] < 500:
+            q_scrapper.switch_to_window(i)
+            if q_scrapper.browser.get_window_size()['height'] < 500:
                 i -= 1
             else:
                 break
 
         sel_quote = None
-        quotes = self.browser.find_elements_by_css_selector('#content dt.quote')
+        quotes = q_scrapper.get_css_elements('#content dt.quote')
         for q in quotes:
             if len(q.text) <= max_len:
                 sel_quote = q.text
                 break
 
         if sel_quote:
-            self.switch_to_window(0)
+            q_scrapper.close_browser()
             return sel_quote
         else:
             self.get_quote()
@@ -613,24 +629,24 @@ class Scrapper(object):
         y = element.location['y']
         self.browser.execute_script('window.scrollTo(0, {0})'.format(y))
 
-    def take_ph_screenshot(self, title):
+    def take_screenshot(self, title):
         """toma una captura sólo si se usa phantomjs"""
         try:
-            if settings.WEBDRIVER == 'PH':
-                SCREENSHOTS_ROOT = os.path.join(settings.PROJECT_ROOT, 'scrapper', 'phantomjs_screenshots')
+            if settings.TAKE_SCREENSHOTS:
+                SCREENSHOTS_ROOT = os.path.join(settings.PROJECT_ROOT, 'scrapper', 'screenshots')
                 user_dir = os.path.join(SCREENSHOTS_ROOT, self.user.real_name.replace(' ', '_'))
                 mkdir_if_not_exists(user_dir)
 
                 dir = user_dir
 
-                if self.PHANTOMJS_SCREENSHOTS_SCRAPPER_FOLDER:
-                    dir = os.path.join(dir, self.PHANTOMJS_SCREENSHOTS_SCRAPPER_FOLDER)
+                if self.SCREENSHOTS_DIR:
+                    dir = os.path.join(dir, self.SCREENSHOTS_DIR)
                     mkdir_if_not_exists(dir)
 
-                self.browser.save_screenshot(os.path.join(dir, '%i_%s.jpg' % (self.phantomjs_screenshot_num, title)))
-            self.phantomjs_screenshot_num += 1
+                self.browser.save_screenshot(os.path.join(dir, '%i_%s.jpg' % (self.screenshot_num, title)))
+            self.screenshot_num += 1
         except Exception:
-            LOGGER.exception('Error shooting %i_%s.jpg' % (self.phantomjs_screenshot_num, title))
+            LOGGER.exception('Error shooting %i_%s.jpg' % (self.screenshot_num, title))
 
     def move_mouse_to_el(self, el):
         """Mueve el ratón hacia la coordenada relativa 0,0 de un elemento 'el' dado"""

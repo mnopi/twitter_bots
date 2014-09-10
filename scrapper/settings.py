@@ -31,11 +31,13 @@ COMPATIBLE_EMAIL_ACCOUNTS = [
 ]
 
 
-### TOR MODE !!
+### TOR MODE && TEST MODE !!
 ###############
 TOR_MODE = False
+TEST_MODE = False
 ###############
 FAST_MODE = False  # para saltarse los delays en testeo
+TAKE_SCREENSHOTS = True
 
 
 MANUAL_MODE = False
@@ -65,6 +67,11 @@ EMAIL_ACCOUNT_TYPE = 'hotmail.com'
 RANDOM_OFFSETS_ON_EL_CLICK = False  # activar offset al hacer click con el ratón sobre un elemento dado
 TYPING_SPEED = (20, 40)  # en ms, el tiempo que pasa entre que se presiona/levanta una tecla
 
+# FI (firefox)
+# CH (chrome)
+# PH (phantomjs)
+# WEBDRIVER = 'FI'
+WEBDRIVER = 'PH'
 
 if TOR_MODE:
     FAST_MODE = True
@@ -72,8 +79,6 @@ if TOR_MODE:
     REGISTER_EMAIL = True
     TW_CONFIRM_EMAIL = True
 
-# FI (firefox)
-# CH (chrome)
-# PH (phantomjs)
-# WEBDRIVER = 'FI'
-WEBDRIVER = 'PH'
+if TEST_MODE:
+    FAST_MODE = True
+    WEBDRIVER = 'FI'

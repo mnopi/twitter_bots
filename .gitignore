@@ -176,5 +176,5 @@ test_db
 logs/
 nohup.out
 
-scrapper/phantomjs_screenshots/
+scrapper/screenshots/
 *.log
