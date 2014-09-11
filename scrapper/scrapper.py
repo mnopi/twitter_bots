@@ -145,14 +145,18 @@ class Scrapper(object):
 
         #
         # seteamos el correspondiente proxy en el caso de usar proxy
-        if settings.USE_PROXY and self.user.proxy:
-            if self.user.proxy == 'tor':
-                renew_tor_ip()
-                proxy_ip = '127.0.0.1'
-                proxy_port = settings.TOR_PORT
+        if settings.USE_PROXY:
+            if self.user.proxy:
+                if self.user.proxy == 'tor':
+                    renew_tor_ip()
+                    proxy_ip = '127.0.0.1'
+                    proxy_port = settings.TOR_PORT
+                else:
+                    proxy_ip = self.user.proxy.split(':')[0]
+                    proxy_port = int(self.user.proxy.split(':')[1])
             else:
-                proxy_ip = self.user.proxy.split(':')[0]
-                proxy_port = int(self.user.proxy.split(':')[1])
+                # si no tiene proxy se le asigna siempre uno
+                self.user.assign_proxy()
 
         #
         # elegimos tipo de navegador
@@ -316,7 +320,6 @@ class Scrapper(object):
             return is_invisible_obj()
 
     def set_email_scrapper(self):
-        LOGGER.info('Signing up %s..' % self.user.email)
         from .accounts.hotmail import HotmailScrapper
 
         email_domain = self.user.get_email_account_domain()

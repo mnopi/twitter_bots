@@ -219,6 +219,7 @@ class TwitterScrapper(Scrapper):
 
         def set_bio():
             self.fill_input_text('#user_description', self.get_quote())
+
         self.go_to(settings.URLS['twitter_login'])
         self.click('a.DashboardProfileCard-avatarLink')
         self.click('button.UserActions-editButton')
@@ -248,6 +249,10 @@ class TwitterScrapper(Scrapper):
 
             if self.user.has_to_register_twitter():
                 self.sign_up()
+            else:
+                # si no se tiene que registrar en twitter lo logueamos para así poder
+                # completar su perfil en caso de faltarle
+                self.login()
 
             if self.user.has_to_confirm_tw_email():
                 self.email_scrapper.confirm_tw_email()
