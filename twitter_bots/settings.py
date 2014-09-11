@@ -70,7 +70,7 @@ DATABASES = {
         "PASSWORD": "1aragon1",
         "HOST": "127.0.0.1",
         "PORT": "3307",
-        'OPTIONS': {'charset': 'utf8mb4'},
+
     }
 }
 
