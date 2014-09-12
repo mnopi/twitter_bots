@@ -32,6 +32,11 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'set_tw_profile',
         'confirm_twitter_email',
         'create_bots',
+        'create_kamikaze_bot',
+        'create_n_kamikaze_bots',
+        'send_tweet',
+        'send_tweet_from_any_valid_kamikaze_bot',
+        'send_tweets_from_any_valid_kamikaze_bot',
     ]
 
     def open_browser_instance(self, request, queryset):
@@ -126,6 +131,72 @@ class TwitterBotAdmin(admin.ModelAdmin):
         else:
             self.message_user(request, "Only select one user for this action", level=messages.WARNING)
     confirm_twitter_email.short_description = "Confirm twitter email"
+
+    def create_kamikaze_bot(self, request, queryset):
+        try:
+            TwitterBot.objects.create_bot(is_kamikaze=True, proxy='23.105.144.241:29842', proxy_provider='myprivateproxy')
+            self.message_user(request, "Kamikaze bots created successfully")
+        except Exception:
+            msg = "There were errors creating 1 kamikaze bot"
+            LOGGER.exception(msg)
+            self.message_user(request, msg, level=messages.ERROR)
+    create_kamikaze_bot.short_description = "Create 1 kamikaze bot"
+
+    def create_n_kamikaze_bots(self, request, queryset):
+        try:
+            bots = TwitterBot.objects.create_bots(2, is_kamikaze=True, proxy='23.106.201.32:29842', proxy_provider='myprivateproxy')
+            self.message_user(request, "Kamikaze bots created successfully")
+        except Exception:
+            msg = "There were errors creating kamikaze bots"
+            LOGGER.exception(msg)
+            self.message_user(request, msg, level=messages.ERROR)
+    create_n_kamikaze_bots.short_description = "Create N kamikaze bots"
+
+    def send_tweet(self, request, queryset):
+        if queryset.count() == 1:
+            user = queryset[0]
+            try:
+                user.scrapper.login()
+                user.scrapper.send_mention('dmatthews555', 'hola q tal? ;-)')
+                user.scrapper.close_browser()
+                self.message_user(request, "%s sent tweet ok" % user.username)
+            except Exception:
+                self.message_user(request, "There was errors confirming twitter email for user: %s." % user.username, level=messages.ERROR)
+        else:
+            self.message_user(request, "Only select one user for this action", level=messages.WARNING)
+    send_tweet.short_description = "Send tweet"
+
+    # def create_kamikaze_bots_and_send_tweets(self, request, queryset):
+    #     try:
+    #         bots = TwitterBot.objects.create_bots(2, is_kamikaze=True, proxy='23.106.201.32:29842', proxy_provider='myprivateproxy')
+    #         self.message_user(request, "Kamikaze bots created successfully")
+    #         pass
+    #     except Exception:
+    #         msg = "There were errors creating kamikaze bots"
+    #         LOGGER.exception(msg)
+    #         self.message_user(request, msg, level=messages.ERROR)
+    # create_kamikaze_bots_and_send_tweets.short_description = "Create N kamikaze bots and send tweets"
+
+    def send_tweet_from_any_valid_kamikaze_bot(self, request, queryset):
+        try:
+            TwitterBot.objects.send_mention('dmatthews555', 'hola q tal? ;-)', from_kamikaze=True)
+            self.message_user(request, "Tweet sent sucessfully")
+        except Exception:
+            msg = "There were errors creating kamikaze bots"
+            LOGGER.exception(msg)
+            self.message_user(request, msg, level=messages.ERROR)
+    send_tweet_from_any_valid_kamikaze_bot.short_description = "Send tweet from any valid kamikaze bot"
+
+    def send_tweets_from_any_valid_kamikaze_bot(self, request, queryset):
+        try:
+            user_list = [u.username for u in TwitterBot.objects.filter(it_works=True, is_kamikaze=True)]
+            TwitterBot.objects.send_mentions(user_list, 'hola q tal? ;-)', from_kamikaze=True)
+            self.message_user(request, "Tweet sent sucessfully")
+        except Exception:
+            msg = "There were errors creating kamikaze bots"
+            LOGGER.exception(msg)
+            self.message_user(request, msg, level=messages.ERROR)
+    send_tweets_from_any_valid_kamikaze_bot.short_description = "Send tweets from any valid kamikaze bot"
 
     class CreateBotsForm(forms.Form):
         num_bots = forms.IntegerField()

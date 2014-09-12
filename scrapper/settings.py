@@ -34,7 +34,7 @@ COMPATIBLE_EMAIL_ACCOUNTS = [
 ### TOR MODE && TEST MODE !!
 ###############
 TOR_MODE = False
-TEST_MODE = False
+TEST_MODE = True
 ###############
 FAST_MODE = False  # para saltarse los delays en testeo
 TAKE_SCREENSHOTS = True
@@ -48,7 +48,7 @@ TW_CONFIRM_EMAIL = True  # para activar o no el leer el email de confirmación d
 if not REGISTER_EMAIL:
     TW_CONFIRM_EMAIL = False
 
-MAX_THREADS = 3  # máximo de hilos para procesar los bots
+MAX_THREADS = 6  # máximo de hilos para procesar los bots
 USE_PROXY = True
 
 BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha de nacimiento del bot
@@ -56,7 +56,7 @@ BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha d
 #driver = webdriver.PhantomJS(CHROMEDRIVER_PATH)
 #driver = webdriver.Chrome(CHROMEDRIVER_PATH)
 
-MAX_TWT_BOTS_PER_PROXY = 2
+MAX_TWT_BOTS_PER_PROXY = 4
 
 # mínimo de días que tienen que pasar para que un bot se registre después de el anterior usando el mismo proxy
 DAYS_BETWEEN_REGISTRATIONS_PER_PROXY = 5

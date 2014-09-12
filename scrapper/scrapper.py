@@ -14,7 +14,7 @@ from selenium import webdriver
 import socket
 import telnetlib
 from . import delay
-from .logger import LOGGER
+from .delay import Delay
 from utils import *
 from twitter_bots import settings
 
@@ -28,6 +28,7 @@ class Scrapper(object):
 
     def __init__(self, user=None, force_firefox=False):
         self.user = user
+        self.delay = Delay(user)
         self.force_firefox = force_firefox
         # contiene el header USER-AGENT a enviar en las peticiones HTTP, esto muestra el S.O. usado,
         # navegador, etc para el servidor que recibe la petición (twitter, gmail, etc)
@@ -157,6 +158,8 @@ class Scrapper(object):
             else:
                 # si no tiene proxy se le asigna siempre uno
                 self.user.assign_proxy()
+                proxy_ip = self.user.proxy.split(':')[0]
+                proxy_port = int(self.user.proxy.split(':')[1])
 
         #
         # elegimos tipo de navegador
@@ -185,7 +188,7 @@ class Scrapper(object):
 
     def open_url_in_new_tab(self, url):
         self.browser.find_element_by_tag_name("body").send_keys(self.CMD_KEY + 't')
-        delay.seconds(seconds=4)
+        self.delay.seconds(seconds=4)
         self.browser.get(url)
 
     def open_url_in_new_window(self, url):
@@ -443,25 +446,10 @@ class Scrapper(object):
 
     def fill_input_text(self, el, txt, attempt=0):
         """mousemoving"""
-        # si hay algo ya escrito se limpia
-        if attempt > 3:
-            LOGGER.exception('Too many fill_input_text attempts!')
-            raise
-
         self.click(el)
         self._clear_input_text(el)
         self.send_keys(txt)
-        delay.box_switch()
-
-        # si no se ha detectado nada escrito se vuelve a escribir
-        if type(el) is str:
-            el_obj = self.get_css_element(el)
-            if txt and not el_obj.get_attribute('value'):
-                self.fill_input_text(el, txt, attempt+1)
-        else:
-            if txt and not el.get_attribute('value'):
-                self.fill_input_text(el, txt, attempt+1)
-
+        self.delay.box_switch()
 
     def _clear_input_text(self, el):
         if type(el) is str:
@@ -472,7 +460,7 @@ class Scrapper(object):
             ActionChains(self.browser).key_down(Keys.ALT).perform()
             self.send_special_key(Keys.ARROW_RIGHT)
             ActionChains(self.browser).key_up(Keys.ALT).perform()
-            delay.key_stroke()
+            self.delay.key_stroke()
 
             for c in typed_before_txt:
                 self.send_special_key(Keys.BACKSPACE)
@@ -497,7 +485,7 @@ class Scrapper(object):
         #     return offset_x, offset_y
 
         # todo: meter una trayectoria aleatoria
-        delay.during_mousemove()
+        self.delay.during_mousemove()
 
         el_str = None
         if type(el) is str:
@@ -514,7 +502,7 @@ class Scrapper(object):
         else:
             ActionChains(self.browser).move_to_element(el).click().perform()
 
-        delay.box_switch()
+        self.delay.box_switch()
 
         # si el es un selector css entonces hacemos captura de pantalla cómo queda después del click
         if el_str:
@@ -523,14 +511,14 @@ class Scrapper(object):
 
     def _quit_focus_from_address_bar(self):
         self.send_special_key(Keys.TAB)
-        delay.key_stroke()
+        self.delay.key_stroke()
         self.send_special_key(Keys.TAB)
-        delay.key_stroke()
+        self.delay.key_stroke()
 
     def send_special_key(self, special_key):
         "Para intro, tab.."
         ActionChains(self.browser).send_keys(special_key).perform()
-        delay.key_stroke()
+        self.delay.key_stroke()
 
     def send_keys(self, keys):
         """Escribe cada caracter entre 0.2 y 0.9 segs de forma aleatoria, dando la impresión de
@@ -541,7 +529,7 @@ class Scrapper(object):
 
         for key in keys:
             ActionChains(self.browser).send_keys(key).perform()
-            delay.key_stroke()
+            self.delay.key_stroke()
 
     def download_pic_from_google(self):
         """Pilla de google una imágen y la guarda en disco"""
@@ -552,7 +540,7 @@ class Scrapper(object):
                 names.get_full_name(gender=self.user.get_gender_display())
             )
             g_scrapper.send_special_key(Keys.ENTER)
-            delay.seconds(3)
+            self.delay.seconds(3)
 
             # en la página de resultados encuentra el botón-pestaña entre web | videos | images..
             tabs_btns = g_scrapper.get_css_elements('#hdtb_msb div')
@@ -637,6 +625,7 @@ class Scrapper(object):
         try:
             if settings.TAKE_SCREENSHOTS:
                 SCREENSHOTS_ROOT = os.path.join(settings.PROJECT_ROOT, 'scrapper', 'screenshots')
+                mkdir_if_not_exists(SCREENSHOTS_ROOT)
                 user_dir = os.path.join(SCREENSHOTS_ROOT, self.user.real_name.replace(' ', '_'))
                 mkdir_if_not_exists(user_dir)
 
@@ -659,7 +648,7 @@ class Scrapper(object):
         #         return (self.current_mouse_position[axis] - el.location[axis]) * -1
         #     else:
         #         return el.location[axis] - self.current_mouse_position[axis]
-        delay.during_mousemove()
+        self.delay.during_mousemove()
 
         if settings.RANDOM_OFFSETS_ON_EL_CLICK:
             x_bound = el.size['width'] - 1  # el límite hasta donde se puede offsetear el click es el ancho
@@ -673,11 +662,12 @@ class Scrapper(object):
 
     def open_link_in_a_new_window(self, el):
         self.move_mouse_to_el(el)
-        delay.click_after_move()
+        self.delay.click_after_move()
         ActionChains(self.browser).context_click(el).perform()
         self.send_special_key(Keys.ARROW_DOWN)
         self.send_special_key(Keys.ARROW_DOWN)
         self.send_special_key(Keys.ENTER)
+
 
 class MyActionChains(ActionChains):
     pass

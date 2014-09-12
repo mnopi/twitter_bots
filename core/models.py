@@ -1,16 +1,13 @@
 # -*- coding: utf-8 -*-
-import os
-
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 import pytz
 from scrapper.scrapper import Scrapper
 from scrapper.accounts.twitter import TwitterScrapper
-from scrapper.managers import TwitterBotManager
+from core.managers import TwitterBotManager
 from twitter_bots import settings
 
 from scrapper.utils import *
-from scrapper import delay
 
 
 class User(AbstractUser):
@@ -34,7 +31,8 @@ class TwitterBot(models.Model):
     }
     gender = models.IntegerField(max_length=1, choices=GENDERS, default=0)
 
-    it_works = models.BooleanField(default=True)
+    it_works = models.BooleanField(default=False)
+    is_kamikaze = models.BooleanField(default=False)
     is_manually_registered = models.BooleanField(default=False)
     has_fast_mode = models.BooleanField(default=False)
     user_agent = models.TextField(null=False, blank=True)
@@ -63,24 +61,28 @@ class TwitterBot(models.Model):
     def __unicode__(self):
         return self.username
 
+    def __init__(self, *args, **kwargs):
+        super(TwitterBot, self).__init__(*args, **kwargs)
+        self.scrapper = TwitterScrapper(self)
+
     def is_valid(self):
         """Sólo se tomará el usuario como válido si no tiene cuenta suspendida y tiene el email confirmado"""
-        return self.it_works and self.twitter_confirmed_email_ok
+        return self.it_works
 
     def has_no_accounts(self):
         return not self.email_registered_ok and not self.twitter_registered_ok
 
     def has_to_register_email(self):
-        return settings.REGISTER_EMAIL and not self.email_registered_ok
+        return not self.is_kamikaze and settings.REGISTER_EMAIL and not self.email_registered_ok
 
     def has_to_register_twitter(self):
         return not self.twitter_registered_ok
 
     def has_to_confirm_tw_email(self):
-        return settings.TW_CONFIRM_EMAIL and not self.twitter_confirmed_email_ok
+        return not self.is_kamikaze and settings.TW_CONFIRM_EMAIL and not self.twitter_confirmed_email_ok
 
     def has_to_complete_tw_profile(self):
-        return not self.twitter_profile_completed
+        return not self.is_kamikaze and not self.twitter_profile_completed
 
     def mark_as_suspended(self):
         self.it_works = False
@@ -91,6 +93,7 @@ class TwitterBot(models.Model):
     def mark_as_not_twitter_registered_ok(self):
         self.twitter_registered_ok = False
         self.twitter_confirmed_email_ok = False
+        self.it_works = False
         self.save()
         LOGGER.warning('User %s has marked as not twitter registered ok' % self.username)
 
@@ -210,11 +213,10 @@ class TwitterBot(models.Model):
                 self.is_manually_registered = True
                 open_windows()
             else:
-                TwitterScrapper(self).create_bot()
+                self.scrapper.create_bot()
 
             t2 = datetime.datetime.utcnow()
             diff_secs = (t2 - t1).seconds
-            self.save()
             LOGGER.info('bot "%s" procesado en %s segundos' % (self.username, diff_secs))
             if self.has_to_register_email():
                 LOGGER.warning('\t"%s": error al registrar email "%s"' % (self.username, self.email))
@@ -224,16 +226,22 @@ class TwitterBot(models.Model):
             LOGGER.exception('Error performing registration for bot id=%i, username=%s' % (self.pk, self.username))
             raise ex
 
+    def generate_email(self):
+        if self.is_kamikaze:
+            self.email = generate_random_username(self.real_name) + \
+                         generate_random_string(size=4, only_lowercase=True) \
+                         + '@' + settings.EMAIL_ACCOUNT_TYPE
+        else:
+            self.email = generate_random_username(self.real_name) + '@' + settings.EMAIL_ACCOUNT_TYPE
+
     def populate(self):
         if self.has_no_accounts():
             self.gender = random.randint(0, 1)
 
             gender_str = 'female' if self.gender == 1 else 'male'
-            full_name = names.get_full_name(gender=gender_str)
-
-            self.real_name = full_name
-            self.email = generate_random_username(full_name) + '@' + settings.EMAIL_ACCOUNT_TYPE
-            self.username = generate_random_username(full_name)
+            self.real_name = names.get_full_name(gender=gender_str)
+            self.generate_email()
+            self.username = generate_random_username(self.real_name)
             self.password_email = generate_random_string()
             self.password_twitter = generate_random_string(only_lowercase=True)
             self.birth_date = random_date(settings.BIRTH_INTERVAL[0], settings.BIRTH_INTERVAL[1])
@@ -245,11 +253,10 @@ class TwitterBot(models.Model):
 
     def set_tw_profile(self):
         """Se completa avatar y bio en su perfil de twitter"""
-        ts = TwitterScrapper(self)
-        ts.login()
-        ts.set_profile()
-        delay.seconds(7)
-        ts.close_browser()
+        self.scrapper.login()
+        self.scrapper.set_profile()
+        self.delay.seconds(7)
+        self.scrapper.close_browser()
         self.twitter_profile_completed = True
         self.save()
 
