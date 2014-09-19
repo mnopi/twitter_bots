@@ -13,8 +13,9 @@ from stem.control import Controller
 from selenium import webdriver
 import socket
 import telnetlib
-from . import delay
 from .delay import Delay
+from .exceptions import RequestAttemptsExceededException
+from .logger import get_browser_instance_id
 from utils import *
 from twitter_bots import settings
 
@@ -42,13 +43,13 @@ class Scrapper(object):
 
     def check_proxy_works_ok(self):
         """Mira si funciona correctamente el proxy que se supone que tenemos contratado"""
-        self.browser.set_page_load_timeout(15)
         try:
             self.go_to('http://twitter.com')
-            self.browser.set_page_load_timeout(settings.PAGE_LOAD_TIMEOUT)
-        except Exception:
-            LOGGER.error('Proxy %s @ %s can\'t load twitter.com' % (self.user.proxy, self.user.proxy_provider))
-            raise
+        except Exception, e:
+            LOGGER.error('%s Proxy %s @ %s can\'t load twitter.com' %
+                         (get_browser_instance_id(self.user), self.user.proxy, self.user.proxy_provider))
+            self.close_browser()
+            raise e
 
     def open_browser(self, renew_user_agent=False):
         """Devuelve el navegador a usar"""
@@ -113,13 +114,15 @@ class Scrapper(object):
             self.browser = webdriver.Chrome(chrome_options=chrome_options)
 
         def get_panthom():
-            panthomjs_bin = os.path.join(settings.PROJECT_ROOT, 'scrapper', 'webdrivers', 'phantomjs')
             service_args = []
 
             # proxy
             if settings.USE_PROXY and self.user.proxy:
                 service_args = [
                     '--proxy=%s:%s' % (proxy_ip, str(proxy_port)),
+                    '--cookies-file=%s' % os.path.join(settings.PHANTOMJS_COOKIES_PATH, '%s.txt' % str(self.user.id)),
+                    # '--local-storage-path=%s' % settings.PHANTOMJS_LOCALSTORAGES_PATH,
+                    # '--local-storage-quota=1024',
                 ]
                 if settings.TOR_MODE:
                     service_args.append('--proxy-type=socks5')
@@ -130,11 +133,11 @@ class Scrapper(object):
             dcap["phantomjs.page.customHeaders.Accept-Language"] = 'en-us'
 
             self.browser = webdriver.PhantomJS(
-                panthomjs_bin,
+                settings.PHANTOMJS_BIN_PATH,
                 service_args=service_args,
                 desired_capabilities=dcap
             )
-            LOGGER.info('phantomJS instance opened successfully')
+            LOGGER.info('%s phantomJS instance opened successfully' % get_browser_instance_id(self.user))
 
         # si ya hay navegador antes de abrirlo nos aseguramos que esté cerrado para no acumular una instancia más
         # cada vez que abrimos
@@ -183,8 +186,7 @@ class Scrapper(object):
         #self.user.cookies = simplejson.dumps(self.browser.get_cookies())
         self.user.save()
         self.browser.quit()
-        if settings.WEBDRIVER == 'PH':
-            LOGGER.info('PhantomJS instance closed sucessfully')
+        LOGGER.info('%s %s instance closed sucessfully' % (get_browser_instance_id(self.user), self.user.webdriver))
 
     def open_url_in_new_tab(self, url):
         self.browser.find_element_by_tag_name("body").send_keys(self.CMD_KEY + 't')
@@ -204,13 +206,13 @@ class Scrapper(object):
 
     def _request_error_callback(self, e):
         """Cuando no se consigue cargar una página se hace esto"""
-        err_msg = 'Error requesting address %s from %s @ %s provider, maybe you are using ' \
+        err_msg = 'Error using proxy %s @ %s to request address %s, maybe you are using ' \
                   'unauthorized IP to connect or provider refreshed proxies list' \
-                  % (self.browser.current_url, self.user.proxy, self.user.proxy_provider)
+                  % (self.user.proxy, self.user.proxy_provider, self.browser.current_url)
         if type(e) is TimeoutException:
-            LOGGER.error('Timeout error: %s' % err_msg)
+            LOGGER.error('%s Timeout error: %s' % (get_browser_instance_id(self.user), err_msg))
         else:
-            LOGGER.error(err_msg)
+            LOGGER.error('%s %s' % (get_browser_instance_id(self.user), err_msg))
 
         if hasattr(self, 'email_scrapper'):
             self.email_scrapper.close_browser()
@@ -338,7 +340,7 @@ class Scrapper(object):
         self.email_scrapper.take_screenshot('signed_up_sucessfully')
         self.user.email_registered_ok = True
         self.user.save()
-        LOGGER.info('%s signed up ok' % self.user.email)
+        LOGGER.info('%s %s signed up ok' % (get_browser_instance_id(self.user), self.user.email))
 
     def login_email_account(self):
         from .accounts.hotmail import HotmailScrapper
@@ -416,10 +418,12 @@ class Scrapper(object):
                 raise Exception('Waiting iframe %s timeout' % frame)
             self.switch_to_frame(frame, timeout)
 
-    def go_to(self, url, wait_page_loaded=False):
+    def go_to(self, url, timeout=None, wait_page_loaded=False, ignore_timeout_error=False):
         try:
+            if timeout:
+                self.browser.set_page_load_timeout(timeout)
             self.browser.get(url)
-            LOGGER.info('go_to: %s' % url)
+            LOGGER.info('%s go_to: %s' % (get_browser_instance_id(self.user), url))
             if 'about:blank' in self.browser.current_url:
                 raise
             self.take_screenshot('go_to')
@@ -428,7 +432,14 @@ class Scrapper(object):
             self.check_user_agent_compatibility()
             self._quit_focus_from_address_bar()
         except Exception, e:
-            self._request_error_callback(e)
+            if type(e) is TimeoutException and ignore_timeout_error:
+                LOGGER.warning('%s Timeout loading url %s, ignoring TimeoutException..' %
+                               (get_browser_instance_id(self.user), url))
+            else:
+                self._request_error_callback(e)
+        finally:
+            if timeout:
+                self.browser.set_page_load_timeout(settings.PAGE_LOAD_TIMEOUT)
 
     def check_user_agent_compatibility(self):
         """Dice si el user agent usado es de móvil o no compatible"""
@@ -506,8 +517,9 @@ class Scrapper(object):
 
         # si el es un selector css entonces hacemos captura de pantalla cómo queda después del click
         if el_str:
-            self.take_screenshot('click_%s' % el_str)
-            LOGGER.info('click %s' % el_str)
+            msg = '%s click_%s' % (get_browser_instance_id(self.user), el_str)
+            self.take_screenshot(msg)
+            LOGGER.info(msg)
 
     def _quit_focus_from_address_bar(self):
         self.send_special_key(Keys.TAB)
@@ -540,17 +552,9 @@ class Scrapper(object):
                 names.get_full_name(gender=self.user.get_gender_display())
             )
             g_scrapper.send_special_key(Keys.ENTER)
+            g_scrapper.wait_to_page_loaded()
             self.delay.seconds(3)
 
-            # en la página de resultados encuentra el botón-pestaña entre web | videos | images..
-            tabs_btns = g_scrapper.get_css_elements('#hdtb_msb div')
-            for t in tabs_btns:
-                if t.text == 'Images':
-                    img_tab_btn = t
-                    break
-
-            g_scrapper.click(img_tab_btn.find_element_by_css_selector('a'))
-            g_scrapper.wait_to_page_loaded()
             imgs = g_scrapper.get_css_elements('#rg_s .rg_di')
             if imgs:
                 num_attempts = 0
@@ -571,6 +575,7 @@ class Scrapper(object):
             MIN_RES = 80  # mínima resolución que debe tener cada imagen encontrada, en px
             SEARCH_ATTEMPTS = 10
             g_scrapper.go_to('http://www.google.com')
+            g_scrapper.click(g_scrapper.browser.find_element_by_partial_link_text('Images'))
             img = get_img()
             g_scrapper.click(img)
             g_scrapper.wait_to_page_loaded()
@@ -582,38 +587,80 @@ class Scrapper(object):
                 os.path.join(settings.PROJECT_ROOT, 'scrapper', 'avatars', '%s.png' % self.user.username)
             )
         except Exception, e:
-            LOGGER.exception('Could not download picture from google for user "%s"' % self.user.username)
+            LOGGER.exception('%s Could not download picture from google for user "%s"' %
+                             (get_browser_instance_id(self.user), self.user.username))
             g_scrapper._request_error_callback(e)
         finally:
             g_scrapper.close_browser()
 
-    def get_quote(self, max_len=160):
-        q_scrapper = Scrapper(self.user)
-        q_scrapper.open_browser()
-        q_scrapper.go_to('http://www.quotationspage.com/random.php3')
-
-        # a veces se abre ventanita de spam mierda como la última en window_handles, así que vamos pasando
-        # desde la última a la primera
-        i = -1
-        while True:
-            q_scrapper.switch_to_window(i)
-            if q_scrapper.browser.get_window_size()['height'] < 500:
-                i -= 1
-            else:
-                break
-
-        sel_quote = None
-        quotes = q_scrapper.get_css_elements('#content dt.quote')
-        for q in quotes:
-            if len(q.text) <= max_len:
-                sel_quote = q.text
-                break
-
-        if sel_quote:
-            q_scrapper.close_browser()
-            return sel_quote
+    def go_to_with_multiple_attempts(self, url, **kwargs):
+        if 'n_attempts' in kwargs:
+            n_attempts = kwargs['n_attempts']
+            kwargs.pop('n_attempts')
         else:
-            self.get_quote()
+            n_attempts = 3
+
+        attempt = 0
+        while True:
+            try:
+                if attempt >= n_attempts:
+                    raise RequestAttemptsExceededException(self.user, url)
+                else:
+                    self.go_to(url, **kwargs)
+                    break
+            except Exception:
+                attempt += 1
+
+    def get_quote(self, max_len=160):
+        "160 es el limite de caracteres para la bio en twitter por ejemplo"
+        def get_quote_from_quotationspage():
+            try:
+                q_scrapper.go_to('http://www.quotationspage.com/random.php3', ignore_timeout_error=True)
+
+                # a veces se abre ventanita de spam mierda como la última en window_handles, así que vamos pasando
+                # desde la última a la primera
+                i = -1
+                while True:
+                    q_scrapper.switch_to_window(i)
+                    if q_scrapper.browser.get_window_size()['height'] < 500:
+                        i -= 1
+                    else:
+                        break
+
+                sel_quote = None
+                quotes = q_scrapper.get_css_elements('#content dt.quote')
+                for q in quotes:
+                    if len(q.text) <= max_len:
+                        sel_quote = q.text
+                        q_scrapper.take_screenshot('quote_get_ok')
+                        break
+                return sel_quote
+            except Exception:
+                LOGGER.exception('Error getting quote from quotationspage')
+                q_scrapper.take_screenshot('quote_get_fail')
+                return None
+
+        def get_quote_from_quotedb():
+            pass
+
+        q_scrapper = None
+        try:
+            q_scrapper = Scrapper(self.user)
+            q_scrapper.open_browser()
+            sel_quote = get_quote_from_quotationspage()
+            if not sel_quote:
+                sel_quote = get_quote_from_quotedb()
+
+            if sel_quote:
+                return sel_quote
+            else:
+                raise Exception()
+        except Exception, e:
+            LOGGER.exception('%s Error getting quote' % get_browser_instance_id(self.user))
+            q_scrapper.take_screenshot('quote_get_fail')
+            raise e
+        finally:
+            q_scrapper.close_browser()
 
     def scroll_to_element(self, element):
         """Scroll element into view"""
@@ -624,9 +671,8 @@ class Scrapper(object):
         """toma una captura sólo si se usa phantomjs"""
         try:
             if settings.TAKE_SCREENSHOTS:
-                SCREENSHOTS_ROOT = os.path.join(settings.PROJECT_ROOT, 'scrapper', 'screenshots')
-                mkdir_if_not_exists(SCREENSHOTS_ROOT)
-                user_dir = os.path.join(SCREENSHOTS_ROOT, self.user.real_name.replace(' ', '_'))
+                mkdir_if_not_exists(settings.SCREENSHOTS_ROOT)
+                user_dir = os.path.join(settings.SCREENSHOTS_ROOT, self.user.real_name.replace(' ', '_'))
                 mkdir_if_not_exists(user_dir)
 
                 dir = user_dir
@@ -638,7 +684,8 @@ class Scrapper(object):
                 self.browser.save_screenshot(os.path.join(dir, '%i_%s.jpg' % (self.screenshot_num, title)))
             self.screenshot_num += 1
         except Exception:
-            LOGGER.exception('Error shooting %i_%s.jpg' % (self.screenshot_num, title))
+            LOGGER.exception('%s Error shooting %i_%s.jpg' %
+                             (get_browser_instance_id(self.user), self.screenshot_num, title))
 
     def move_mouse_to_el(self, el):
         """Mueve el ratón hacia la coordenada relativa 0,0 de un elemento 'el' dado"""

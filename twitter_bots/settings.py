@@ -145,3 +145,16 @@ PROXY_PROVIDERS_ACCOUNTS = {
 }
 
 from scrapper.settings import *
+
+WEBDRIVERS_PATH = os.path.join(PROJECT_ROOT, 'scrapper', 'webdrivers')
+SCREENSHOTS_ROOT = os.path.join(PROJECT_ROOT, 'scrapper', 'screenshots')
+
+# phantomjs
+PHANTOMJS_PATH = os.path.join(WEBDRIVERS_PATH, 'phantomjs')
+PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs')
+
+# by default in /Users/<User>/Library/Application Support/Ofi Labs/PhantomJS
+# PHANTOMJS_LOCALSTORAGES_PATH = os.path.join(PHANTOMJS_PATH, 'localstorages')
+
+PHANTOMJS_COOKIES_PATH = os.path.join(PHANTOMJS_PATH, 'cookies')
+

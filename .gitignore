@@ -178,3 +178,4 @@ nohup.out
 
 scrapper/screenshots/
 *.log
+scrapper/webdrivers/phantomjs/cookies/*

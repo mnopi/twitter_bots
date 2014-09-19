@@ -9,26 +9,18 @@ from twitter_bots.settings import LOGGER
 
 
 class TwitterBotManager(models.Manager):
-    def register_bot(self, bot):
-        bot.populate()
-        if not bot.proxy:
-            bot.assign_proxy()
-        bot.perform_registrations()
-        return bot
-
     def create_bot(self, **kwargs):
+        ignore_exceptions = kwargs['ignore_exceptions'] if 'ignore_exceptions' in kwargs else False
+        if 'ignore_exceptions' in kwargs:
+            kwargs.pop('ignore_exceptions')
         bot = self.create(**kwargs)
-        self.register_bot(bot)
+        return bot.process(ignore_exceptions=ignore_exceptions)
 
     def create_bots(self, num_bots, **kwargs):
         pool = ThreadPool(settings.MAX_THREADS)
-        bots = []
         for _ in range(0, num_bots):
-            bot = self.create(**kwargs)
-            pool.add_task(self.register_bot, bot)
-            bots.append(bot)
+            pool.add_task(self.create_bot, ignore_exceptions=True)
         pool.wait_completion()
-        return bots
 
     def check_listed_proxy(self, proxy):
         """Mira si el proxy está en las listas de proxies actuales, por si el usuario no se usó hace
@@ -50,35 +42,50 @@ class TwitterBotManager(models.Manager):
                                 break
 
             if not found_listed_proxy:
-                LOGGER.info('Proxy %s @ %s not listed' % (self.proxy, self.proxy_provider))
+                LOGGER.info('Proxy %s not listed' % proxy)
 
             return found_listed_proxy
         else:
             # si estamos en modo TOR siempre vamos a decir que el proxy está en listas
             return True
 
-    def get_valid_bot(self, from_kamikaze=None):
-        bots = self.filter(it_works=True)
-        if from_kamikaze:
-            bots = bots.filter(is_kamikaze=from_kamikaze)
-        bot = bots[0]
+    def get_valid_bot(self, **kwargs):
+        "De todo el conjunto de bots, escoge el primer bot considerado válido"
+        kwargs.update(it_works=True)
+        bot = self.get_all_bots(**kwargs)[0]
         try:
             bot.scrapper.login()
             return bot
         except Exception:
             bot.mark_as_not_twitter_registered_ok()
-            self.get_valid_bot(from_kamikaze=from_kamikaze)
+            self.get_valid_bot(**kwargs)
 
-    def send_mention(self, username, tweet_msg, from_kamikaze=None):
+    def get_all_bots(self, **kwargs):
+        "Escoge todos aquellos bots que tengan phantomJS y con los filtros dados por kwargs"
+        kwargs.update(webdriver='PH')
+        return self.filter(**kwargs).exclude(proxy='tor', must_verify_phone=True)
+
+    def send_mention(self, username, tweet_msg):
         "Del conjunto de robots se escoge uno para enviar el tweet al usuario"
-        bot = self.get_valid_bot(from_kamikaze=from_kamikaze)
+        bot = self.get_valid_bot()
         bot.scrapper.send_mention(username, tweet_msg)
 
-    def send_mentions(self, user_list, tweet_msg, from_kamikaze=None):
+    def send_mentions(self, user_list, tweet_msg):
         "Se escoje un robot para mandar el tweet_msg a todos los usuarios de user_list"
-        bot = self.get_valid_bot(from_kamikaze=from_kamikaze)
+        bot = self.get_valid_bot()
         try:
             for username in user_list:
                 bot.scrapper.send_mention(username, tweet_msg)
         except BotDetectedAsSpammerException:
-            self.send_mentions(user_list, tweet_msg, from_kamikaze=from_kamikaze)
+            self.send_mentions(user_list, tweet_msg)
+
+    def process_all_bots(self):
+        bots = self.get_all_bots()
+        LOGGER.info('Processing %i bots..' % bots.count())
+        pool = ThreadPool(settings.MAX_THREADS)
+        for bot in bots:
+            pool.add_task(bot.process, ignore_exceptions=True)
+        pool.wait_completion()
+        LOGGER.info('%i bots processed ok' % bots.count())
+
+

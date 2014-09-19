@@ -71,6 +71,7 @@ def wait_condition(cond, timeout=30, err_msg="Timeout waiting condition"):
 def check_condition(cond, timeout=5, **kwargs):
     """Mira si se cumple la condición 'cond', dándole por default un timeout de 5 segundos"""
     try:
+
         wait_condition(cond, timeout=timeout, **kwargs)
         return True
     except Exception:
@@ -154,3 +155,8 @@ def mkdir_if_not_exists(path_to_dir):
 def create_file_if_not_exists(file):
     if not os.path.exists(file):
         open(file, 'w').close()
+
+
+class QuoteGenerator(object):
+    def get_quote(self):
+        pass

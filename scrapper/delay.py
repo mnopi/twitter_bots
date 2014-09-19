@@ -10,7 +10,7 @@ class Delay(object):
         self.user = user
 
     def _delay(self, t1, t2, force_delay=False):
-        if force_delay or (not settings.FAST_MODE and not self.user.is_kamikaze):
+        if force_delay or not settings.FAST_MODE:
             time.sleep(random.uniform(t1, t2))
 
     def seconds(self, seconds=None, type='box_switch', force_delay=False):
