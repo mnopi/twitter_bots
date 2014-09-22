@@ -5,10 +5,10 @@ from selenium.webdriver.common.keys import Keys
 
 from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG, LOGGER
 from scrapper.captcha_resolvers import DeathByCaptchaResolver
-from scrapper.exceptions import TwitterEmailNotFound, BotDetectedAsSpammerException
+from scrapper.exceptions import TwitterEmailNotFound, BotDetectedAsSpammerException, BotMustVerifyPhone, \
+    TwitterBotDontExistsOnTwitterException
 from scrapper.utils import *
 from twitter_bots import settings
-from scrapper import delay
 
 
 class TwitterScrapper(Scrapper):
@@ -22,28 +22,13 @@ class TwitterScrapper(Scrapper):
                 if self.check_visibility('.prompt.email .sidetip .checking.active'):
                     self.delay.seconds(0.5, force_delay=True)
                 elif self.check_visibility('.prompt.email .sidetip .error.active'):
-                    if self.user.is_kamikaze:
-                        self.user.generate_email()
-                        self.user.save()
-                        self.fill_input_text('#email', self.user.email)
-                    else:
-                        fucked_email = self.user.email
-                        self.user.email_registered_ok = False
-                        self.user.save()
-                        raise Exception('Email %s exists on twitter' % fucked_email)
+                    fucked_email = self.user.email
+                    self.user.email_registered_ok = False
+                    self.user.save()
+                    raise Exception('Email %s exists on twitter' % fucked_email)
+
                 elif self.check_visibility('.prompt.email .sidetip .ok.active'):
                     break
-
-            # while self.check_visibility('.prompt.email .sidetip .error.active', timeout=5):
-            #     if self.user.is_kamikaze:
-            #         self.user.email = generate_random_username(self.user.real_name) + '@hotmail.com'
-            #         self.user.save()
-            #         self.fill_input_text('#email', self.user.email)
-            #     else:
-            #         fucked_email = self.user.email
-            #         self.user.email_registered_ok = False
-            #         self.user.save()
-            #         raise Exception('Email %s exists on twitter' % fucked_email)
 
         def check_username():
             while True:
@@ -57,9 +42,10 @@ class TwitterScrapper(Scrapper):
                         # puede que alguna alternativa no se vea, así que si va mal el click cogemos otra hasta que vaya
                         while True:
                             alt = random.choice(alternatives)
-                            self.username = alt.text
                             try:
                                 self.click(alt)
+                                self.user.username = alt.text
+                                self.user.save()
                                 break
                             except MoveTargetOutOfBoundsException:
                                 pass
@@ -69,22 +55,6 @@ class TwitterScrapper(Scrapper):
                 # USERNAME OK
                 elif self.check_visibility('.select-username .sidetip .ok.active'):
                     break
-
-            # while self.check_visibility('.select-username .sidetip .error.active', timeout=5):
-            #     alternatives = self.get_css_elements('.suggestions button')
-            #     if alternatives:
-            #         # puede que alguna alternativa no se vea, así que si va mal el click cogemos otra hasta que vaya
-            #         while True:
-            #             alt = random.choice(alternatives)
-            #             self.username = alt.text
-            #             try:
-            #                 self.click(alt)
-            #                 break
-            #             except MoveTargetOutOfBoundsException:
-            #                 pass
-            #     else:
-            #         self.user.username = generate_random_username(self.user.real_name)
-            #         self.fill_input_text('#username', self.user.username)
 
         try:
             LOGGER.info('User %s signing up on twitter..' % self.user.username)
@@ -114,7 +84,12 @@ class TwitterScrapper(Scrapper):
             self.wait_to_page_loaded()
             self.delay.seconds(7)
 
-            wait_condition(lambda: 'congratulations' in self.browser.current_url, timeout=15)
+            # si pide teléfono
+            if check_condition(lambda: 'phone_number' in self.browser.current_url, timeout=20):
+                raise BotMustVerifyPhone(self.user)
+
+            wait_condition(lambda: 'congratulations' in self.browser.current_url or
+                                   'welcome' in self.browser.current_url)
 
             self.take_screenshot('twitter_registered_ok')
 
@@ -127,60 +102,65 @@ class TwitterScrapper(Scrapper):
             LOGGER.exception('User %s has errors signing up twitter account' % self.user.username)
             raise e
 
+    def is_logged_in(self):
+        return self.check_visibility('#global-new-tweet-button')
+
     def login(self):
         try:
             self.open_browser()
             self.go_to(settings.URLS['twitter_login'])
-            if not self.user.is_kamikaze:
-                self.click('.remember-forgot input')
-            self.fill_input_text('#signin-email', self.user.username)
-            self.fill_input_text('#signin-password', self.user.password_twitter)
-            self.click('.front-signin button')
+
+            # para ver si ya estamos logueados o no
+            if not self.is_logged_in():
+                self.fill_input_text('#signin-email', self.user.username)
+                self.fill_input_text('#signin-password', self.user.password_twitter)
+                self.click('.front-signin button')
+
             self.wait_to_page_loaded()
+            # para que no aparezcan cositas de otras instancias de phantomjs
+            self.browser.execute_script('localStorage.clear();')
 
-            # si no es kamikaze comprobamos que no esté suspendida la cuenta
-            if not self.user.is_kamikaze:
-                if self.check_visibility('#account-suspended'):
-                    conf_email_link = get_element(lambda: self.browser.find_element_by_partial_link_text('confirm your email'))
-                    if conf_email_link:
-                        # si la cuanta está suspendida por no haber comprobado el email
-                        if not self.user.is_kamikaze:
-                            self.click(conf_email_link)
-                        self.user.mark_as_suspended()
-                    else:
-                        # intentamos levantar suspensión
-                        cr = DeathByCaptchaResolver(self)
-
-                        def submit_unsuspension():
-                            cr.resolve_captcha(
-                                self.get_css_element('#recaptcha_challenge_image'),
-                                self.get_css_element('#recaptcha_response_field')
-                            )
-                            self.click('#suspended_help_submit')
-                            self.delay.seconds(5)
-
-                            if self.check_visibility('form.t1-form .error-occurred'):
-                                cr.report_wrong_captcha()
-                                submit_unsuspension()
-
-                        self.user.mark_as_suspended()
-                        self.click(self.get_css_element('#account-suspended a'))
-                        self.click('#checkbox_discontinue')
-                        self.click('#checkbox_permanent')
-                        submit_unsuspension()
-                elif self.check_visibility('button.resend-confirmation-email-link'):
-                        self.click('button.resend-confirmation-email-link')
-                        self.delay.seconds(2)
+            if self.check_visibility('#account-suspended'):
+                conf_email_link = get_element(lambda: self.browser.find_element_by_partial_link_text('confirm your email'))
+                if conf_email_link:
+                    # si la cuanta está suspendida por no haber comprobado el email
+                    self.click(conf_email_link)
+                    self.user.mark_as_suspended()
                 else:
-                    user_not_found_el = get_element(lambda: self.get_css_element('#message-drawer'))
-                    if user_not_found_el and 'The username and password you entered did not match our records' in user_not_found_el.text:
-                        # si el usuario no se encuentra
-                        self.user.mark_as_not_twitter_registered_ok()
-                        raise
-                    else:
-                        # si el usuario se encuentra..
-                        self.user.it_works = True
-                        self.user.save()
+                    # intentamos levantar suspensión
+                    cr = DeathByCaptchaResolver(self)
+
+                    def submit_unsuspension():
+                        cr.resolve_captcha(
+                            self.get_css_element('#recaptcha_challenge_image'),
+                            self.get_css_element('#recaptcha_response_field')
+                        )
+                        self.click('#suspended_help_submit')
+                        self.delay.seconds(5)
+
+                        if self.check_visibility('form.t1-form .error-occurred'):
+                            cr.report_wrong_captcha()
+                            submit_unsuspension()
+
+                    self.user.mark_as_suspended()
+                    self.click(self.get_css_element('#account-suspended a'))
+                    self.click('#checkbox_discontinue')
+                    self.click('#checkbox_permanent')
+                    submit_unsuspension()
+            elif self.check_visibility('button.resend-confirmation-email-link'):
+                    self.click('button.resend-confirmation-email-link')
+                    self.delay.seconds(2)
+                    self.user.twitter_confirmed_email_ok = False
+                    self.user.save()
+            else:
+                user_not_found_el = get_element(lambda: self.get_css_element('#message-drawer'))
+                if user_not_found_el and 'The username and password you entered did not match our records' in user_not_found_el.text:
+                    # si el usuario no se encuentra
+                    raise TwitterBotDontExistsOnTwitterException(self.user)
+                else:
+                    # si el usuario se encuentra..
+                    self.user.it_works = True
+                    self.user.save()
         except Exception, e:
             LOGGER.exception('Login on twitter error for %s' % self.user.username)
             raise e
@@ -250,68 +230,81 @@ class TwitterScrapper(Scrapper):
     def set_profile(self):
         """precondición: estar logueado y en la home"""
         def set_avatar():
-            if self.check_visibility('button.ProfileAvatarEditing-button'):
-                self.download_pic_from_google()
+            try:
+                if self.check_visibility('button.ProfileAvatarEditing-button'):
+                    self.download_pic_from_google()
 
-                self.click('button.ProfileAvatarEditing-button')
-                avatar_path = os.path.join(settings.PROJECT_ROOT, 'scrapper', 'avatars', '%s.png' % self.user.username)
-                self.get_css_element('#photo-choose-existing input[type="file"]').send_keys(avatar_path)
-                self.click('#profile_image_upload_dialog-dialog button.profile-image-save')
-                # eliminamos el archivo que habíamos guardado para el avatar
-                os.remove(avatar_path)
+                    self.click('button.ProfileAvatarEditing-button')
+                    avatar_path = os.path.join(settings.PROJECT_ROOT, 'scrapper', 'avatars', '%s.png' % self.user.username)
+                    self.get_css_element('#photo-choose-existing input[type="file"]').send_keys(avatar_path)
+                    self.click('#profile_image_upload_dialog-dialog button.profile-image-save')
+                    # eliminamos el archivo que habíamos guardado para el avatar
+                    os.remove(avatar_path)
+                    self.user.twitter_avatar_completed = True
+            except Exception:
+                LOGGER.exception('Error setting avatar for bot %s' % self.user.username)
 
         def set_bio():
-            self.fill_input_text('#user_description', self.get_quote())
+            try:
+                self.fill_input_text('#user_description', self.get_quote())
+                self.user.twitter_bio_completed = True
+            except Exception:
+                LOGGER.exception('Error setting bio for bot %s' % self.user.username)
 
-        self.go_to(settings.URLS['twitter_login'])
+        self.go_to(settings.URLS['twitter_login'], wait_page_loaded=True)
         self.click('a.DashboardProfileCard-avatarLink')
         self.click('button.UserActions-editButton')
         self.delay.seconds(3)
-        set_avatar()
-        set_bio()
+        if not self.user.twitter_avatar_completed and settings.TW_SET_AVATAR:
+            set_avatar()
+        if not self.user.twitter_bio_completed and settings.TW_SET_BIO:
+            set_bio()
         self.click('.ProfilePage-editingButtons button.ProfilePage-saveButton')
         self.take_screenshot('profile_completed')
-        self.user.twitter_profile_completed = True
         self.user.save()
-        LOGGER.info('%s profile completed ok' % self.user.username)
+        if self.user.has_tw_profile_completed():
+            LOGGER.info('Profile completed ok for bot %s' % self.user.username)
+        else:
+            LOGGER.info('Profile completed with errors for bot %s' % self.user.username)
 
-    def create_bot(self):
+    def scrape_bot_creation(self):
         try:
-            if settings.FAST_MODE:
-                LOGGER.warning('Fast mode is enabled!')
+            LOGGER.info('Scraping bot "%s" creation..' % self.user.username)
+            t1 = datetime.datetime.utcnow()
+            if settings.FAST_MODE and not settings.TEST_MODE:
+                LOGGER.warning('Fast mode only avaiable on test mode!')
+                settings.FAST_MODE = False
 
             # abrimos ventana para scrapear twitter
             self.open_browser()
 
             # crea cuenta email
-            if not self.user.is_kamikaze:
+            self.set_email_scrapper()
+            if self.user.has_to_register_email():
                 self.check_proxy_works_ok()
-                self.set_email_scrapper()
-                if self.user.has_to_register_email():
-                    self.signup_email_account()
+                self.signup_email_account()
 
             # crea cuenta twitter
             if self.user.has_to_register_twitter():
                 self.sign_up()
-            else:
-                # si no se tiene que registrar en twitter lo logueamos para así poder
-                # completar su perfil en caso de faltarle
-                self.login()
 
             # confirma email de twitter y rellena perfil en twitter
-            if not self.user.is_kamikaze:
-                if self.user.has_to_confirm_tw_email():
-                    self.email_scrapper.confirm_tw_email()
+            if self.user.has_to_confirm_tw_email():
+                self.email_scrapper.confirm_tw_email()
 
-                self.email_scrapper.close_browser()
+            self.email_scrapper.close_browser()
 
-                if self.user.has_to_complete_tw_profile():
-                    self.set_profile()
+            if self.user.has_to_complete_tw_profile():
+                self.login()
+                self.set_profile()
 
             self.user.it_works = True
             self.user.save()
+            t2 = datetime.datetime.utcnow()
+            diff_secs = (t2 - t1).seconds
+            LOGGER.info('Bot "%s" creation scrapped sucessfully in %s seconds' % (self.user.username, diff_secs))
         except Exception as ex:
-            LOGGER.exception('Automated registrations failed for "%s"' % self.user.username)
+            LOGGER.exception('Error scraping bot "%s" for creation' % self.user.username)
             self.close()
             raise ex
 
@@ -321,9 +314,16 @@ class TwitterScrapper(Scrapper):
         self.close_browser()
 
     def send_tweet(self, msg):
+        if not self.is_logged_in():
+            self.login()
+
         self.click('#global-new-tweet-button')
-        # self.delay.seconds(1, force_delay=True)
         self.send_keys(msg)
+
+        # self.click('#tweet-box-mini-home-profile')
+        # self.delay.seconds(1, force_delay=True)
+        # self.fill_input_text('#tweet-box-mini-home-profile', msg)
+
         self.click('#global-tweet-dialog-dialog .tweet-button button')
 
         if self.check_visibility('#global-tweet-dialog'):
@@ -337,10 +337,12 @@ class TwitterScrapper(Scrapper):
 
             self.send_special_key(Keys.ESCAPE)
         elif self.check_visibility('#spam_challenge_dialog-header'):
-            raise BotDetectedAsSpammerException(self)
+            raise BotDetectedAsSpammerException(self.user)
         else:
             LOGGER.info('Tweet sent ok from %s' % self.user.username)
             self.take_screenshot('tweet_sent_ok')
+
+        self.delay.seconds(7)
 
     def send_mention(self, username_to_mention, mention_msg):
         self.send_tweet('@' + username_to_mention + ' ' + mention_msg)

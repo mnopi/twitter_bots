@@ -35,7 +35,7 @@ class HotmailScrapper(Scrapper):
                 else:
                     self.user.email = generate_random_username(self.user.real_name) + '@hotmail.com'
                     self.fill_input_text('#imembernamelive', self.user.get_email_username())
-                    delay.seconds(5)
+                    self.delay.seconds(5)
                 fix_username(errors)
             else:
                 pass
@@ -48,7 +48,7 @@ class HotmailScrapper(Scrapper):
                 errors = False
                 self.take_screenshot('checking_form_after_submit')
 
-                delay.seconds(7)  # todo: comprobar después de captcha
+                self.delay.seconds(7)  # todo: comprobar después de captcha
                 fix_username(errors)
 
                 # error en passwords
@@ -125,10 +125,10 @@ class HotmailScrapper(Scrapper):
             captcha_resolver = DeathByCaptchaResolver(self)
             self.wait_visibility_of_css_element('#iliveswitch', timeout=10)
             fill_form()
-            delay.seconds(5)
+            self.delay.seconds(5)
             submit_form()
             #wait_condition(lambda: 'summarypage' in self.browser.current_url.lower())
-            delay.seconds(5)
+            self.delay.seconds(5)
         except Exception, e:
             LOGGER.exception('There was an error signing up %s' % self.user.email)
             raise e
@@ -177,6 +177,7 @@ class HotmailScrapper(Scrapper):
             self.fill_input_text('#idDiv_PWD_PasswordTb input', self.user.password_email)
             submit_form()
             self._quit_inbox_shit()
+            LOGGER.info('User %s logged in hotmail' % self.user.email)
         except Exception as ex:
             LOGGER.exception('The was a problem loggin in %s' % self.user.email)
             raise ex
@@ -195,6 +196,10 @@ class HotmailScrapper(Scrapper):
         # refrescamos
         self.go_to(settings.URLS['hotmail_login'])
 
+        # si fuera necesario se loguea
+        if 'login' in self.browser.current_url:
+            self.login()
+
         twitter_email_title = get_element(lambda: self.browser.find_element_by_partial_link_text('Twitter account'))
         if twitter_email_title:
             self.click(twitter_email_title)
@@ -202,15 +207,15 @@ class HotmailScrapper(Scrapper):
             confirm_btn = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm your'))
             if confirm_btn:
                 self.click(confirm_btn)
-                delay.seconds(3)
+                self.delay.seconds(3)
                 self.switch_to_window(-1)
                 self.wait_to_page_loaded()
-                delay.seconds(3)
+                self.delay.seconds(3)
                 self.send_keys(self.user.username)
                 self.send_special_key(Keys.TAB)
                 self.send_keys(self.user.password_twitter)
                 self.send_special_key(Keys.ENTER)
-                delay.seconds(7)
+                self.delay.seconds(7)
                 self.user.twitter_confirmed_email_ok = True
                 self.user.save()
             else:
@@ -219,4 +224,5 @@ class HotmailScrapper(Scrapper):
             LOGGER.warning('No twitter email arrived for user %s, resending twitter email..' % self.user.username)
             raise TwitterEmailNotFound()
 
-        delay.seconds(8)
+        self.delay.seconds(8)
+        LOGGER.info('Confirmed twitter email %s for user %s' % (self.user.email, self.user.username))

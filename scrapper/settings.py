@@ -7,8 +7,8 @@ TOR_CTRL_PORT = 9051
 TOR_PORT = 9050
 TOR_PROXY = "127.0.0.1:%s" % str(TOR_PORT)
 
-PHANTOMJS_PATH = '/Users/rmaja/phantomjs-1.9.7-macosx/bin/phantomjs'
 CHROMEDRIVER_PATH = '/Users/rmaja/chromedriver'
+
 
 DEATHBYCAPTCHA_USER = 'deathbychucknorris'
 DEATHBYCAPTCHA_PASSWORD = 'eS9WsRzFv8'
@@ -34,21 +34,22 @@ COMPATIBLE_EMAIL_ACCOUNTS = [
 ### TOR MODE && TEST MODE !!
 ###############
 TOR_MODE = False
-TEST_MODE = True
+TEST_MODE = False
 ###############
 FAST_MODE = False  # para saltarse los delays en testeo
 TAKE_SCREENSHOTS = True
 
 
-MANUAL_MODE = False
 REGISTER_EMAIL = True  # para activar o no el registro del email
 TW_CONFIRM_EMAIL = True  # para activar o no el leer el email de confirmación de twitter
+TW_SET_AVATAR = True
+TW_SET_BIO = True
 
 # si no activamos registro de email evidentemente no haremos la confirmación
 if not REGISTER_EMAIL:
     TW_CONFIRM_EMAIL = False
 
-MAX_THREADS = 6  # máximo de hilos para procesar los bots
+MAX_THREADS = 8  # máximo de hilos para procesar los bots
 USE_PROXY = True
 
 BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha de nacimiento del bot
@@ -56,12 +57,12 @@ BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha d
 #driver = webdriver.PhantomJS(CHROMEDRIVER_PATH)
 #driver = webdriver.Chrome(CHROMEDRIVER_PATH)
 
-MAX_TWT_BOTS_PER_PROXY = 4
+MAX_TWT_BOTS_PER_PROXY = 6
 
 # mínimo de días que tienen que pasar para que un bot se registre después de el anterior usando el mismo proxy
-DAYS_BETWEEN_REGISTRATIONS_PER_PROXY = 5
+DAYS_BETWEEN_REGISTRATIONS_PER_PROXY = 3
 
-PAGE_LOAD_TIMEOUT = 35
+PAGE_LOAD_TIMEOUT = 60
 EMAIL_ACCOUNT_TYPE = 'hotmail.com'
 
 RANDOM_OFFSETS_ON_EL_CLICK = False  # activar offset al hacer click con el ratón sobre un elemento dado
