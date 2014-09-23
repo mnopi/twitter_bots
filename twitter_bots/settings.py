@@ -125,9 +125,9 @@ LOGGING = {
     },
     'loggers': {
         'django': {
-            'handlers':['file'],
+            'handlers': ['file'],
             'propagate': True,
-            'level':'ERROR',
+            'level': 'INFO',
         },
         'twitter_bots': {
             'handlers': ['file', 'console'],
