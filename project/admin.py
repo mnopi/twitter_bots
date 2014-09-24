@@ -27,12 +27,46 @@ class TargetUserAdmin(admin.ModelAdmin):
     extract_followers.short_description = "Extract all followers"
 
 
+class ProjectAdmin(admin.ModelAdmin):
+    list_display = (
+        'name',
+        # 'followers_spammed',
+        'total_followers',
+    )
+    search_fields = ('name',)
+    list_display_links = ('name',)
+
+    actions = [
+        'create_tweets_android',
+    ]
+
+    def create_tweets_android(self, request, queryset):
+        if queryset.count() == 1:
+            project = queryset[0]
+            project.create_tweets(platform=TwitterUser.ANDROID)
+            self.message_user(request, "Project %s with android tweets created ok" % project.name)
+        else:
+            self.message_user(request, "Only select one user for this action", level=messages.WARNING)
+    create_tweets_android.short_description = "Create android tweets"
+
+
+class TweetAdmin(admin.ModelAdmin):
+    list_display = (
+        'compose',
+        'length',
+        'sending',
+        'sent_ok',
+    )
+
+
 # Register your models here.
-admin.site.register(Project)
+admin.site.register(Project, ProjectAdmin)
 admin.site.register(TweetMsg)
 admin.site.register(TargetUser, TargetUserAdmin)
 admin.site.register(Follower)
 admin.site.register(TwitterUser)
-admin.site.register(Tweet)
+admin.site.register(Tweet, TweetAdmin)
+admin.site.register(Link)
+
 
 
