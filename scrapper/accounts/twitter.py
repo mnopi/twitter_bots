@@ -342,6 +342,7 @@ class TwitterScrapper(Scrapper):
             LOGGER.info('Tweet sent ok from %s' % self.user.username)
             self.take_screenshot('tweet_sent_ok')
 
+
         self.delay.seconds(7)
 
     def send_mention(self, username_to_mention, mention_msg):

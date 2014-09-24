@@ -72,10 +72,11 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'create_bots',
         'set_twitter_profile',
         'confirm_twitter_email',
-        'send_mention',
-        'send_mention_from_any_valid_bot',
-        'send_mentions_from_any_valid_bot',
+        # 'send_mention',
+        # 'send_mention_from_any_valid_bot',
+        # 'send_mentions_from_any_valid_bot',
         'create_bot_from_fixed_ip',
+        'send_tweet_from_pendings',
     ]
 
     def open_browser_instance(self, request, queryset):
@@ -192,40 +193,40 @@ class TwitterBotAdmin(admin.ModelAdmin):
             self.message_user(request, msg, level=messages.ERROR)
     create_bot_from_fixed_ip.short_description = "Create 1 bot [from fixed ip]"
 
-    def send_mention(self, request, queryset):
-        if queryset.count() == 1:
-            user = queryset[0]
-            try:
-                user.scrapper.login()
-                user.scrapper.send_mention('landrus0', 'hi againnnn')
-                user.scrapper.close_browser()
-                self.message_user(request, "%s sent tweet ok" % user.username)
-            except Exception:
-                self.message_user(request, "There was errors confirming twitter email for user: %s." % user.username, level=messages.ERROR)
-        else:
-            self.message_user(request, "Only select one user for this action", level=messages.WARNING)
-    send_mention.short_description = "Send mention"
-
-    def send_mention_from_any_valid_bot(self, request, queryset):
-        try:
-            TwitterBot.objects.send_mention('landrus0', 'hola q tal? ;-)')
-            self.message_user(request, "Tweet sent sucessfully")
-        except Exception:
-            msg = "There were errors sending tweet"
-            LOGGER.exception(msg)
-            self.message_user(request, msg, level=messages.ERROR)
-    send_mention_from_any_valid_bot.short_description = "Send tweet from any valid bot"
-
-    def send_mentions_from_any_valid_bot(self, request, queryset):
-        try:
-            user_list = [u.username for u in TwitterBot.objects.filter(it_works=True)]
-            TwitterBot.objects.send_mentions(user_list, 'hola q tal? ;-)')
-            self.message_user(request, "Tweet sent sucessfully")
-        except Exception:
-            msg = "There were errors creating bots"
-            LOGGER.exception(msg)
-            self.message_user(request, msg, level=messages.ERROR)
-    send_mentions_from_any_valid_bot.short_description = "Send tweets from any valid bot"
+    # def send_mention(self, request, queryset):
+    #     if queryset.count() == 1:
+    #         user = queryset[0]
+    #         try:
+    #             user.scrapper.login()
+    #             user.scrapper.send_mention('landrus0', 'hi againnnn')
+    #             user.scrapper.close_browser()
+    #             self.message_user(request, "%s sent tweet ok" % user.username)
+    #         except Exception:
+    #             self.message_user(request, "There was errors confirming twitter email for user: %s." % user.username, level=messages.ERROR)
+    #     else:
+    #         self.message_user(request, "Only select one user for this action", level=messages.WARNING)
+    # send_mention.short_description = "Send mention"
+    #
+    # def send_mention_from_any_valid_bot(self, request, queryset):
+    #     try:
+    #         TwitterBot.objects.send_mention('landrus0', 'hola q tal? ;-)')
+    #         self.message_user(request, "Tweet sent sucessfully")
+    #     except Exception:
+    #         msg = "There were errors sending tweet"
+    #         LOGGER.exception(msg)
+    #         self.message_user(request, msg, level=messages.ERROR)
+    # send_mention_from_any_valid_bot.short_description = "Send tweet from any valid bot"
+    #
+    # def send_mentions_from_any_valid_bot(self, request, queryset):
+    #     try:
+    #         user_list = [u.username for u in TwitterBot.objects.filter(it_works=True)]
+    #         TwitterBot.objects.send_mentions(user_list, 'hola q tal? ;-)')
+    #         self.message_user(request, "Tweet sent sucessfully")
+    #     except Exception:
+    #         msg = "There were errors creating bots"
+    #         LOGGER.exception(msg)
+    #         self.message_user(request, msg, level=messages.ERROR)
+    # send_mentions_from_any_valid_bot.short_description = "Send tweets from any valid bot"
 
     def create_bots(self, request, queryset):
         num_bots = 20
@@ -238,6 +239,16 @@ class TwitterBotAdmin(admin.ModelAdmin):
             LOGGER.exception(msg)
             self.message_user(request, msg, level=messages.ERROR)
     create_bots.short_description = "Create N bots"
+
+    def send_tweet_from_pendings(self, request, queryset):
+        try:
+            TwitterBot.objects.send_tweet()
+            self.message_user(request, "Tweet sent sucessfully")
+        except Exception:
+            msg = "There were errors sending tweet"
+            LOGGER.exception(msg)
+            self.message_user(request, msg, level=messages.ERROR)
+    send_tweet_from_pendings.short_description = "Send pending tweet"
 
 admin.site.register(User, MyUserAdmin)
 admin.site.register(TwitterBot, TwitterBotAdmin)

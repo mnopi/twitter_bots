@@ -8,6 +8,7 @@ class TargetUserAdmin(admin.ModelAdmin):
         'username',
         'next_cursor',
         'followers_count',
+        'followers_android',
         'followers_saved',
     )
     search_fields = ('username', 'next_cursor')

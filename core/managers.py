@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
+import random
+import datetime
 
 from django.db import models
 from scrapper.exceptions import BotDetectedAsSpammerException
@@ -60,6 +62,19 @@ class TwitterBotManager(models.Manager):
             bot.mark_as_not_twitter_registered_ok()
             self.get_valid_bot(**kwargs)
 
+    def get_bot_available_to_tweet(self):
+        """
+        Para que pueda tuitear:
+            - que no haya tuiteado entre random de 2 y 7 min
+            - que no haya mencionado a alguno de los usuarios a los que va el tweet
+        """
+        time_interval = random.randint(60*2, 60*7)
+        # latest_tweet_with_that_bot = Tweet.objects.filter().latest('date')
+        #                 diff_ok = (datetime.datetime.now().replace(tzinfo=pytz.utc)
+        #                            - latest_tweet_with_that_bot.date).days >= 5
+        #
+        # self.get_all_bots().filter(it_works=True)
+
     def get_all_bots(self, **kwargs):
         "Escoge todos aquellos bots que tengan phantomJS y con los filtros dados por kwargs"
         kwargs.update(webdriver='PH')
@@ -78,6 +93,23 @@ class TwitterBotManager(models.Manager):
                 bot.scrapper.send_mention(username, tweet_msg)
         except BotDetectedAsSpammerException:
             self.send_mentions(user_list, tweet_msg)
+
+    def send_tweet(self):
+        from project.models import Tweet
+        bot = self.get_bot_available_to_tweet()
+        try:
+            tweet = Tweet.objects.get_pending()
+            tweet.sending = True
+            tweet.save()
+            bot.scrapper.send_tweet(tweet.compose())
+            tweet.sending = False
+            tweet.sent_ok = True
+            tweet.date_sent = datetime.datetime.now()
+            tweet.bot_used = bot
+            tweet.save()
+        except Exception:
+            LOGGER.exception('Error sending tweet by bot %s' % bot.username)
+            tweet.sending = False
 
     def process_all_bots(self):
         bots = self.get_all_bots()

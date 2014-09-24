@@ -1,5 +1,6 @@
 import datetime
 import simplejson
+from project.exceptions import RateLimitedException
 from project.models import TargetUser, TwitterUser, Follower
 from twitter_bots.settings import LOGGER
 
@@ -32,7 +33,7 @@ class TwitterExplorer(object):
             twitter_user.created_date = self.api.format_datetime(tw_follower['created_at'])
             twitter_user.followers_count = tw_follower['followers_count']
             twitter_user.geo_enabled = tw_follower['geo_enabled']
-            twitter_user.language = tw_follower['lang']
+            twitter_user.language = tw_follower['lang'][:2] if tw_follower['lang'] else TwitterUser.DEFAULT_LANG
             twitter_user.full_name = tw_follower['name']
             twitter_user.username = tw_follower['screen_name']
             twitter_user.tweets_count = tw_follower['statuses_count']
@@ -53,7 +54,7 @@ class TwitterExplorer(object):
             LOGGER.info('Twitter user %s saved ok' % twitter_user.username)
             return twitter_user
 
-        uri = 'followers/list.json?screen_name=%s' % target_username
+        uri = 'followers/list.json?screen_name=%s&count=200' % target_username
         target_user = TargetUser.objects.get_or_create(username=target_username)[0]
         target_user.process()
 
@@ -66,10 +67,15 @@ class TwitterExplorer(object):
                 break
             elif next_cursor != 0:
                 full_uri = uri + '&cursor=%i' % next_cursor
+            else:
+                full_uri = uri
 
             resp = self.api.get(full_uri)
+
+            self.api.check_api_rate_reachability_limit(resp)
+
             for tw_follower in resp['users']:
-                twitter_user = create_twitter_user(tw_follower)
+                twitter_user = create_twitter_user(tw_follower)  # creamos twitter_user a partir del follower si ya no existe en BD
                 Follower.objects.get_or_create(twitter_user=twitter_user, target_user=target_user)
 
             # actualizamos el next_cursor para el target user
@@ -124,3 +130,9 @@ class TwitterAPI(object):
             return TwitterUser.ANDROID
         else:
             return TwitterUser.OTHERS
+
+    def check_api_rate_reachability_limit(self, resp):
+        if 'errors' in resp:
+            for e in resp['errors']:
+                if e['code'] == 88:
+                    raise RateLimitedException()

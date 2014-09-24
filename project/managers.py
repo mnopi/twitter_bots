@@ -11,4 +11,5 @@ class TargetUserManager(models.Manager):
 
 
 class TweetManager(models.Manager):
-    pass
+    def get_pending(self):
+        return self.filter(sending=False, sent_ok=False).first()

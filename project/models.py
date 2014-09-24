@@ -1,4 +1,5 @@
 from django.db import models
+from core.models import TwitterBot
 from project.managers import TargetUserManager, TweetManager
 from twitter_bots.settings import LOGGER
 
@@ -89,11 +90,13 @@ class TargetUser(models.Model):
     def followers_saved(self):
         return Follower.objects.filter(target_user=self).count()
 
+    def followers_android(self):
+        return Follower.objects.filter(target_user=self, twitter_user__source=TwitterUser.ANDROID).count()
+
 
 class Follower(models.Model):
     target_user = models.ForeignKey(TargetUser, related_name='followers', null=False)
-    # follower = models.ForeignKey('project.models.TwitterUser', related_name='twitter_user')
-    twitter_user = models.OneToOneField('TwitterUser', related_name='follower', null=False)
+    twitter_user = models.ForeignKey('TwitterUser', related_name='follower', null=False)
 
     def __unicode__(self):
         return '%s -> %s' % (self.twitter_user, self.target_user)
@@ -110,6 +113,7 @@ class Follower(models.Model):
 
 
 class TwitterUser(models.Model):
+    DEFAULT_LANG = 'en'
     OTHERS = 0
     IOS = 1
     IPAD = 2
@@ -139,7 +143,7 @@ class TwitterUser(models.Model):
     time_zone = models.CharField(max_length=50, null=True)  # te da la zona horaria por la ciudad, x. ej 'Madrid'
     last_tweet_date = models.DateTimeField(null=True)
 
-    language = models.CharField(max_length=2, null=False, default='en')
+    language = models.CharField(max_length=2, null=False, default=DEFAULT_LANG)
     followers_count = models.PositiveIntegerField(null=True)
     tweets_count = models.PositiveIntegerField(null=True)
     verified = models.BooleanField(default=False)
@@ -151,11 +155,13 @@ class TwitterUser(models.Model):
 class Tweet(models.Model):
     tweet_msg = models.ForeignKey(TweetMsg, null=False)
     link = models.ForeignKey('Link', null=True, blank=True, related_name='tweet')
-    date = models.DateTimeField(auto_now_add=True)
+    date_created = models.DateTimeField(auto_now_add=True)
+    date_sent = models.DateTimeField(null=True)
     project = models.ForeignKey(Project, related_name="tweets")
     mentioned_users = models.ManyToManyField(TwitterUser, related_name='mentions', null=True, blank=True)
     sending = models.BooleanField(default=False)
     sent_ok = models.BooleanField(default=False)
+    bot_used = models.ForeignKey(TwitterBot, related_name='tweets')
 
     objects = TweetManager()
 
