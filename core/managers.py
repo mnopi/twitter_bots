@@ -2,12 +2,15 @@
 import os
 import random
 import datetime
+import time
 
 from django.db import models
 from scrapper.exceptions import BotDetectedAsSpammerException
 from scrapper.thread_pool import ThreadPool
 from twitter_bots import settings
 from twitter_bots.settings import LOGGER
+from multiprocessing import Lock
+mutex = Lock()
 
 
 class TwitterBotManager(models.Manager):
@@ -68,10 +71,9 @@ class TwitterBotManager(models.Manager):
             if bot.can_tweet(tweet):
                 return bot
 
-    def get_all_bots(self, **kwargs):
-        "Escoge todos aquellos bots que tengan phantomJS y con los filtros dados por kwargs"
-        kwargs.update(webdriver='PH')
-        return self.filter(**kwargs).exclude(proxy='tor', must_verify_phone=True)
+    def get_all_bots(self):
+        "Escoge todos aquellos bots que tengan phantomJS"
+        return self.filter(webdriver='PH').exclude(proxy='tor').exclude(must_verify_phone=True)
 
     def send_mention(self, username, tweet_msg):
         "Del conjunto de robots se escoge uno para enviar el tweet al usuario"
@@ -87,37 +89,70 @@ class TwitterBotManager(models.Manager):
         except BotDetectedAsSpammerException:
             self.send_mentions(user_list, tweet_msg)
 
-    def send_tweet(self):
+    def send_tweet(self, ignore_exceptions=False):
         from project.models import Tweet
         tweet = bot = None
         try:
+            # PONEMOS CANDADO
+            mutex.acquire()
+
             tweet = Tweet.objects.get_pending()[0]
+            tweet_msg = tweet.compose()
             bot = self.get_bot_available_to_tweet(tweet)
             if bot:
                 tweet.sending = True
                 tweet.bot_used = bot
                 tweet.save()
+                LOGGER.info('Bot %s sending tweet: "%s"' % (bot.username, tweet_msg))
+
+                # QUITAMOS CANDADO
+                mutex.release()
+
+                bot.scrapper.screenshots_dir = str(tweet.pk)
                 bot.scrapper.open_browser()
                 bot.scrapper.go_to(settings.URLS['twitter_login'])
-                bot.scrapper.send_tweet(tweet.compose())
+                bot.scrapper.send_tweet(tweet_msg)
                 tweet.sending = False
                 tweet.sent_ok = True
                 tweet.date_sent = datetime.datetime.now()
                 tweet.save()
-        except Exception:
-            LOGGER.exception('Error sending tweet:\n "%s" \nby bot %s' % (tweet.compose(), bot.username))
-            tweet.sending = False
+                bot.scrapper.close_browser()
+                LOGGER.info('Bot %s sent tweet ok: "%s"' % (bot.username, tweet_msg))
+            else:
+                raise Exception('No more bots available for sending pending tweets')
+        except Exception as ex:
+            LOGGER.exception('')
+            try:
+                LOGGER.exception('Error sending tweet:\n "%s" \nby bot %s' % (tweet_msg, bot.username))
+                tweet.sending = False
+                tweet.bot = None
+                tweet.save()
+                bot.scrapper.close_browser()
+            except Exception as ex:
+                LOGGER.exception('')
+                if ignore_exceptions:
+                    LOGGER.info('ignoring exception..')
+                else:
+                    raise ex
+
+            if ignore_exceptions:
+                LOGGER.info('ignoring exception..')
+            else:
+                raise ex
 
     def send_pending_tweets(self):
         from project.models import Tweet
+        Tweet.objects.clean_pending()
         pending_tweets = Tweet.objects.get_pending()
-        LOGGER.info('Sending %s pending tweets' % pending_tweets.count())
+        LOGGER.info('--- Sending %s pending tweets ---' % pending_tweets.count())
         pool = ThreadPool(settings.MAX_THREADS)
         # for _ in pending_tweets:
         while True:
-            pool.add_task(self.send_tweet)
+            pool.add_task(self.send_tweet, ignore_exceptions=True)
             if Tweet.objects.all_sent_ok():
                 break
+            else:
+                time.sleep(0.3)
         pool.wait_completion()
         LOGGER.info('Tweets sent ok')
 

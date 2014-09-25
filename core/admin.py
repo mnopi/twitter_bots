@@ -77,6 +77,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
         # 'send_mentions_from_any_valid_bot',
         'create_bot_from_fixed_ip',
         'send_tweet_from_pendings',
+        'send_pending_tweets',
     ]
 
     def open_browser_instance(self, request, queryset):
@@ -244,6 +245,16 @@ class TwitterBotAdmin(admin.ModelAdmin):
         TwitterBot.objects.send_tweet()
         self.message_user(request, "Tweet sent sucessfully")
     send_tweet_from_pendings.short_description = "Send pending tweet"
+
+    def send_pending_tweets(self, request, queryset):
+        try:
+            TwitterBot.objects.send_pending_tweets()
+            self.message_user(request, "All pending tweets sent sucessfully")
+        except Exception:
+            msg = "There were errors sending pending tweets"
+            LOGGER.exception(msg)
+            self.message_user(request, msg, level=messages.ERROR)
+    send_pending_tweets.short_description = "Send all pending tweets"
 
 admin.site.register(User, MyUserAdmin)
 admin.site.register(TwitterBot, TwitterBotAdmin)

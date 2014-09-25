@@ -156,12 +156,12 @@ class Tweet(models.Model):
     tweet_msg = models.ForeignKey(TweetMsg, null=False)
     link = models.ForeignKey('Link', null=True, blank=True, related_name='tweet')
     date_created = models.DateTimeField(auto_now_add=True)
-    date_sent = models.DateTimeField(null=True)
+    date_sent = models.DateTimeField(null=True, blank=True)
     project = models.ForeignKey(Project, related_name="tweets")
     mentioned_users = models.ManyToManyField(TwitterUser, related_name='mentions', null=True, blank=True)
     sending = models.BooleanField(default=False)
     sent_ok = models.BooleanField(default=False)
-    bot_used = models.ForeignKey(TwitterBot, related_name='tweets')
+    bot_used = models.ForeignKey(TwitterBot, related_name='tweets', null=True)
 
     objects = TweetManager()
 

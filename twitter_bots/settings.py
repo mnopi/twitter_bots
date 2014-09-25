@@ -159,6 +159,6 @@ PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs')
 
 PHANTOMJS_COOKIES_PATH = os.path.join(PHANTOMJS_PATH, 'cookies')
 
-# intervalo de twiteo para cada bot
-TIME_BETWEEN_TWEETS = (2, 7)
+# intervalo de twiteo para cada bot en minutos
+TIME_BETWEEN_TWEETS = (10, 20)
 

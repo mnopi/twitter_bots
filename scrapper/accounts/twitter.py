@@ -12,7 +12,6 @@ from twitter_bots import settings
 
 
 class TwitterScrapper(Scrapper):
-    SCREENSHOTS_DIR = 'twitter'
 
     def sign_up(self):
         """Crea una cuenta de twitter con los datos dados. No guarda nada en BD, sólo entra en twitter y lo registra"""
@@ -105,6 +104,10 @@ class TwitterScrapper(Scrapper):
     def is_logged_in(self):
         return self.check_visibility('#global-new-tweet-button')
 
+    def clear_local_storage(self):
+        # para que no aparezcan cositas de otras instancias de phantomjs
+        self.browser.execute_script('localStorage.clear();')
+
     def login(self):
         try:
             self.open_browser()
@@ -117,8 +120,7 @@ class TwitterScrapper(Scrapper):
                 self.click('.front-signin button')
 
             self.wait_to_page_loaded()
-            # para que no aparezcan cositas de otras instancias de phantomjs
-            self.browser.execute_script('localStorage.clear();')
+            self.clear_local_storage()
 
             if self.check_visibility('#account-suspended'):
                 conf_email_link = get_element(lambda: self.browser.find_element_by_partial_link_text('confirm your email'))
@@ -317,6 +319,7 @@ class TwitterScrapper(Scrapper):
         if not self.is_logged_in():
             self.login()
 
+        self.clear_local_storage()
         self.click('#global-new-tweet-button')
         self.send_keys(msg)
 
@@ -341,7 +344,6 @@ class TwitterScrapper(Scrapper):
         else:
             LOGGER.info('Tweet sent ok from %s' % self.user.username)
             self.take_screenshot('tweet_sent_ok')
-
 
         self.delay.seconds(7)
 

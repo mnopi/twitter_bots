@@ -55,8 +55,10 @@ class TweetAdmin(admin.ModelAdmin):
     list_display = (
         'compose',
         'length',
+        'date_sent',
         'sending',
         'sent_ok',
+        'bot_used',
     )
 
 

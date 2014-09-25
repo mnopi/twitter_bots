@@ -24,7 +24,7 @@ INVALID_EMAIL_DOMAIN_MSG = 'Invalid email domain used, only accepts: hushmail.co
 
 class Scrapper(object):
     # cada scrapper (hotmail, twitter..) tendrá su propia carpeta para capturar los pantallazos
-    SCREENSHOTS_DIR = ''
+    screenshots_dir = ''
     CMD_KEY = Keys.COMMAND if sys.platform == 'darwin' else Keys.CONTROL
 
     def __init__(self, user=None, force_firefox=False):
@@ -425,7 +425,7 @@ class Scrapper(object):
             self.browser.get(url)
             LOGGER.info('%s go_to: %s' % (get_browser_instance_id(self.user), url))
             if 'about:blank' in self.browser.current_url:
-                raise
+                raise Exception()
             self.take_screenshot('go_to')
             if wait_page_loaded:
                 self.wait_to_page_loaded()
@@ -672,13 +672,13 @@ class Scrapper(object):
         try:
             if settings.TAKE_SCREENSHOTS:
                 mkdir_if_not_exists(settings.SCREENSHOTS_ROOT)
-                user_dir = os.path.join(settings.SCREENSHOTS_ROOT, self.user.real_name.replace(' ', '_'))
+                user_dir = os.path.join(settings.SCREENSHOTS_ROOT, self.user.username)
                 mkdir_if_not_exists(user_dir)
 
                 dir = user_dir
 
-                if self.SCREENSHOTS_DIR:
-                    dir = os.path.join(dir, self.SCREENSHOTS_DIR)
+                if self.screenshots_dir:
+                    dir = os.path.join(dir, self.screenshots_dir)
                     mkdir_if_not_exists(dir)
 
                 self.browser.save_screenshot(os.path.join(dir, '%i_%s.jpg' % (self.screenshot_num, title)))

@@ -257,10 +257,13 @@ class TwitterBot(models.Model):
                     return True
         return False
 
+    def get_sent_ok_tweets(self):
+        from project.models import Tweet
+        return Tweet.objects.filter(bot_used=self, sent_ok=True)
+
     def tweeting_time_interval_lapsed(self):
         "Mira si ha pasado el suficiente tiempo desde la ultima vez que tuiteo"
-        from project.models import Tweet
-        bot_tweets = Tweet.objects.filter(bot_used=self).order_by('-date_sent')
+        bot_tweets = self.get_sent_ok_tweets().order_by('-date_sent')
         if bot_tweets:
             last_tweet = bot_tweets[0]
             now_utc = datetime.datetime.now().replace(tzinfo=pytz.utc)

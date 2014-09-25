@@ -19,3 +19,7 @@ class TweetManager(models.Manager):
 
     def all_sent_ok(self):
         return self.get_sent_ok().count() == self.all().count()
+
+    def clean_pending(self):
+        "Vuelve a marcar como disponible para que lo envie algun robot"
+        self.filter(sending=True).update(sending=False, bot_used=None)
