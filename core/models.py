@@ -242,3 +242,49 @@ class TwitterBot(models.Model):
         ts.set_email_scrapper()
         ts.email_scrapper.login()
         ts.email_scrapper.confirm_tw_email()
+
+    def get_users_mentioned(self):
+        "Devuelve todos los usuarios que ha mencionado el robot a lo largo de todos sus tweets"
+        from project.models import TwitterUser
+        return TwitterUser.objects.filter(mentions__bot_used=self)
+
+    def already_mentions(self, tweet):
+        """Si el robot ya menciono alguno de los usuarios en el tweet dado"""
+        all_bot_mentions = self.get_users_mentioned()
+        for tw_mention in tweet.mentioned_users.all():
+            for b_mention in all_bot_mentions:
+                if tw_mention.twitter_id == b_mention.twitter_id:
+                    return True
+        return False
+
+    def tweeting_time_interval_lapsed(self):
+        "Mira si ha pasado el suficiente tiempo desde la ultima vez que tuiteo"
+        from project.models import Tweet
+        bot_tweets = Tweet.objects.filter(bot_used=self).order_by('-date_sent')
+        if bot_tweets:
+            last_tweet = bot_tweets[0]
+            now_utc = datetime.datetime.now().replace(tzinfo=pytz.utc)
+            random_seconds = random.randint(60*settings.TIME_BETWEEN_TWEETS[0], 60*settings.TIME_BETWEEN_TWEETS[1])  # entre 2 y 7 minutos por tweet
+            return (now_utc - last_tweet.date_sent).seconds >= random_seconds
+        else:
+            # si el bot no tuiteo nunca evidentemente el tiempo no tiene nada que ver
+            return True
+
+    def is_sending_tweet(self):
+        from project.models import Tweet
+        return Tweet.objects.filter(bot_used=self, sending=True).exists()
+
+    def can_tweet(self, tweet):
+        """
+        Devuelve si el bot puede tuitear, cumpliendo:
+            - que no este el robot sending otro tweet
+            - que no haya tuiteado entre random de 2 y 7 min (time_ok)
+            - que no haya mencionado a alguno de los usuarios a los que va el tweet
+        """
+        if not self.is_sending_tweet():
+            if self.tweeting_time_interval_lapsed():
+                return not self.already_mentions(tweet)
+            else:
+                return False
+        else:
+            return False

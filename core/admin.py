@@ -241,13 +241,8 @@ class TwitterBotAdmin(admin.ModelAdmin):
     create_bots.short_description = "Create N bots"
 
     def send_tweet_from_pendings(self, request, queryset):
-        try:
-            TwitterBot.objects.send_tweet()
-            self.message_user(request, "Tweet sent sucessfully")
-        except Exception:
-            msg = "There were errors sending tweet"
-            LOGGER.exception(msg)
-            self.message_user(request, msg, level=messages.ERROR)
+        TwitterBot.objects.send_tweet()
+        self.message_user(request, "Tweet sent sucessfully")
     send_tweet_from_pendings.short_description = "Send pending tweet"
 
 admin.site.register(User, MyUserAdmin)

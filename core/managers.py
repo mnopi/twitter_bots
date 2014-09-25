@@ -62,18 +62,11 @@ class TwitterBotManager(models.Manager):
             bot.mark_as_not_twitter_registered_ok()
             self.get_valid_bot(**kwargs)
 
-    def get_bot_available_to_tweet(self):
-        """
-        Para que pueda tuitear:
-            - que no haya tuiteado entre random de 2 y 7 min
-            - que no haya mencionado a alguno de los usuarios a los que va el tweet
-        """
-        time_interval = random.randint(60*2, 60*7)
-        # latest_tweet_with_that_bot = Tweet.objects.filter().latest('date')
-        #                 diff_ok = (datetime.datetime.now().replace(tzinfo=pytz.utc)
-        #                            - latest_tweet_with_that_bot.date).days >= 5
-        #
-        # self.get_all_bots().filter(it_works=True)
+    def get_bot_available_to_tweet(self, tweet):
+        bots = self.get_all_bots().filter(it_works=True)
+        for bot in bots:
+            if bot.can_tweet(tweet):
+                return bot
 
     def get_all_bots(self, **kwargs):
         "Escoge todos aquellos bots que tengan phantomJS y con los filtros dados por kwargs"
@@ -96,20 +89,37 @@ class TwitterBotManager(models.Manager):
 
     def send_tweet(self):
         from project.models import Tweet
-        bot = self.get_bot_available_to_tweet()
+        tweet = bot = None
         try:
-            tweet = Tweet.objects.get_pending()
-            tweet.sending = True
-            tweet.save()
-            bot.scrapper.send_tweet(tweet.compose())
-            tweet.sending = False
-            tweet.sent_ok = True
-            tweet.date_sent = datetime.datetime.now()
-            tweet.bot_used = bot
-            tweet.save()
+            tweet = Tweet.objects.get_pending()[0]
+            bot = self.get_bot_available_to_tweet(tweet)
+            if bot:
+                tweet.sending = True
+                tweet.bot_used = bot
+                tweet.save()
+                bot.scrapper.open_browser()
+                bot.scrapper.go_to(settings.URLS['twitter_login'])
+                bot.scrapper.send_tweet(tweet.compose())
+                tweet.sending = False
+                tweet.sent_ok = True
+                tweet.date_sent = datetime.datetime.now()
+                tweet.save()
         except Exception:
-            LOGGER.exception('Error sending tweet by bot %s' % bot.username)
+            LOGGER.exception('Error sending tweet:\n "%s" \nby bot %s' % (tweet.compose(), bot.username))
             tweet.sending = False
+
+    def send_pending_tweets(self):
+        from project.models import Tweet
+        pending_tweets = Tweet.objects.get_pending()
+        LOGGER.info('Sending %s pending tweets' % pending_tweets.count())
+        pool = ThreadPool(settings.MAX_THREADS)
+        # for _ in pending_tweets:
+        while True:
+            pool.add_task(self.send_tweet)
+            if Tweet.objects.all_sent_ok():
+                break
+        pool.wait_completion()
+        LOGGER.info('Tweets sent ok')
 
     def process_all_bots(self):
         bots = self.get_all_bots()

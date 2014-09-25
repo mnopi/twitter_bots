@@ -12,4 +12,10 @@ class TargetUserManager(models.Manager):
 
 class TweetManager(models.Manager):
     def get_pending(self):
-        return self.filter(sending=False, sent_ok=False).first()
+        return self.filter(sending=False, sent_ok=False)
+
+    def get_sent_ok(self):
+        return self.filter(sent_ok=True)
+
+    def all_sent_ok(self):
+        return self.get_sent_ok().count() == self.all().count()
