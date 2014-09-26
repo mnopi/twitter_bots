@@ -21,7 +21,7 @@ class TargetUserAdmin(admin.ModelAdmin):
     def extract_followers(self, request, queryset):
         if queryset.count() == 1:
             target_user = queryset[0]
-            target_user.extract_followers()
+            target_user.extract_followers_from_all_target_users()
             self.message_user(request, "Followers extracted ok from %s" % target_user.username)
         else:
             self.message_user(request, "Only select one user for this action", level=messages.WARNING)
@@ -39,6 +39,7 @@ class ProjectAdmin(admin.ModelAdmin):
 
     actions = [
         'create_tweets_android',
+        'extract_followers_from_all_target_users',
     ]
 
     def create_tweets_android(self, request, queryset):
@@ -49,6 +50,15 @@ class ProjectAdmin(admin.ModelAdmin):
         else:
             self.message_user(request, "Only select one user for this action", level=messages.WARNING)
     create_tweets_android.short_description = "Create android tweets"
+
+    def extract_followers_from_all_target_users(self, request, queryset):
+        if queryset.count() == 1:
+            project = queryset[0]
+            project.extract_followers_from_all_target_users()
+            self.message_user(request, "All followers for project %s extracted ok" % project.name)
+        else:
+            self.message_user(request, "Only select one user for this action", level=messages.WARNING)
+    extract_followers_from_all_target_users.short_description = "Extract all followers from all target users"
 
 
 class TweetAdmin(admin.ModelAdmin):

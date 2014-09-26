@@ -103,8 +103,8 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format' : "[%(asctime)s] %(levelname)s [%(name)s:%(lineno)s] %(message)s",
-            'datefmt' : "%d/%b/%Y %H:%M:%S"
+            'format': "[%(asctime)s] %(levelname)s [%(name)s:%(lineno)s] %(message)s",
+            'datefmt': "%d/%b/%Y %H:%M:%S"
         },
         'simple': {
             'format': '%(levelname)s %(message)s'
@@ -136,6 +136,7 @@ LOGGING = {
     }
 }
 
+
 import logging
 LOGGER = logging.getLogger('twitter_bots')
 
@@ -161,4 +162,18 @@ PHANTOMJS_COOKIES_PATH = os.path.join(PHANTOMJS_PATH, 'cookies')
 
 # intervalo de twiteo para cada bot en minutos
 TIME_BETWEEN_TWEETS = (10, 20)
+
+
+def set_logger(logger_name):
+    # import copy
+    # custom_logger = copy.deepcopy(LOGGING)
+    global LOGGING, LOGGER
+    LOGGING['handlers']['file']['filename'] = '%s.log' % logger_name
+    LOGGING['loggers'][logger_name] = LOGGING['loggers']['twitter_bots']
+    del LOGGING['loggers']['twitter_bots']
+
+    import logging
+    import logging.config
+    logging.config.dictConfig(LOGGING)
+    LOGGER = logging.getLogger(logger_name)
 

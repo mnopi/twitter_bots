@@ -8,7 +8,7 @@ from core.models import User, TwitterBot
 from scrapper.scrapper import Scrapper
 from django.contrib import messages
 from scrapper.accounts.twitter import TwitterScrapper
-from twitter_bots.settings import LOGGER
+from twitter_bots.settings import LOGGING
 
 
 class MyUserAdmin(UserAdmin):
@@ -140,7 +140,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
             self.message_user(request, "All bots processed sucessfully")
         except Exception:
             msg = "There were errors processing bots"
-            LOGGER.exception(msg)
+            LOGGING.exception(msg)
             self.message_user(request, msg, level=messages.ERROR)
     process_all_bots.short_description = "Process all bots"
 
@@ -155,7 +155,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
                 msg = "There was errors creating bot \"%s\"." % bot.username
             else:
                 msg = "Fatal error creating bot"
-            LOGGER.exception(msg)
+            LOGGING.exception(msg)
             self.message_user(request, msg, level=messages.ERROR)
     create_new_bot.short_description = "Create new bot"
 
@@ -190,7 +190,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
             self.message_user(request, "Bot created successfully")
         except Exception:
             msg = "There were errors creating 1 bot"
-            LOGGER.exception(msg)
+            LOGGING.exception(msg)
             self.message_user(request, msg, level=messages.ERROR)
     create_bot_from_fixed_ip.short_description = "Create 1 bot [from fixed ip]"
 
@@ -230,14 +230,14 @@ class TwitterBotAdmin(admin.ModelAdmin):
     # send_mentions_from_any_valid_bot.short_description = "Send tweets from any valid bot"
 
     def create_bots(self, request, queryset):
-        num_bots = 20
+        num_bots = 50
         try:
             TwitterBot.objects.create_bots(num_bots)
             self.message_user(request, "Successfully created %i bots" % num_bots)
             return HttpResponseRedirect(request.get_full_path())
         except Exception:
             msg = "There were errors creating %i bots" % num_bots
-            LOGGER.exception(msg)
+            LOGGING.exception(msg)
             self.message_user(request, msg, level=messages.ERROR)
     create_bots.short_description = "Create N bots"
 
@@ -252,7 +252,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
             self.message_user(request, "All pending tweets sent sucessfully")
         except Exception:
             msg = "There were errors sending pending tweets"
-            LOGGER.exception(msg)
+            LOGGING.exception(msg)
             self.message_user(request, msg, level=messages.ERROR)
     send_pending_tweets.short_description = "Send all pending tweets"
 

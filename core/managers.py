@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import os
-import random
 import datetime
 import time
 
@@ -8,7 +7,7 @@ from django.db import models
 from scrapper.exceptions import BotDetectedAsSpammerException
 from scrapper.thread_pool import ThreadPool
 from twitter_bots import settings
-from twitter_bots.settings import LOGGER
+from twitter_bots.settings import LOGGING
 from multiprocessing import Lock
 mutex = Lock()
 
@@ -47,7 +46,7 @@ class TwitterBotManager(models.Manager):
                                 break
 
             if not found_listed_proxy:
-                LOGGER.info('Proxy %s not listed' % proxy)
+                LOGGING.info('Proxy %s not listed' % proxy)
 
             return found_listed_proxy
         else:
@@ -72,8 +71,8 @@ class TwitterBotManager(models.Manager):
                 return bot
 
     def get_all_bots(self):
-        "Escoge todos aquellos bots que tengan phantomJS"
-        return self.filter(webdriver='PH').exclude(proxy='tor').exclude(must_verify_phone=True)
+        """Escoge todos aquellos bots que tengan phantomJS"""
+        return self.filter(webdriver='PH').exclude(proxy='tor')
 
     def send_mention(self, username, tweet_msg):
         "Del conjunto de robots se escoge uno para enviar el tweet al usuario"
@@ -103,7 +102,7 @@ class TwitterBotManager(models.Manager):
                 tweet.sending = True
                 tweet.bot_used = bot
                 tweet.save()
-                LOGGER.info('Bot %s sending tweet: "%s"' % (bot.username, tweet_msg))
+                LOGGING.info('Bot %s sending tweet: "%s"' % (bot.username, tweet_msg))
 
                 # QUITAMOS CANDADO
                 mutex.release()
@@ -117,26 +116,26 @@ class TwitterBotManager(models.Manager):
                 tweet.date_sent = datetime.datetime.now()
                 tweet.save()
                 bot.scrapper.close_browser()
-                LOGGER.info('Bot %s sent tweet ok: "%s"' % (bot.username, tweet_msg))
+                LOGGING.info('Bot %s sent tweet ok: "%s"' % (bot.username, tweet_msg))
             else:
                 raise Exception('No more bots available for sending pending tweets')
         except Exception as ex:
-            LOGGER.exception('')
+            LOGGING.exception('')
             try:
-                LOGGER.exception('Error sending tweet:\n "%s" \nby bot %s' % (tweet_msg, bot.username))
+                LOGGING.exception('Error sending tweet:\n "%s" \nby bot %s' % (tweet_msg, bot.username))
                 tweet.sending = False
                 tweet.bot = None
                 tweet.save()
                 bot.scrapper.close_browser()
             except Exception as ex:
-                LOGGER.exception('')
+                LOGGING.exception('')
                 if ignore_exceptions:
-                    LOGGER.info('ignoring exception..')
+                    LOGGING.info('ignoring exception..')
                 else:
                     raise ex
 
             if ignore_exceptions:
-                LOGGER.info('ignoring exception..')
+                LOGGING.info('ignoring exception..')
             else:
                 raise ex
 
@@ -144,7 +143,7 @@ class TwitterBotManager(models.Manager):
         from project.models import Tweet
         Tweet.objects.clean_pending()
         pending_tweets = Tweet.objects.get_pending()
-        LOGGER.info('--- Sending %s pending tweets ---' % pending_tweets.count())
+        LOGGING.info('--- Sending %s pending tweets ---' % pending_tweets.count())
         pool = ThreadPool(settings.MAX_THREADS)
         # for _ in pending_tweets:
         while True:
@@ -154,15 +153,15 @@ class TwitterBotManager(models.Manager):
             else:
                 time.sleep(0.3)
         pool.wait_completion()
-        LOGGER.info('Tweets sent ok')
+        LOGGING.info('Tweets sent ok')
 
     def process_all_bots(self):
         bots = self.get_all_bots()
-        LOGGER.info('Processing %i bots..' % bots.count())
+        LOGGING.info('Processing %i bots..' % bots.count())
         pool = ThreadPool(settings.MAX_THREADS)
         for bot in bots:
             pool.add_task(bot.process, ignore_exceptions=True)
         pool.wait_completion()
-        LOGGER.info('%i bots processed ok' % bots.count())
+        LOGGING.info('%i bots processed ok' % bots.count())
 
 

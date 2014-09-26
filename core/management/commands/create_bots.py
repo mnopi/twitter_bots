@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand
 from core.models import TwitterBot
 from scrapper.thread_pool import ThreadPool
 from scrapper import settings
-from twitter_bots.settings import LOGGER
+from twitter_bots.settings import LOGGING
 
 
 class Command(BaseCommand):
@@ -25,7 +25,7 @@ class Command(BaseCommand):
 
         def create_bot(bot):
             bot.process()
-            LOGGER.info('bot %s created' % bot.username)
+            LOGGING.info('bot %s created' % bot.username)
 
         pool = ThreadPool(settings.MAX_THREADS)
 

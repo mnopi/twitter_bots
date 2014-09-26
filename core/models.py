@@ -192,19 +192,26 @@ class TwitterBot(models.Model):
     def process(self, ignore_exceptions=False):
         """Se procesa el bot una vez creado en BD. Esto sirve tanto para creación de bots como para
         comprobar que todavía funciona"""
+        from core.managers import mutex
         try:
-            if self.has_no_accounts():
-                self.populate()
-                self.assign_proxy()
-            elif not self.proxy:
-                self.assign_proxy()
+            with mutex:
+                if self.has_no_accounts():
+                    self.populate()
+                    self.assign_proxy()
+                elif not self.proxy:
+                    self.assign_proxy()
 
             if self.has_to_be_completed():
                 self.scrapper.scrape_bot_creation()
+
+            return
         except NoMoreAvaiableProxiesException, e:
+            # si no hay mas proxies cortamos el proceso
             raise e
         except Exception, e:
-            if not ignore_exceptions:
+            if ignore_exceptions:
+                LOGGER.warning('ignoring exception..')
+            else:
                 raise e
         finally:
             if self.has_no_accounts():

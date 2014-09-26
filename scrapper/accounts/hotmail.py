@@ -128,7 +128,7 @@ class HotmailScrapper(Scrapper):
             self.delay.seconds(5)
             submit_form()
             #wait_condition(lambda: 'summarypage' in self.browser.current_url.lower())
-            self.delay.seconds(5)
+            self.delay.seconds(15)
         except Exception, e:
             LOGGER.exception('There was an error signing up %s' % self.user.email)
             raise e
@@ -156,7 +156,7 @@ class HotmailScrapper(Scrapper):
                         self.user.save()
                         self.take_screenshot('wrong_email_account_for_login')
                         self.close_browser()
-                        raise
+                        raise Exception()
                 return errors
 
             if attempts > 1:

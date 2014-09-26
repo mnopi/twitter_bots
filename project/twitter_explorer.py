@@ -1,12 +1,12 @@
 import datetime
 import simplejson
+import time
 from project.exceptions import RateLimitedException
 from project.models import TargetUser, TwitterUser, Follower
 from twitter_bots.settings import LOGGER
 
 __author__ = 'Michel'
 
-import tweepy
 import requests_oauthlib as req
 
 
@@ -60,36 +60,41 @@ class TwitterExplorer(object):
 
         next_cursor = target_user.next_cursor
         while True:
-            LOGGER.info('Retrieving %s followers (cursor %i)' % (target_username, next_cursor))
+            try:
+                LOGGER.info('Retrieving %s followers (cursor %i)' % (target_username, next_cursor))
 
-            # si esta a None entonces se dan por procesados todos sus followers
-            if next_cursor == None:
-                break
-            elif next_cursor != 0:
-                full_uri = uri + '&cursor=%i' % next_cursor
-            else:
-                full_uri = uri
+                # si esta a None entonces se dan por procesados todos sus followers
+                if next_cursor == None:
+                    break
+                elif next_cursor != 0:
+                    full_uri = uri + '&cursor=%i' % next_cursor
+                else:
+                    full_uri = uri
 
-            resp = self.api.get(full_uri)
+                resp = self.api.get(full_uri)
 
-            self.api.check_api_rate_reachability_limit(resp)
+                self.api.check_api_rate_reachability_limit(resp)
 
-            for tw_follower in resp['users']:
-                twitter_user = create_twitter_user(tw_follower)  # creamos twitter_user a partir del follower si ya no existe en BD
-                Follower.objects.get_or_create(twitter_user=twitter_user, target_user=target_user)
+                for tw_follower in resp['users']:
+                    # creamos twitter_user a partir del follower si ya no existe en BD
+                    twitter_user = create_twitter_user(tw_follower)
+                    Follower.objects.get_or_create(twitter_user=twitter_user, target_user=target_user)
 
-            # actualizamos el next_cursor para el target user
-            next_cursor = resp['next_cursor']
-            if not next_cursor:
-                next_cursor = None
-                target_user.next_cursor = next_cursor
-                target_user.save()
-                LOGGER.info('All followers from %s retrieved ok' % target_username)
-                break
-            else:
-                target_user.next_cursor = next_cursor
-                target_user.save()
-
+                # actualizamos el next_cursor para el target user
+                next_cursor = resp['next_cursor']
+                if not next_cursor:
+                    next_cursor = None
+                    target_user.next_cursor = next_cursor
+                    target_user.save()
+                    LOGGER.info('All followers from %s retrieved ok' % target_username)
+                    break
+                else:
+                    target_user.next_cursor = next_cursor
+                    target_user.save()
+            except RateLimitedException:
+                LOGGER.exception('')
+                # ponemos a dormir el explorador 16 minutillos hasta que refresque el periodo ventana de la API para pedir mas followers
+                time.sleep(16*60)
 
 class TwitterAPI(object):
     consumer_key = "ESjshGwY13JIl3SLF4dLiQVDB"

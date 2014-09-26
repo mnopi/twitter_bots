@@ -56,6 +56,10 @@ class Project(models.Model):
         new_tweet.save()
         return new_tweet
 
+    def extract_followers_from_all_target_users(self):
+        for target_user in self.target_users.all():
+            target_user.extract_followers()
+
 
 class TweetMsg(models.Model):
     text = models.CharField(max_length=160, null=False, blank=True)
