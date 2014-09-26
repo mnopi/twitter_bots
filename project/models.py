@@ -1,6 +1,7 @@
 from django.db import models
 from core.models import TwitterBot
 from project.managers import TargetUserManager, TweetManager
+from twitter_bots import settings
 from twitter_bots.settings import LOGGER
 
 
@@ -19,7 +20,7 @@ class Project(models.Model):
 
     def create_tweets(self, platform=None):
         """platform es una de las posibles opciones de segmentacion a implementar en un futuro (por pais, idioma..)"""
-        LOGGER.info('Creating tweets for project %s' % self.name)
+        settings.LOGGER.info('Creating tweets for project %s' % self.name)
         filter = {
             'target_user__projects': self,
         }
@@ -31,14 +32,14 @@ class Project(models.Model):
         followers = Follower.objects.filter(**filter)
         for follower in followers:
             if not follower.was_mentioned(project=self):
-                LOGGER.info('Processing follower %s' % follower.twitter_user.username)
+                settings.LOGGER.info('Processing follower %s' % follower.twitter_user.username)
                 current_tweet.mentioned_users.add(follower.twitter_user)
                 if not current_tweet.has_space():
                     current_tweet.mentioned_users.remove(follower.twitter_user)
                     current_tweet = self.create_tweet_to_send(platform=TwitterUser.ANDROID)
                     current_tweet.mentioned_users.add(follower.twitter_user)
             else:
-                LOGGER.info('%s was mentioned for project %s' % (follower.twitter_user.username, self.name))
+                settings.LOGGER.info('%s was mentioned for project %s' % (follower.twitter_user.username, self.name))
 
         if not current_tweet.mentioned_users.all():
             current_tweet.delete()
@@ -57,6 +58,7 @@ class Project(models.Model):
         return new_tweet
 
     def extract_followers_from_all_target_users(self):
+        settings.LOGGER.info('Extracting followers for all target users in project "%s"' % self.name)
         for target_user in self.target_users.all():
             target_user.extract_followers()
 

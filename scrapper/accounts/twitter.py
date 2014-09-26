@@ -56,7 +56,7 @@ class TwitterScrapper(Scrapper):
                     break
 
         try:
-            LOGGER.info('User %s signing up on twitter..' % self.user.username)
+            settings.LOGGER.info('User %s signing up on twitter..' % self.user.username)
             self.go_to(settings.URLS['twitter_reg'])
             # esperamos a que se cargue bien el formulario
             self.wait_visibility_of_css_element('#full-name', timeout=15)
@@ -95,10 +95,10 @@ class TwitterScrapper(Scrapper):
             # finalmente lo ponemos como registrado en twitter
             self.user.twitter_registered_ok = True
             self.user.save()
-            LOGGER.info('User %s successfully signed up on twitter' % self.user.username)
+            settings.LOGGER.info('User %s successfully signed up on twitter' % self.user.username)
         except Exception, e:
             self.take_screenshot('twitter_registered_fail')
-            LOGGER.exception('User %s has errors signing up twitter account' % self.user.username)
+            settings.LOGGER.exception('User %s has errors signing up twitter account' % self.user.username)
             raise e
 
     def is_logged_in(self):
@@ -164,7 +164,7 @@ class TwitterScrapper(Scrapper):
                     self.user.it_works = True
                     self.user.save()
         except Exception, e:
-            LOGGER.exception('Login on twitter error for %s' % self.user.username)
+            settings.LOGGER.exception('Login on twitter error for %s' % self.user.username)
             raise e
 
     def check_account_suspended(self):
@@ -190,7 +190,7 @@ class TwitterScrapper(Scrapper):
                 self.close_browser()
         except Exception:
             # si ha habido algún otro problema volvemos a comprobar el usuario
-            LOGGER.exception('Problem checking if twitter account was suspended for "%s"' % self.user.username)
+            settings.LOGGER.exception('Problem checking if twitter account was suspended for "%s"' % self.user.username)
             self.check_account_suspended()
 
     def twitter_page_is_loaded_on_new_window(self):
@@ -206,7 +206,7 @@ class TwitterScrapper(Scrapper):
     def confirm_user_email(self):
         """Le damos al rollo del email de confirmación.."""
         try:
-            LOGGER.info('Confirming email %s for twitter user: %s..' % (self.user.email, self.user.username))
+            settings.LOGGER.info('Confirming email %s for twitter user: %s..' % (self.user.email, self.user.username))
             if self.user.has_to_confirm_tw_email():
                 from .hotmail import HotmailScrapper
 
@@ -221,12 +221,12 @@ class TwitterScrapper(Scrapper):
                 self.email_scrapper.close_browser()
                 self.user.twitter_confirmed_email_ok = True
                 self.user.save()
-                LOGGER.info('Twitter email confirmed ok for %s with email: %s' % (self.user.username, self.user.email))
+                settings.LOGGER.info('Twitter email confirmed ok for %s with email: %s' % (self.user.username, self.user.email))
         except TwitterEmailNotFound:
             self.login()
             self.confirm_user_email()
         except Exception, e:
-            LOGGER.exception('Error confirming twitter email. User: %s, email: %s' %(self.user.username, self.user.email))
+            settings.LOGGER.exception('Error confirming twitter email. User: %s, email: %s' %(self.user.username, self.user.email))
             raise e
 
     def set_profile(self):
@@ -244,14 +244,14 @@ class TwitterScrapper(Scrapper):
                     os.remove(avatar_path)
                     self.user.twitter_avatar_completed = True
             except Exception:
-                LOGGER.exception('Error setting avatar for bot %s' % self.user.username)
+                settings.LOGGER.exception('Error setting avatar for bot %s' % self.user.username)
 
         def set_bio():
             try:
                 self.fill_input_text('#user_description', self.get_quote())
                 self.user.twitter_bio_completed = True
             except Exception:
-                LOGGER.exception('Error setting bio for bot %s' % self.user.username)
+                settings.LOGGER.exception('Error setting bio for bot %s' % self.user.username)
 
         self.go_to(settings.URLS['twitter_login'], wait_page_loaded=True)
         self.click('a.DashboardProfileCard-avatarLink')
@@ -265,16 +265,16 @@ class TwitterScrapper(Scrapper):
         self.take_screenshot('profile_completed')
         self.user.save()
         if self.user.has_tw_profile_completed():
-            LOGGER.info('Profile completed ok for bot %s' % self.user.username)
+            settings.LOGGER.info('Profile completed ok for bot %s' % self.user.username)
         else:
-            LOGGER.info('Profile completed with errors for bot %s' % self.user.username)
+            settings.LOGGER.info('Profile completed with errors for bot %s' % self.user.username)
 
     def scrape_bot_creation(self):
         try:
-            LOGGER.info('Scraping bot "%s" creation..' % self.user.username)
+            settings.LOGGER.info('Scraping bot "%s" creation..' % self.user.username)
             t1 = datetime.datetime.utcnow()
             if settings.FAST_MODE and not settings.TEST_MODE:
-                LOGGER.warning('Fast mode only avaiable on test mode!')
+                settings.LOGGER.warning('Fast mode only avaiable on test mode!')
                 settings.FAST_MODE = False
 
             # abrimos ventana para scrapear twitter
@@ -304,9 +304,9 @@ class TwitterScrapper(Scrapper):
             self.user.save()
             t2 = datetime.datetime.utcnow()
             diff_secs = (t2 - t1).seconds
-            LOGGER.info('Bot "%s" creation scrapped sucessfully in %s seconds' % (self.user.username, diff_secs))
+            settings.LOGGER.info('Bot "%s" creation scrapped sucessfully in %s seconds' % (self.user.username, diff_secs))
         except Exception as ex:
-            LOGGER.exception('Error scraping bot "%s" for creation' % self.user.username)
+            settings.LOGGER.exception('Error scraping bot "%s" for creation' % self.user.username)
             self.close()
             raise ex
 
@@ -331,7 +331,7 @@ class TwitterScrapper(Scrapper):
 
         if self.check_visibility('#global-tweet-dialog'):
             # si aún aparece el diálogo de twitear es que no se envió ok
-            LOGGER.info('Failure sending tweet from %s' % self.user.username)
+            settings.LOGGER.info('Failure sending tweet from %s' % self.user.username)
             self.take_screenshot('failure_sending_tweet')
 
             # vemos si ha sido detectado como spammer
@@ -342,11 +342,11 @@ class TwitterScrapper(Scrapper):
         elif self.check_visibility('#spam_challenge_dialog-header'):
             raise BotDetectedAsSpammerException(self.user)
         else:
-            LOGGER.info('Tweet sent ok from %s' % self.user.username)
+            settings.LOGGER.info('Tweet sent ok from %s' % self.user.username)
             self.take_screenshot('tweet_sent_ok')
 
         self.delay.seconds(7)
 
     def send_mention(self, username_to_mention, mention_msg):
         self.send_tweet('@' + username_to_mention + ' ' + mention_msg)
-        LOGGER.info('Mention sent ok %s -> %s' % (self.user.username, username_to_mention))
+        settings.LOGGER.info('Mention sent ok %s -> %s' % (self.user.username, username_to_mention))

@@ -1,5 +1,7 @@
 import copy
+import time
 from project.models import Project
+from twitter_bots import settings
 from twitter_bots.settings import set_logger
 from django.core.management.base import BaseCommand, CommandError
 
@@ -10,8 +12,9 @@ class Command(BaseCommand):
     help = 'Creates bots'
 
     def handle(self, *args, **options):
-        LOGGER.info('-- Initialized follower extractor --')
+        settings.LOGGER.info('-- INITIALIZED follower extractor --')
         for project in Project.objects.all():
-            LOGGER.info('Extracting followers for all target users in project "%s"' % project.name)
             project.extract_followers_from_all_target_users()
+        settings.LOGGER.info('-- FINISHED follower extractor --')
+        time.sleep(15)
 

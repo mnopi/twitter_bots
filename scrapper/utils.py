@@ -133,7 +133,7 @@ def generate_random_desktop_user_agent():
     try:
         return get_from_w3schools()
     except Timeout:
-        LOGGER.warning('w3schools.com not accesible now, getting from user_agentes.json')
+        settings.LOGGER.warning('w3schools.com not accesible now, getting from user_agentes.json')
         return get_from_json()
 
 
@@ -142,7 +142,7 @@ def try_except(fn, ex_msg):
         try:
             return fn(*args, **kwargs)
         except Exception, e:
-            LOGGER.exception(ex_msg)
+            settings.LOGGER.exception(ex_msg)
             raise e
     return wrapped
 

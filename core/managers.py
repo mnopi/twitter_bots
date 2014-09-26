@@ -1,30 +1,37 @@
 # -*- coding: utf-8 -*-
 import os
-import datetime
 import time
+import threading
+import datetime
 
 from django.db import models
 from scrapper.exceptions import BotDetectedAsSpammerException
 from scrapper.thread_pool import ThreadPool
 from twitter_bots import settings
-from twitter_bots.settings import LOGGING
 from multiprocessing import Lock
 mutex = Lock()
 
 
 class TwitterBotManager(models.Manager):
     def create_bot(self, **kwargs):
-        ignore_exceptions = kwargs['ignore_exceptions'] if 'ignore_exceptions' in kwargs else False
-        if 'ignore_exceptions' in kwargs:
-            kwargs.pop('ignore_exceptions')
         bot = self.create(**kwargs)
-        return bot.process(ignore_exceptions=ignore_exceptions)
+        return bot.process()
 
-    def create_bots(self, num_bots, **kwargs):
-        pool = ThreadPool(settings.MAX_THREADS)
-        for _ in range(0, num_bots):
-            pool.add_task(self.create_bot, ignore_exceptions=True)
-        pool.wait_completion()
+    def create_bots(self, num_bots=None, **kwargs):
+        threads = []
+        for n in range(settings.MAX_THREADS):
+            thread = threading.Thread(target=self.create_bot)
+            thread.start()
+            threads.append(thread)
+
+        # to wait until all three functions are finished
+        for thread in threads:
+            thread.join()
+
+        # pool = ThreadPool(settings.MAX_THREADS)
+        # for _ in range(0, num_bots):
+        #     pool.add_task(self.create_bot, ignore_exceptions=True)
+        # pool.wait_completion()
 
     def check_listed_proxy(self, proxy):
         """Mira si el proxy está en las listas de proxies actuales, por si el usuario no se usó hace
@@ -46,7 +53,7 @@ class TwitterBotManager(models.Manager):
                                 break
 
             if not found_listed_proxy:
-                LOGGING.info('Proxy %s not listed' % proxy)
+                settings.LOGGER.info('Proxy %s not listed' % proxy)
 
             return found_listed_proxy
         else:
@@ -69,6 +76,7 @@ class TwitterBotManager(models.Manager):
         for bot in bots:
             if bot.can_tweet(tweet):
                 return bot
+        return None
 
     def get_all_bots(self):
         """Escoge todos aquellos bots que tengan phantomJS"""
@@ -88,9 +96,10 @@ class TwitterBotManager(models.Manager):
         except BotDetectedAsSpammerException:
             self.send_mentions(user_list, tweet_msg)
 
-    def send_tweet(self, ignore_exceptions=False):
+    def send_tweet(self):
         from project.models import Tweet
         tweet = bot = None
+
         try:
             # PONEMOS CANDADO
             mutex.acquire()
@@ -102,7 +111,7 @@ class TwitterBotManager(models.Manager):
                 tweet.sending = True
                 tweet.bot_used = bot
                 tweet.save()
-                LOGGING.info('Bot %s sending tweet: "%s"' % (bot.username, tweet_msg))
+                settings.LOGGER.info('Bot %s sending tweet: "%s"' % (bot.username, tweet_msg))
 
                 # QUITAMOS CANDADO
                 mutex.release()
@@ -116,52 +125,66 @@ class TwitterBotManager(models.Manager):
                 tweet.date_sent = datetime.datetime.now()
                 tweet.save()
                 bot.scrapper.close_browser()
-                LOGGING.info('Bot %s sent tweet ok: "%s"' % (bot.username, tweet_msg))
+                settings.LOGGER.info('Bot %s sent tweet ok: "%s"' % (bot.username, tweet_msg))
             else:
-                raise Exception('No more bots available for sending pending tweets')
+                settings.LOGGER.exception('No more bots available for sending pending tweets')
+                # quitamos candado tambien si falla
+                mutex.release()
         except Exception as ex:
-            LOGGING.exception('')
             try:
-                LOGGING.exception('Error sending tweet:\n "%s" \nby bot %s' % (tweet_msg, bot.username))
+                mutex.release()
+                settings.LOGGER.exception('Error sending tweet:\n "%s" \nby bot %s' % (tweet_msg, bot.username))
                 tweet.sending = False
                 tweet.bot = None
                 tweet.save()
                 bot.scrapper.close_browser()
             except Exception as ex:
-                LOGGING.exception('')
-                if ignore_exceptions:
-                    LOGGING.info('ignoring exception..')
-                else:
-                    raise ex
-
-            if ignore_exceptions:
-                LOGGING.info('ignoring exception..')
-            else:
+                settings.LOGGER.exception('Error catching exception')
                 raise ex
+
+            raise ex
+
+        # time.sleep(5)
+        # settings.LOGGER.info('exec 1')
+        # raise Exception('mierda')
 
     def send_pending_tweets(self):
         from project.models import Tweet
         Tweet.objects.clean_pending()
         pending_tweets = Tweet.objects.get_pending()
-        LOGGING.info('--- Sending %s pending tweets ---' % pending_tweets.count())
-        pool = ThreadPool(settings.MAX_THREADS)
-        # for _ in pending_tweets:
-        while True:
-            pool.add_task(self.send_tweet, ignore_exceptions=True)
-            if Tweet.objects.all_sent_ok():
-                break
-            else:
-                time.sleep(0.3)
-        pool.wait_completion()
-        LOGGING.info('Tweets sent ok')
+        if pending_tweets.exists():
+            settings.LOGGER.info('--- Sending %i of %s pending tweets ---' %
+                                 (settings.MAX_THREADS, pending_tweets.count()))
+            # pool = ThreadPool(settings.MAX_THREADS)
+            # for _ in pending_tweets:
+            # while True:
+            # for _ in pending_tweets:
+            #     LOGGER.info('Adding task..')
+            #     pool.add_task(self.send_tweet)
+            #     LOGGER.info('Checking if all tweets sent..')
+            #     if Tweet.objects.all_sent_ok():
+            #         break
+            #     else:
+            #         time.sleep(0.3)
+            # pool.wait_completion()
+
+            threads = []
+            for n in range(settings.MAX_THREADS):
+                thread = threading.Thread(target=self.send_tweet)
+                thread.start()
+                threads.append(thread)
+
+            # to wait until all three functions are finished
+            for thread in threads:
+                thread.join()
 
     def process_all_bots(self):
         bots = self.get_all_bots()
-        LOGGING.info('Processing %i bots..' % bots.count())
+        settings.LOGGER.info('Processing %i bots..' % bots.count())
         pool = ThreadPool(settings.MAX_THREADS)
         for bot in bots:
             pool.add_task(bot.process, ignore_exceptions=True)
         pool.wait_completion()
-        LOGGING.info('%i bots processed ok' % bots.count())
+        settings.LOGGER.info('%i bots processed ok' % bots.count())
 
 

@@ -113,9 +113,10 @@ LOGGING = {
     'handlers': {
         'file': {
             'level': 'DEBUG',
-            'class': 'logging.FileHandler',
+            'class': 'logging.handlers.RotatingFileHandler',
             'filename': 'mysite.log',
-            'formatter': 'verbose'
+            'formatter': 'verbose',
+            'maxBytes': 1024 * 1024 * 5,  # 5 MB,
         },
         'console': {
             'level': 'DEBUG',
@@ -161,7 +162,8 @@ PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs')
 PHANTOMJS_COOKIES_PATH = os.path.join(PHANTOMJS_PATH, 'cookies')
 
 # intervalo de twiteo para cada bot en minutos
-TIME_BETWEEN_TWEETS = (10, 20)
+# TIME_BETWEEN_TWEETS = (2, 7)
+TIME_BETWEEN_TWEETS = (30, 40)
 
 
 def set_logger(logger_name):

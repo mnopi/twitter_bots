@@ -66,7 +66,7 @@ class DeathByCaptchaResolver(CaptchaResolver):
                         if uploaded_captcha['text'] and uploaded_captcha['is_correct']:
                             self.scrapper.captcha_res = uploaded_captcha
             except Exception:
-                LOGGER.exception('Failed uploading CAPTCHA, response:\n\t%s' % r.content)
+                settings.LOGGER.exception('Failed uploading CAPTCHA, response:\n\t%s' % r.content)
                 self.scrapper.captcha_res = None
                 raise
 

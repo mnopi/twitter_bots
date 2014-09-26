@@ -46,7 +46,7 @@ class Scrapper(object):
         try:
             self.go_to('http://twitter.com')
         except Exception, e:
-            LOGGER.error('%s Proxy %s @ %s can\'t load twitter.com' %
+            settings.LOGGER.error('%s Proxy %s @ %s can\'t load twitter.com' %
                          (get_browser_instance_id(self.user), self.user.proxy, self.user.proxy_provider))
             self.close_browser()
             raise e
@@ -70,9 +70,9 @@ class Scrapper(object):
                     tor_c.send('AUTHENTICATE\r\nSIGNAL NEWNYM\r\n')
                     response = tor_c.recv(1024)
                     if response != '250 OK\r\n250 OK\r\n':
-                        LOGGER.warning('Unexpected response from Tor control port: {}\n'.format(response))
+                        settings.LOGGER.warning('Unexpected response from Tor control port: {}\n'.format(response))
                 except Exception, e:
-                    LOGGER.warning('Error connecting to Tor control port: {}'.format(repr(e)))
+                    settings.LOGGER.warning('Error connecting to Tor control port: {}'.format(repr(e)))
             elif method == 'telnet':
                 telnet = telnetlib.Telnet("127.0.0.1", settings.TOR_CTRL_PORT)
                 telnet.set_debuglevel(0)
@@ -137,7 +137,7 @@ class Scrapper(object):
                 service_args=service_args,
                 desired_capabilities=dcap
             )
-            LOGGER.info('%s phantomJS instance opened successfully' % get_browser_instance_id(self.user))
+            settings.LOGGER.info('%s phantomJS instance opened successfully' % get_browser_instance_id(self.user))
 
         # si ya hay navegador antes de abrirlo nos aseguramos que esté cerrado para no acumular una instancia más
         # cada vez que abrimos
@@ -186,7 +186,7 @@ class Scrapper(object):
         #self.user.cookies = simplejson.dumps(self.browser.get_cookies())
         self.user.save()
         self.browser.quit()
-        LOGGER.info('%s %s instance closed sucessfully' % (get_browser_instance_id(self.user), self.user.webdriver))
+        settings.LOGGER.info('%s %s instance closed sucessfully' % (get_browser_instance_id(self.user), self.user.webdriver))
 
     def open_url_in_new_tab(self, url):
         self.browser.find_element_by_tag_name("body").send_keys(self.CMD_KEY + 't')
@@ -210,9 +210,9 @@ class Scrapper(object):
                   'unauthorized IP to connect or provider refreshed proxies list' \
                   % (self.user.proxy, self.user.proxy_provider, self.browser.current_url)
         if type(e) is TimeoutException:
-            LOGGER.error('%s Timeout error: %s' % (get_browser_instance_id(self.user), err_msg))
+            settings.LOGGER.error('%s Timeout error: %s' % (get_browser_instance_id(self.user), err_msg))
         else:
-            LOGGER.error('%s %s' % (get_browser_instance_id(self.user), err_msg))
+            settings.LOGGER.error('%s %s' % (get_browser_instance_id(self.user), err_msg))
 
         if hasattr(self, 'email_scrapper'):
             self.email_scrapper.close_browser()
@@ -340,7 +340,7 @@ class Scrapper(object):
         self.email_scrapper.take_screenshot('signed_up_sucessfully')
         self.user.email_registered_ok = True
         self.user.save()
-        LOGGER.info('%s %s signed up ok' % (get_browser_instance_id(self.user), self.user.email))
+        settings.LOGGER.info('%s %s signed up ok' % (get_browser_instance_id(self.user), self.user.email))
 
     def login_email_account(self):
         from .accounts.hotmail import HotmailScrapper
@@ -423,7 +423,7 @@ class Scrapper(object):
             if timeout:
                 self.browser.set_page_load_timeout(timeout)
             self.browser.get(url)
-            LOGGER.info('%s go_to: %s' % (get_browser_instance_id(self.user), url))
+            settings.LOGGER.info('%s go_to: %s' % (get_browser_instance_id(self.user), url))
             if 'about:blank' in self.browser.current_url:
                 raise Exception()
             self.take_screenshot('go_to')
@@ -433,7 +433,7 @@ class Scrapper(object):
             self._quit_focus_from_address_bar()
         except Exception, e:
             if type(e) is TimeoutException and ignore_timeout_error:
-                LOGGER.warning('%s Timeout loading url %s, ignoring TimeoutException..' %
+                settings.LOGGER.warning('%s Timeout loading url %s, ignoring TimeoutException..' %
                                (get_browser_instance_id(self.user), url))
             else:
                 self._request_error_callback(e)
@@ -519,7 +519,7 @@ class Scrapper(object):
         if el_str:
             msg = '%s click_%s' % (get_browser_instance_id(self.user), el_str)
             self.take_screenshot(msg)
-            LOGGER.info(msg)
+            settings.LOGGER.info(msg)
 
     def _quit_focus_from_address_bar(self):
         self.send_special_key(Keys.TAB)
@@ -587,7 +587,7 @@ class Scrapper(object):
                 os.path.join(settings.PROJECT_ROOT, 'scrapper', 'avatars', '%s.png' % self.user.username)
             )
         except Exception, e:
-            LOGGER.exception('%s Could not download picture from google for user "%s"' %
+            settings.LOGGER.exception('%s Could not download picture from google for user "%s"' %
                              (get_browser_instance_id(self.user), self.user.username))
             g_scrapper._request_error_callback(e)
         finally:
@@ -636,7 +636,7 @@ class Scrapper(object):
                         break
                 return sel_quote
             except Exception:
-                LOGGER.exception('Error getting quote from quotationspage')
+                settings.LOGGER.exception('Error getting quote from quotationspage')
                 q_scrapper.take_screenshot('quote_get_fail')
                 return None
 
@@ -656,7 +656,7 @@ class Scrapper(object):
             else:
                 raise Exception()
         except Exception, e:
-            LOGGER.exception('%s Error getting quote' % get_browser_instance_id(self.user))
+            settings.LOGGER.exception('%s Error getting quote' % get_browser_instance_id(self.user))
             q_scrapper.take_screenshot('quote_get_fail')
             raise e
         finally:
@@ -684,7 +684,7 @@ class Scrapper(object):
                 self.browser.save_screenshot(os.path.join(dir, '%i_%s.jpg' % (self.screenshot_num, title)))
             self.screenshot_num += 1
         except Exception:
-            LOGGER.exception('%s Error shooting %i_%s.jpg' %
+            settings.LOGGER.exception('%s Error shooting %i_%s.jpg' %
                              (get_browser_instance_id(self.user), self.screenshot_num, title))
 
     def move_mouse_to_el(self, el):

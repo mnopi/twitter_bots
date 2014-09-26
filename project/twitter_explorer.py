@@ -3,6 +3,7 @@ import simplejson
 import time
 from project.exceptions import RateLimitedException
 from project.models import TargetUser, TwitterUser, Follower
+from twitter_bots import settings
 from twitter_bots.settings import LOGGER
 
 __author__ = 'Michel'
@@ -21,13 +22,13 @@ class TwitterExplorer(object):
             twitter_user = TwitterUser.objects.filter(twitter_id=tw_follower['id'])
             if not twitter_user.exists():
                 twitter_user = TwitterUser()
-                LOGGER.info('Creating new twitter user %s' % tw_follower['screen_name'])
+                settings.LOGGER.info('Creating new twitter user %s' % tw_follower['screen_name'])
             else:
                 if len(twitter_user) > 1:
                     raise Exception('Duplicated twitter user with id %i' % twitter_user[0].twitter_id)
                 else:
                     twitter_user = twitter_user[0]
-                    LOGGER.info('Twitter user %s exists previously saved. Getting..' % twitter_user.username)
+                    settings.LOGGER.info('Twitter user %s exists previously saved. Getting..' % twitter_user.username)
 
             twitter_user.twitter_id = tw_follower['id']
             twitter_user.created_date = self.api.format_datetime(tw_follower['created_at'])
@@ -51,7 +52,7 @@ class TwitterExplorer(object):
                 twitter_user.source = TwitterUser.OTHERS
 
             twitter_user.save()
-            LOGGER.info('Twitter user %s saved ok' % twitter_user.username)
+            settings.LOGGER.info('Twitter user %s saved ok' % twitter_user.username)
             return twitter_user
 
         uri = 'followers/list.json?screen_name=%s&count=200' % target_username
@@ -61,7 +62,7 @@ class TwitterExplorer(object):
         next_cursor = target_user.next_cursor
         while True:
             try:
-                LOGGER.info('Retrieving %s followers (cursor %i)' % (target_username, next_cursor))
+                settings.LOGGER.info('Retrieving %s followers (cursor %i)' % (target_username, next_cursor))
 
                 # si esta a None entonces se dan por procesados todos sus followers
                 if next_cursor == None:
@@ -86,13 +87,13 @@ class TwitterExplorer(object):
                     next_cursor = None
                     target_user.next_cursor = next_cursor
                     target_user.save()
-                    LOGGER.info('All followers from %s retrieved ok' % target_username)
+                    settings.LOGGER.info('All followers from %s retrieved ok' % target_username)
                     break
                 else:
                     target_user.next_cursor = next_cursor
                     target_user.save()
             except RateLimitedException:
-                LOGGER.exception('')
+                settings.LOGGER.exception('')
                 # ponemos a dormir el explorador 16 minutillos hasta que refresque el periodo ventana de la API para pedir mas followers
                 time.sleep(16*60)
 

@@ -105,14 +105,14 @@ class TwitterBot(models.Model):
         self.it_works = False
         self.date_suspended = datetime.datetime.now()
         self.save()
-        LOGGER.warning('User %s has marked as suspended on twitter' % self.username)
+        settings.LOGGER.warning('User %s has marked as suspended on twitter' % self.username)
 
     def mark_as_not_twitter_registered_ok(self):
         self.twitter_registered_ok = False
         self.twitter_confirmed_email_ok = False
         self.it_works = False
         self.save()
-        LOGGER.warning('User %s has marked as not twitter registered ok' % self.username)
+        settings.LOGGER.warning('User %s has marked as not twitter registered ok' % self.username)
 
     def get_email_username(self):
         """Pilla el usuario de ese email (sin el @etc.com)"""
@@ -189,7 +189,7 @@ class TwitterBot(models.Model):
         "Mira si el proxy del usuario aparece en alguno de los .txt de la carpeta proxies"
         return self.__class__.objects.check_listed_proxy(self.proxy)
 
-    def process(self, ignore_exceptions=False):
+    def process(self):
         """Se procesa el bot una vez creado en BD. Esto sirve tanto para creación de bots como para
         comprobar que todavía funciona"""
         from core.managers import mutex
@@ -209,13 +209,10 @@ class TwitterBot(models.Model):
             # si no hay mas proxies cortamos el proceso
             raise e
         except Exception, e:
-            if ignore_exceptions:
-                LOGGER.warning('ignoring exception..')
-            else:
-                raise e
+            raise e
         finally:
             if self.has_no_accounts():
-                LOGGER.exception('Bot %s has any account and will be deleted' % self.username)
+                settings.LOGGER.exception('Bot %s has any account and will be deleted' % self.username)
                 self.delete()
 
     def generate_email(self):

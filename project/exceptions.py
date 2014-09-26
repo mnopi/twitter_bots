@@ -1,8 +1,8 @@
-from twitter_bots.settings import LOGGER
+from twitter_bots import settings
 
 __author__ = 'Michel'
 
 
 class RateLimitedException(Exception):
     def __init__(self):
-        LOGGER.warning('Rate limit exceeded getting from twitter API')
+        settings.LOGGER.warning('Rate limit exceeded getting from twitter API')

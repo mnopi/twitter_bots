@@ -71,6 +71,11 @@ class TweetAdmin(admin.ModelAdmin):
         'bot_used',
     )
 
+    search_fields = ('bot_used__username',)
+    list_filter = ('sending', 'sent_ok', 'date_sent',)
+    # ordering = ('-date',)
+    # list_display_links = ('username',)
+
 
 # Register your models here.
 admin.site.register(Project, ProjectAdmin)

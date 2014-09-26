@@ -120,7 +120,7 @@ class HotmailScrapper(Scrapper):
             self.click('#iOptinEmail')
 
         try:
-            LOGGER.info('Signing up %s..' % self.user.email)
+            settings.LOGGER.info('Signing up %s..' % self.user.email)
             self.go_to(settings.URLS['hotmail_reg'])
             captcha_resolver = DeathByCaptchaResolver(self)
             self.wait_visibility_of_css_element('#iliveswitch', timeout=10)
