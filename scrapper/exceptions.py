@@ -1,8 +1,18 @@
-from .logger import LOGGER
+from twitter_bots import settings
 
 
 class TwitterEmailNotFound(Exception):
     pass
+
+
+class TwitterEmailNotConfirmed(Exception):
+    def __init__(self, bot):
+        settings.LOGGER.warning('Bot %s hasnt confirmed twitter email %s yet' % (bot.username, bot.email))
+
+
+class TwitterAccountSuspended(Exception):
+    def __init__(self, bot):
+        settings.LOGGER.warning('Bot %s has his twitter account suspended' % bot.username)
 
 
 class BotDetectedAsSpammerException(Exception):
@@ -10,6 +20,10 @@ class BotDetectedAsSpammerException(Exception):
         settings.LOGGER.warning('Bot %s was detected as spammer' % bot.username)
         bot.it_works = False
         bot.save()
+
+
+class FailureSendingTweetException(Exception):
+    pass
 
 
 class BotMustVerifyPhone(Exception):

@@ -161,9 +161,12 @@ PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs')
 
 PHANTOMJS_COOKIES_PATH = os.path.join(PHANTOMJS_PATH, 'cookies')
 
+
+PROXIES_DIR = os.path.join(PROJECT_ROOT, 'core', 'proxies')
+
 # intervalo de twiteo para cada bot en minutos
-# TIME_BETWEEN_TWEETS = (2, 7)
-TIME_BETWEEN_TWEETS = (30, 40)
+TIME_BETWEEN_TWEETS = (2, 7)
+# TIME_BETWEEN_TWEETS = (30, 40)
 
 
 def set_logger(logger_name):

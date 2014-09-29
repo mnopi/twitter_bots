@@ -6,7 +6,8 @@ from selenium.webdriver.common.keys import Keys
 from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG, LOGGER
 from scrapper.captcha_resolvers import DeathByCaptchaResolver
 from scrapper.exceptions import TwitterEmailNotFound, BotDetectedAsSpammerException, BotMustVerifyPhone, \
-    TwitterBotDontExistsOnTwitterException
+    TwitterBotDontExistsOnTwitterException, FailureSendingTweetException, TwitterEmailNotConfirmed, \
+    TwitterAccountSuspended
 from scrapper.utils import *
 from twitter_bots import settings
 
@@ -109,6 +110,7 @@ class TwitterScrapper(Scrapper):
         self.browser.execute_script('localStorage.clear();')
 
     def login(self):
+        """Hace todo el proceso de entrar en twitter y loguearse si fuera necesario por no tener las cookies guardadas"""
         try:
             self.open_browser()
             self.go_to(settings.URLS['twitter_login'])
@@ -120,78 +122,68 @@ class TwitterScrapper(Scrapper):
                 self.click('.front-signin button')
 
             self.wait_to_page_loaded()
+            self.check_account_exists()
+
             self.clear_local_storage()
-
-            if self.check_visibility('#account-suspended'):
-                conf_email_link = get_element(lambda: self.browser.find_element_by_partial_link_text('confirm your email'))
-                if conf_email_link:
-                    # si la cuanta está suspendida por no haber comprobado el email
-                    self.click(conf_email_link)
-                    self.user.mark_as_suspended()
-                else:
-                    # intentamos levantar suspensión
-                    cr = DeathByCaptchaResolver(self)
-
-                    def submit_unsuspension():
-                        cr.resolve_captcha(
-                            self.get_css_element('#recaptcha_challenge_image'),
-                            self.get_css_element('#recaptcha_response_field')
-                        )
-                        self.click('#suspended_help_submit')
-                        self.delay.seconds(5)
-
-                        if self.check_visibility('form.t1-form .error-occurred'):
-                            cr.report_wrong_captcha()
-                            submit_unsuspension()
-
-                    self.user.mark_as_suspended()
-                    self.click(self.get_css_element('#account-suspended a'))
-                    self.click('#checkbox_discontinue')
-                    self.click('#checkbox_permanent')
-                    submit_unsuspension()
-            elif self.check_visibility('button.resend-confirmation-email-link'):
-                    self.click('button.resend-confirmation-email-link')
-                    self.delay.seconds(2)
-                    self.user.twitter_confirmed_email_ok = False
-                    self.user.save()
-            else:
-                user_not_found_el = get_element(lambda: self.get_css_element('#message-drawer'))
-                if user_not_found_el and 'The username and password you entered did not match our records' in user_not_found_el.text:
-                    # si el usuario no se encuentra
-                    raise TwitterBotDontExistsOnTwitterException(self.user)
-                else:
-                    # si el usuario se encuentra..
-                    self.user.it_works = True
-                    self.user.save()
+            self.check_account_suspended()
         except Exception, e:
             settings.LOGGER.exception('Login on twitter error for %s' % self.user.username)
             raise e
 
     def check_account_suspended(self):
-        """Una vez intentado el logueo miramos si fue suspendida la cuenta"""
-        def bot_is_suspended():
-            try:
-                is_suspended = self.browser.find_element_by_id('account-suspended').is_displayed()
-            except Exception:
-                is_suspended = 'error' in self.browser.current_url
-            return is_suspended
+        """Una vez logueado miramos si fue suspendida la cuenta"""
+        bot_is_suspended = lambda: self.get_css_element('#account-suspended') and \
+                                   self.get_css_element('#account-suspended').is_displayed()
+        if check_condition(bot_is_suspended()):
+            self.user.mark_as_suspended()
 
-        try:
-            self.login()
-            if check_condition(bot_is_suspended):
-                self.user.mark_as_suspended()
-                self.close_browser()
-            elif check_condition(lambda: 'locked' in self.browser.current_url):
-                # en el caso de problemas con el proxy actual porque le hayan detectado muchas peticiones
-                # de login seguidas, en ese caso se vuelve a comprobar el bot con otra ip
-                self.check_account_suspended()
+            if 'confirm your email' in self.get_css_element('#account-suspended').text:
+                self.click('#account-suspended a')
+                self.delay.seconds(4)
+                raise TwitterEmailNotConfirmed(self.user)
             else:
-                # si el usuario está 'sanote' cerramos navegador sin hacer nada
-                self.close_browser()
-        except Exception:
-            # si ha habido algún otro problema volvemos a comprobar el usuario
-            settings.LOGGER.exception('Problem checking if twitter account was suspended for "%s"' % self.user.username)
-            self.check_account_suspended()
+                raise TwitterAccountSuspended(self.user)
+        else:
+            self.user.it_works = True
+            self.user.save()
+
+        # if self.check_visibility('#account-suspended'):
+        #     conf_email_link = get_element(lambda: self.browser.find_element_by_partial_link_text('confirm your email'))
+        #     if conf_email_link:
+        #         # si la cuanta está suspendida por no haber comprobado el email
+        #         self.click(conf_email_link)
+        #         self.user.mark_as_suspended()
+        #     else:
+        #         # intentamos levantar suspensión
+        #         cr = DeathByCaptchaResolver(self)
+        #
+        #         def submit_unsuspension():
+        #             cr.resolve_captcha(
+        #                 self.get_css_element('#recaptcha_challenge_image'),
+        #                 self.get_css_element('#recaptcha_response_field')
+        #             )
+        #             self.click('#suspended_help_submit')
+        #             self.delay.seconds(5)
+        #
+        #             if self.check_visibility('form.t1-form .error-occurred'):
+        #                 cr.report_wrong_captcha()
+        #                 submit_unsuspension()
+        #
+        #         self.user.mark_as_suspended()
+        #         self.click(self.get_css_element('#account-suspended a'))
+        #         self.click('#checkbox_discontinue')
+        #         self.click('#checkbox_permanent')
+        #         submit_unsuspension()
+        # elif self.check_visibility('button.resend-confirmation-email-link'):
+        #         self.click('button.resend-confirmation-email-link')
+        #         self.delay.seconds(2)
+        #         self.user.twitter_confirmed_email_ok = False
+        #         self.user.save()
+
+    def check_account_exists(self):
+        "Mira si tras intentar loguearse el usuario existe o no en twitter"
+        if 'error' in self.browser.current_url:
+            raise TwitterBotDontExistsOnTwitterException(self.user)
 
     def twitter_page_is_loaded_on_new_window(self):
         """mira si se cargó por completo la página en la ventana nueva que se abre al pinchar en el enlace
@@ -316,10 +308,6 @@ class TwitterScrapper(Scrapper):
         self.close_browser()
 
     def send_tweet(self, msg):
-        if not self.is_logged_in():
-            self.login()
-
-        self.clear_local_storage()
         self.click('#global-new-tweet-button')
         self.send_keys(msg)
 
@@ -328,19 +316,13 @@ class TwitterScrapper(Scrapper):
         # self.fill_input_text('#tweet-box-mini-home-profile', msg)
 
         self.click('#global-tweet-dialog-dialog .tweet-button button')
+        self.delay.seconds(5)
 
         if self.check_visibility('#global-tweet-dialog'):
             # si aún aparece el diálogo de twitear es que no se envió ok
             settings.LOGGER.info('Failure sending tweet from %s' % self.user.username)
             self.take_screenshot('failure_sending_tweet')
-
-            # vemos si ha sido detectado como spammer
-            if self.check_visibility('#spam_challenge_dialog-header'):
-                raise BotDetectedAsSpammerException(self.user)
-
-            self.send_special_key(Keys.ESCAPE)
-        elif self.check_visibility('#spam_challenge_dialog-header'):
-            raise BotDetectedAsSpammerException(self.user)
+            raise FailureSendingTweetException()
         else:
             settings.LOGGER.info('Tweet sent ok from %s' % self.user.username)
             self.take_screenshot('tweet_sent_ok')

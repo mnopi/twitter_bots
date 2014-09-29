@@ -185,8 +185,14 @@ class Scrapper(object):
         # antes guardamos cookies
         #self.user.cookies = simplejson.dumps(self.browser.get_cookies())
         self.user.save()
-        self.browser.quit()
-        settings.LOGGER.info('%s %s instance closed sucessfully' % (get_browser_instance_id(self.user), self.user.webdriver))
+        try:
+            self.browser.quit()
+            settings.LOGGER.info('%s %s instance closed sucessfully' % (get_browser_instance_id(self.user), self.user.webdriver))
+        except Exception as ex:
+            if not self.browser:
+                settings.LOGGER.warning('%s %s instance was not opened browser' % (get_browser_instance_id(self.user), self.user.webdriver))
+            else:
+                raise ex
 
     def open_url_in_new_tab(self, url):
         self.browser.find_element_by_tag_name("body").send_keys(self.CMD_KEY + 't')

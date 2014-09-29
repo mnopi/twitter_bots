@@ -1,54 +1,92 @@
 from django.db import models
+from django.db.models import Count
 from core.models import TwitterBot
-from project.managers import TargetUserManager, TweetManager
+from project.managers import TargetUserManager, TweetManager, ProjectManager
 from twitter_bots import settings
 from twitter_bots.settings import LOGGER
 
 
 class Project(models.Model):
     name = models.CharField(max_length=100, null=False, blank=True)
-    target_users = models.ManyToManyField('TargetUser', related_name='projects')
+    target_users = models.ManyToManyField('TargetUser', related_name='projects', blank=True)
+    running = models.BooleanField(default=True)
+    has_tracked_clicks = models.BooleanField(default=False)
+
+    objects = ProjectManager()
 
     def __unicode__(self):
         return self.name
 
-    def followers_spammed(self):
-        pass
-
-    def total_followers(self):
-        return Follower.objects.filter(target_user__projects=self).count()
-
-    def create_tweets(self, platform=None):
-        """platform es una de las posibles opciones de segmentacion a implementar en un futuro (por pais, idioma..)"""
-        settings.LOGGER.info('Creating tweets for project %s' % self.name)
-        filter = {
-            'target_user__projects': self,
-        }
-        if platform != None:
-            filter.update(twitter_user__source=platform)
-
-        # todo: optimizar par una sola consulta
-        current_tweet = self.create_tweet_to_send(platform=TwitterUser.ANDROID)
-        followers = Follower.objects.filter(**filter)
-        for follower in followers:
-            if not follower.was_mentioned(project=self):
-                settings.LOGGER.info('Processing follower %s' % follower.twitter_user.username)
-                current_tweet.mentioned_users.add(follower.twitter_user)
-                if not current_tweet.has_space():
-                    current_tweet.mentioned_users.remove(follower.twitter_user)
-                    current_tweet = self.create_tweet_to_send(platform=TwitterUser.ANDROID)
-                    current_tweet.mentioned_users.add(follower.twitter_user)
-            else:
-                settings.LOGGER.info('%s was mentioned for project %s' % (follower.twitter_user.username, self.name))
-
-        if not current_tweet.mentioned_users.all():
-            current_tweet.delete()
+    # GETTERS
 
     def get_tweets_pending_to_send(self):
         return Tweet.objects.filter(project=self, sent_ok=False, sending=False)
 
+    def get_followers(self, platform=None):
+        total_followers = Follower.objects.filter(target_user__projects=self)
+        if platform:
+            return total_followers.filter(twitter_user__source=platform)
+        else:
+            return total_followers
+
+    def get_followers_count(self):
+        return self.get_followers().count()
+
+    def get_followers_to_mention(self, platform=None):
+        project_followers = self.get_followers(platform=platform)
+        project_followers = project_followers.annotate(mentions_count=Count('twitter_user__mentions'))
+        return project_followers.filter(mentions_count=0)
+
+    # def create_tweets(self, platform=None):
+    #     """platform es una de las posibles opciones de segmentacion a implementar en un futuro (por pais, idioma..)"""
+    #     settings.LOGGER.info('Creating tweets for project %s' % self.name)
+    #     filter = {
+    #         'target_user__projects': self,
+    #     }
+    #     if platform != None:
+    #         filter.update(twitter_user__source=platform)
+    #
+    #     current_tweet = self.create_tweet_to_send(platform=TwitterUser.ANDROID)
+    #     followers = Follower.objects.filter(**filter)
+    #     for follower in followers:
+    #         if not follower.was_mentioned(project=self):
+    #             settings.LOGGER.info('Processing follower %s' % follower.twitter_user.username)
+    #             current_tweet.mentioned_users.add(follower.twitter_user)
+    #             if not current_tweet.has_space():
+    #                 current_tweet.mentioned_users.remove(follower.twitter_user)
+    #                 current_tweet = self.create_tweet_to_send(platform=TwitterUser.ANDROID)
+    #                 current_tweet.mentioned_users.add(follower.twitter_user)
+    #         else:
+    #             settings.LOGGER.info('%s was mentioned for project %s' % (follower.twitter_user.username, self.name))
+    #
+    #     if not current_tweet.mentioned_users.all():
+    #         current_tweet.delete()
+
+    def create_tweet(self, platform=None):
+        settings.LOGGER.info('Creating tweet for project %s' % self.name)
+
+        current_tweet = self.create_tweet_to_send(platform=TwitterUser.ANDROID)
+        followers = self.get_followers(platform=platform)
+        for follower in followers:
+            if not follower.was_mentioned(project=self):
+                settings.LOGGER.info('Processing follower %s' % follower.twitter_user.username)
+                current_tweet.mentioned_users.add(follower.twitter_user)
+                if current_tweet.exceeded_tweet_limit():
+                    current_tweet.mentioned_users.remove(follower.twitter_user)
+            else:
+                settings.LOGGER.info('%s was mentioned for project %s' % (follower.twitter_user.username, self.name))
+
+        # si el tweet no menciona a nadie se elimina
+        if not current_tweet.mentioned_users.all():
+            current_tweet.delete()
+            raise NoMoreFollowersOnProjectException()
+
+
+
+
+
     def create_tweet_to_send(self, platform=None):
-        new_tweet = Tweet(project=self, tweet_msg=self.tweet_msgs.first())
+        new_tweet = Tweet(project=self, tweet_msg=self.tweet_msgs.order_by('?'))
 
         links = self.links.filter(platform=platform)
         if platform != None and links.exists():
@@ -61,6 +99,13 @@ class Project(models.Model):
         settings.LOGGER.info('Extracting followers for all target users in project "%s"' % self.name)
         for target_user in self.target_users.all():
             target_user.extract_followers()
+
+    def has_all_mentioned(self):
+        pass
+        # return self.filter(target_users__followers)
+
+
+
 
 
 class TweetMsg(models.Model):
@@ -199,7 +244,10 @@ class Tweet(models.Model):
 
     def has_space(self):
         """Devuelve si el tweet no supera los 140 caracteres"""
-        return self.length() <= 140
+        return self.length() < 140
+
+    def exceeded_tweet_limit(self):
+        return self.length() > 140
 
     def is_available(self):
         return not self.sending and not self.sent_ok

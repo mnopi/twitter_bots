@@ -1,3 +1,4 @@
+from django.db.models import Count
 from twitter_bots import settings
 from django.db import models
 
@@ -21,5 +22,23 @@ class TweetManager(models.Manager):
 
     def clean_pending(self):
         "Vuelve a marcar como disponible para que lo envie algun robot"
-        self.filter(sending=True).update(sending=False, bot_used=None)
-        settings.LOGGER.info('Cleaned pending tweets to send')
+        self.filter(sending=True).delete()
+        settings.LOGGER.info('Deleted previous pending tweets to send')
+
+    def create_tweet(self, platform=None):
+        "Crea un tweet para un proyecto aleatorio entre los marcados como running"
+        from .models import Project
+        project = Project.objects.get_pending_to_process().order_by('?')[0]
+        project.create_tweet()
+
+
+class ProjectManager(models.Manager):
+    def get_pending_to_process(self):
+        "Devuelve todos los proyectos activos que tengan followers por mencionar"
+        return self\
+            .filter(running=True)\
+            .annotate(unmentioned_users_count=Count('target_users__followers__twitter_user__mentions'))\
+            .filter(unmentioned_users_count__gt=0)
+
+
+

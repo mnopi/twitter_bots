@@ -37,4 +37,4 @@ logging.config.dictConfig(LOGGING)
 LOGGER = logging.getLogger('scrapper')
 
 def get_browser_instance_id(user):
-    return '[instance %i, %s]' % (user.id, user.real_name)
+    return '[instance %i, %s]' % (user.id, user.username)

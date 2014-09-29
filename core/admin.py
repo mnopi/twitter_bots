@@ -1,3 +1,4 @@
+import datetime
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
@@ -5,6 +6,7 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import render_to_response
 from core.forms import MyUserChangeForm, TwitterBotForm
 from core.models import User, TwitterBot
+from project.models import Tweet
 from scrapper.scrapper import Scrapper
 from django.contrib import messages
 from scrapper.accounts.twitter import TwitterScrapper
@@ -78,6 +80,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'create_bot_from_fixed_ip',
         'send_tweet_from_pendings',
         'send_pending_tweets',
+        'send_pending_tweet_from_selected_bot',
     ]
 
     def open_browser_instance(self, request, queryset):
@@ -240,6 +243,38 @@ class TwitterBotAdmin(admin.ModelAdmin):
             settings.LOGGER.exception(msg)
             self.message_user(request, msg, level=messages.ERROR)
     create_bots.short_description = "Create N bots"
+
+    def send_pending_tweet_from_selected_bot(self, request, queryset):
+        if queryset.count() == 1:
+            bot = queryset[0]
+            try:
+                tweet = Tweet.objects.get_pending()[0]
+                tweet_msg = tweet.compose()
+                tweet.sending = True
+                tweet.bot_used = bot
+                tweet.save()
+                bot.scrapper.screenshots_dir = str(tweet.pk)
+                bot.scrapper.open_browser()
+                bot.scrapper.go_to(settings.URLS['twitter_login'])
+                bot.scrapper.send_tweet(tweet_msg)
+                tweet.sending = False
+                tweet.sent_ok = True
+                tweet.date_sent = datetime.datetime.now()
+                tweet.save()
+                bot.scrapper.close_browser()
+                self.message_user(request, "%s sent tweet ok" % bot.username)
+            except Exception:
+                self.message_user(request, "There was errors sending tweet from bot %s" % bot.username, level=messages.ERROR)
+        else:
+            self.message_user(request, "Only select one user for this action", level=messages.WARNING)
+
+
+
+
+
+        TwitterBot.objects.send_tweet()
+        self.message_user(request, "Tweet sent sucessfully")
+    send_pending_tweet_from_selected_bot.short_description = "Send pending tweet from selected bot"
 
     def send_tweet_from_pendings(self, request, queryset):
         TwitterBot.objects.send_tweet()

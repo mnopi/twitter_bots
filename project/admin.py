@@ -32,7 +32,7 @@ class ProjectAdmin(admin.ModelAdmin):
     list_display = (
         'name',
         # 'followers_spammed',
-        'total_followers',
+        'get_followers_count',
     )
     search_fields = ('name',)
     list_display_links = ('name',)

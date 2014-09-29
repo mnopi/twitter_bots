@@ -127,36 +127,7 @@ class TwitterBot(models.Model):
         Scrapper(self).check_proxy_works_ok()
 
     def assign_proxy(self, proxy=None, proxy_provider=None):
-        """Busca un proxy disponible y se lo asigna"""
-
-        def check_avaiable_proxy(proxy):
-            """
-            Para que un proxy esté disponible para el bot se tiene que cumplir:
-                -   que no haya que verificar teléfono
-                -   que el número de bots con ese proxy no superen el máximo por proxy (space_ok)
-                -   que el último usuario que se registró usando ese proxy lo haya hecho
-                    hace más de el periodo mínimo de días (diff_ok)
-            """
-            if proxy:
-                num_users_with_that_proxy = self.__class__.objects.filter(proxy=proxy).count()
-                proxy_under_phone_verification = self.__class__.objects.filter(proxy=proxy, must_verify_phone=True)
-                space_ok = not proxy_under_phone_verification and \
-                           num_users_with_that_proxy <= settings.MAX_TWT_BOTS_PER_PROXY
-                if space_ok:
-                    if num_users_with_that_proxy > 0:
-                        latest_user_with_that_proxy = self.__class__.objects.filter(proxy=proxy).latest('date')
-                        diff_ok = (datetime.datetime.now().replace(tzinfo=pytz.utc)
-                                   - latest_user_with_that_proxy.date).days >= 5
-                        return diff_ok
-                    else:
-                        # proxy libre
-                        return True
-                else:
-                    return False
-            else:
-                # si 'proxy' es una cadena vacía..
-                return False
-
+        """Le asigna un proxy disponible"""
         if settings.TOR_MODE:
             self.proxy = 'tor'
         elif proxy and proxy_provider:
@@ -164,26 +135,8 @@ class TwitterBot(models.Model):
             self.proxy_provider = proxy_provider
             self.save()
         else:
-            found_avaiable_proxy = False
-            proxies_folder = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'proxies')
-            for (dirpath, dirnames, filenames) in os.walk(proxies_folder):
-                if found_avaiable_proxy: break
-                for filename in filenames:  # myprivateproxy.txt
-                    if found_avaiable_proxy: break
-                    with open(os.path.join(dirpath, filename)) as f:
-                        proxies_lines = f.readlines()
-                        for proxy in proxies_lines:
-                            proxy = proxy.replace('\n', '')
-                            proxy = proxy.replace(' ', '')
-                            found_avaiable_proxy = check_avaiable_proxy(proxy)
-                            if found_avaiable_proxy:
-                                self.proxy = proxy
-                                self.proxy_provider = filename.split('.')[0]
-                                self.save()
-                                break
-
-            if not found_avaiable_proxy:
-                raise NoMoreAvaiableProxiesException()
+            self.proxy, self.proxy_provider = random.choice(self.__class__.objects.get_available_proxies())
+            self.save()
 
     def has_proxy_listed(self):
         "Mira si el proxy del usuario aparece en alguno de los .txt de la carpeta proxies"
@@ -193,22 +146,24 @@ class TwitterBot(models.Model):
         """Se procesa el bot una vez creado en BD. Esto sirve tanto para creación de bots como para
         comprobar que todavía funciona"""
         from core.managers import mutex
+        settings.LOGGER.info('Processing bot %s' % self.username)
         try:
-            with mutex:
-                if self.has_no_accounts():
-                    self.populate()
-                    self.assign_proxy()
-                elif not self.proxy:
-                    self.assign_proxy()
+            mutex.acquire()
+            if self.has_no_accounts():
+                self.populate()
+                self.assign_proxy()
+            elif not self.proxy:
+                self.assign_proxy()
+            mutex.release()
 
             if self.has_to_be_completed():
                 self.scrapper.scrape_bot_creation()
-
-            return
         except NoMoreAvaiableProxiesException, e:
             # si no hay mas proxies cortamos el proceso
+            mutex.release()
             raise e
         except Exception, e:
+            mutex.release()
             raise e
         finally:
             if self.has_no_accounts():
