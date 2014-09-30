@@ -9,7 +9,7 @@ from twitter_bots.settings import LOGGER
 class Project(models.Model):
     name = models.CharField(max_length=100, null=False, blank=True)
     target_users = models.ManyToManyField('TargetUser', related_name='projects', blank=True)
-    running = models.BooleanField(default=True)
+    is_running = models.BooleanField(default=True)
     has_tracked_clicks = models.BooleanField(default=False)
 
     objects = ProjectManager()
@@ -104,12 +104,13 @@ class Project(models.Model):
         pass
         # return self.filter(target_users__followers)
 
-
-
+    def get_platforms(self):
+        platforms = Link.objects.filter(project=self).values('platform').distinct()
+        return [pl['platform'] for pl in platforms]
 
 
 class TweetMsg(models.Model):
-    text = models.CharField(max_length=160, null=False, blank=True)
+    text = models.CharField(max_length=101, null=False, blank=False)
     project = models.ForeignKey(Project, related_name='tweet_msgs')
 
     def __unicode__(self):

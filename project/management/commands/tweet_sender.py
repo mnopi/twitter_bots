@@ -15,6 +15,6 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         settings.LOGGER.info('-- INITIALIZED TWEET SENDER --')
-        TwitterBot.objects.send_pending_tweets()
+        TwitterBot.objects.send_tweets()
         settings.LOGGER.info('-- FINISHED TWEET SENDER --')
 

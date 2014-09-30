@@ -232,21 +232,17 @@ class TwitterBot(models.Model):
             # si el bot no tuiteo nunca evidentemente el tiempo no tiene nada que ver
             return True
 
-    def is_sending_tweet(self):
+    def is_already_sending_tweet(self):
         from project.models import Tweet
         return Tweet.objects.filter(bot_used=self, sending=True).exists()
 
-    def can_tweet(self, tweet):
+    def can_tweet(self):
         """
         Devuelve si el bot puede tuitear, cumpliendo:
             - que no este el robot sending otro tweet
             - que no haya tuiteado entre random de 2 y 7 min (time_ok)
-            - que no haya mencionado a alguno de los usuarios a los que va el tweet
         """
-        if not self.is_sending_tweet():
-            if self.tweeting_time_interval_lapsed():
-                return not self.already_mentions(tweet)
-            else:
-                return False
+        if not self.is_already_sending_tweet():
+            return self.tweeting_time_interval_lapsed()
         else:
             return False

@@ -6,6 +6,7 @@ import datetime
 
 from django.db import models
 import pytz
+from project.exceptions import BotNotFoundException
 from scrapper.exceptions import BotDetectedAsSpammerException, NoMoreAvaiableProxiesException, \
     FailureSendingTweetException
 from scrapper.thread_pool import ThreadPool
@@ -125,12 +126,33 @@ class TwitterBotManager(models.Manager):
             bot.mark_as_not_twitter_registered_ok()
             self.get_valid_bot(**kwargs)
 
-    def get_bot_available_to_tweet(self, tweet):
-        bots = self.get_all_bots().filter(it_works=True)
-        for bot in bots:
-            if bot.can_tweet(tweet):
-                return bot
-        return None
+    def get_bot_available_to_mention(self):
+        from project.models import Project, TwitterUser, Tweet, Link
+
+        for bot in self.get_all_bots().filter(it_works=True):
+            if bot.can_tweet():
+                for project in Project.objects.filter(is_running=True):
+                    for platform in project.get_platforms():
+                        project_users = TwitterUser.objects.filter(follower__target_user__projects=project)
+                        project_unmentioned_users = project_users.filter(mentions=None, source=platform)
+
+                        # saco alguno que no fue mencionado por el bot
+                        unmentioned_by_bot = project_unmentioned_users.exclude(mentions__bot_used=bot)
+                        if unmentioned_by_bot.exists():
+                            user_to_mention = unmentioned_by_bot.first()
+                            tweet_with_mention = Tweet(
+                                project=project,
+                                tweet_msg=project.tweet_msgs.order_by('?')[0],
+                                link=project.links.filter(platform=user_to_mention.source).order_by('?')[0],
+                                bot_used=bot,
+                                sending=True,
+                            )
+                            tweet_with_mention.save()
+                            tweet_with_mention.mentioned_users.add(user_to_mention)
+                            return bot, tweet_with_mention
+
+        raise BotNotFoundException()
+
 
     def get_all_bots(self):
         """Escoge todos aquellos bots que tengan phantomJS"""
@@ -159,18 +181,15 @@ class TwitterBotManager(models.Manager):
             except Exception as ex:
                 settings.LOGGER.exception('%s error releasing mutex' % thread_name)
 
-        from project.models import Tweet, TwitterUser
         tweet = bot = tweet_msg = None
         thread_name = '###%s### - ' % threading.current_thread().name
 
         try:
-            tweet = Tweet.objects.create_tweet(platform=TwitterUser.ANDROID)
+            mutex.acquire()
+
+            # ESCOGEMOS ROBOT Y TWEET
+            bot, tweet = self.get_bot_available_to_mention()
             tweet_msg = tweet.compose()
-            bot = self.get_bot_available_to_tweet(tweet)
-            if bot:
-                tweet.sending = True
-                tweet.bot_used = bot
-                tweet.save()
         finally:
             # QUITAMOS CANDADO
             unlock_mutex()
@@ -209,10 +228,21 @@ class TwitterBotManager(models.Manager):
         # settings.LOGGER.info('exec 1')
         # raise Exception('mierda')
 
-    def send_pending_tweets(self):
+    def send_tweets(self):
         from project.models import Tweet
-        Tweet.objects.clean_pending()
+        Tweet.objects.clean_not_sent_ok()
         settings.LOGGER.info('--- Trying to send %i tweets ---' % settings.MAX_THREADS)
+
+        threads = []
+        for n in range(settings.MAX_THREADS):
+            thread = threading.Thread(target=self.send_tweet)
+            thread.start()
+            threads.append(thread)
+
+        # to wait until all three functions are finished
+        for thread in threads:
+            thread.join()
+
         # pool = ThreadPool(settings.MAX_THREADS)
         # for _ in pending_tweets:
         # while True:
@@ -225,16 +255,6 @@ class TwitterBotManager(models.Manager):
         #     else:
         #         time.sleep(0.3)
         # pool.wait_completion()
-
-        threads = []
-        for n in range(settings.MAX_THREADS):
-            thread = threading.Thread(target=self.send_tweet)
-            thread.start()
-            threads.append(thread)
-
-        # to wait until all three functions are finished
-        for thread in threads:
-            thread.join()
 
     def process_all_bots(self):
         bots = self.get_all_bots()

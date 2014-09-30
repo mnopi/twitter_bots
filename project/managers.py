@@ -20,10 +20,9 @@ class TweetManager(models.Manager):
     def all_sent_ok(self):
         return self.get_sent_ok().count() == self.all().count()
 
-    def clean_pending(self):
-        "Vuelve a marcar como disponible para que lo envie algun robot"
-        self.filter(sending=True).delete()
-        settings.LOGGER.info('Deleted previous pending tweets to send')
+    def clean_not_sent_ok(self):
+        self.filter(sent_ok=False).delete()
+        settings.LOGGER.info('Deleted previous sending tweets')
 
     def create_tweet(self, platform=None):
         "Crea un tweet para un proyecto aleatorio entre los marcados como running"

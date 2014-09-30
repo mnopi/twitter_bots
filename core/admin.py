@@ -283,7 +283,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
 
     def send_pending_tweets(self, request, queryset):
         try:
-            TwitterBot.objects.send_pending_tweets()
+            TwitterBot.objects.send_tweets()
             self.message_user(request, "All pending tweets sent sucessfully")
         except Exception:
             msg = "There were errors sending pending tweets"
