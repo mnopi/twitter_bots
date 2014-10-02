@@ -72,7 +72,7 @@ class TweetAdmin(admin.ModelAdmin):
     )
 
     search_fields = ('bot_used__username',)
-    list_filter = ('sending', 'sent_ok', 'date_sent',)
+    list_filter = ('sending', 'sent_ok', 'date_sent', 'link__platform')
     # ordering = ('-date',)
     # list_display_links = ('username',)
 
@@ -84,6 +84,7 @@ admin.site.register(TargetUser, TargetUserAdmin)
 admin.site.register(Follower)
 admin.site.register(TwitterUser)
 admin.site.register(Tweet, TweetAdmin)
+admin.site.register(Extractor)
 admin.site.register(Link)
 
 

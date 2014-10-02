@@ -21,25 +21,39 @@ class TwitterBotManager(models.Manager):
         bot.process()
 
     def create_bots(self):
+        self.clean_unregistered_bots()
+
         proxies = self.get_available_proxies()
-        if len(proxies) < settings.MAX_THREADS:
-            num_bots = len(proxies)
+        if proxies:
+            if len(proxies) < settings.MAX_THREADS_CREATING_BOTS:
+                num_bots = len(proxies)
+            else:
+                num_bots = settings.MAX_THREADS_CREATING_BOTS
+
+            threads = []
+            for n in range(num_bots):
+                thread = threading.Thread(target=self.create_bot)
+                thread.start()
+                threads.append(thread)
+            # to wait until all three functions are finished
+            for thread in threads:
+                thread.join()
+
+            # pool = ThreadPool(settings.MAX_THREADS)
+            # for _ in range(0, num_bots):
+            #     pool.add_task(self.create_bot, ignore_exceptions=True)
+            # pool.wait_completion()
         else:
-            num_bots = settings.MAX_THREADS
+            time.sleep(60)
 
-        threads = []
-        for n in range(num_bots):
-            thread = threading.Thread(target=self.create_bot)
-            thread.start()
-            threads.append(thread)
-        # to wait until all three functions are finished
-        for thread in threads:
-            thread.join()
+    def clean_unregistered_bots(self):
+        unregistered = self.get_unregistered_bots()
+        if unregistered.exists():
+            settings.LOGGER.warning('Found %s unregistered bots and will be deleted' % unregistered.count())
+            unregistered.delete()
 
-        # pool = ThreadPool(settings.MAX_THREADS)
-        # for _ in range(0, num_bots):
-        #     pool.add_task(self.create_bot, ignore_exceptions=True)
-        # pool.wait_completion()
+    def get_unregistered_bots(self):
+        return self.filter(email_registered_ok=False, twitter_registered_ok=False)
 
     def get_available_proxies(self):
         """Busca los proxies disponibles"""
@@ -132,6 +146,10 @@ class TwitterBotManager(models.Manager):
         for bot in self.get_all_bots().filter(it_works=True):
             if bot.can_tweet():
                 for project in Project.objects.filter(is_running=True):
+
+                    # solo cogemos los usuarios de las plataformas para el proyecto. Por ejemplo, si hay
+                    # twitterusers de ios y no tenemos enlaces de ios, que no se envie a estos
+
                     for platform in project.get_platforms():
                         project_users = TwitterUser.objects.filter(follower__target_user__projects=project)
                         project_unmentioned_users = project_users.filter(mentions=None, source=platform)
@@ -195,46 +213,34 @@ class TwitterBotManager(models.Manager):
             unlock_mutex()
 
         try:
-            if bot:
-                settings.LOGGER.info('%s Bot %s sending tweet: "%s"' % (thread_name, bot.username, tweet_msg))
-                bot.scrapper.screenshots_dir = str(tweet.pk)
-                bot.scrapper.login()
-                bot.scrapper.send_tweet(tweet_msg)
-                tweet.sending = False
-                tweet.sent_ok = True
-                tweet.date_sent = datetime.datetime.now()
-                tweet.save()
-                bot.scrapper.close_browser()
-                settings.LOGGER.info('Bot %s sent tweet ok: "%s"' % (bot.username, tweet_msg))
-            else:
-                settings.LOGGER.warning('%s No more bots available for sending pending tweets' % thread_name)
+            settings.LOGGER.info('%s Bot %s sending tweet: "%s"' % (thread_name, bot.username, tweet_msg))
+            bot.scrapper.screenshots_dir = str(tweet.pk)
+            bot.scrapper.login()
+            bot.scrapper.send_tweet(tweet_msg)
+            tweet.sending = False
+            tweet.sent_ok = True
+            tweet.date_sent = datetime.datetime.now()
+            tweet.save()
+            settings.LOGGER.info('Bot %s sent tweet ok: "%s"' % (bot.username, tweet_msg))
         except Exception as ex:
             try:
                 settings.LOGGER.exception('%s Error sending tweet' % thread_name)
                 if type(ex) is FailureSendingTweetException:
                     tweet.delete()
-                else:
-                    tweet.sending = False
-                    tweet.bot = None
-                    tweet.save()
-                bot.scrapper.close_browser()
             except Exception as ex:
                 settings.LOGGER.exception('%s Error catching exception' % thread_name)
                 raise ex
-
             raise ex
-
-        # time.sleep(5)
-        # settings.LOGGER.info('exec 1')
-        # raise Exception('mierda')
+        finally:
+            bot.scrapper.close_browser()
 
     def send_tweets(self):
         from project.models import Tweet
         Tweet.objects.clean_not_sent_ok()
-        settings.LOGGER.info('--- Trying to send %i tweets ---' % settings.MAX_THREADS)
+        settings.LOGGER.info('--- Trying to send %i tweets ---' % settings.MAX_THREADS_SENDING_TWEETS)
 
         threads = []
-        for n in range(settings.MAX_THREADS):
+        for n in range(settings.MAX_THREADS_SENDING_TWEETS):
             thread = threading.Thread(target=self.send_tweet)
             thread.start()
             threads.append(thread)
@@ -256,13 +262,13 @@ class TwitterBotManager(models.Manager):
         #         time.sleep(0.3)
         # pool.wait_completion()
 
-    def process_all_bots(self):
-        bots = self.get_all_bots()
-        settings.LOGGER.info('Processing %i bots..' % bots.count())
-        pool = ThreadPool(settings.MAX_THREADS)
-        for bot in bots:
-            pool.add_task(bot.process, ignore_exceptions=True)
-        pool.wait_completion()
-        settings.LOGGER.info('%i bots processed ok' % bots.count())
+    # def process_all_bots(self):
+    #     bots = self.get_all_bots()
+    #     settings.LOGGER.info('Processing %i bots..' % bots.count())
+    #     pool = ThreadPool(settings.MAX_THREADS_CREATING_BOTS)
+    #     for bot in bots:
+    #         pool.add_task(bot.process, ignore_exceptions=True)
+    #     pool.wait_completion()
+    #     settings.LOGGER.info('%i bots processed ok' % bots.count())
 
 

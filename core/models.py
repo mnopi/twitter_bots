@@ -44,7 +44,6 @@ class TwitterBot(models.Model):
     twitter_confirmed_email_ok = models.BooleanField(default=False)
     twitter_avatar_completed = models.BooleanField(default=False)
     twitter_bio_completed = models.BooleanField(default=False)
-    cookies = models.TextField(null=True, blank=True)
     FIREFOX = 'FI'
     CHROME = 'CH'
     PHANTOMJS = 'PH'
@@ -145,26 +144,21 @@ class TwitterBot(models.Model):
     def process(self):
         """Se procesa el bot una vez creado en BD. Esto sirve tanto para creación de bots como para
         comprobar que todavía funciona"""
-        from core.managers import mutex
-        settings.LOGGER.info('Processing bot %s' % self.username)
         try:
-            mutex.acquire()
-            if self.has_no_accounts():
-                self.populate()
-                self.assign_proxy()
-            elif not self.proxy:
-                self.assign_proxy()
-            mutex.release()
+            from core.managers import mutex
+            try:
+                mutex.acquire()
+                if self.has_no_accounts():
+                    self.populate()
+                    self.assign_proxy()
+                elif not self.proxy:
+                    self.assign_proxy()
+            finally:
+                mutex.release()
 
+            settings.LOGGER.info('Processing bot %s behind proxy %s' % (self.username, self.proxy))
             if self.has_to_be_completed():
                 self.scrapper.scrape_bot_creation()
-        except NoMoreAvaiableProxiesException, e:
-            # si no hay mas proxies cortamos el proceso
-            mutex.release()
-            raise e
-        except Exception, e:
-            mutex.release()
-            raise e
         finally:
             if self.has_no_accounts():
                 settings.LOGGER.exception('Bot %s has any account and will be deleted' % self.username)

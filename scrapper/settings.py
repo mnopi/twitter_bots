@@ -49,7 +49,9 @@ TW_SET_BIO = True
 if not REGISTER_EMAIL:
     TW_CONFIRM_EMAIL = False
 
-MAX_THREADS = 1  # máximo de hilos para procesar los bots, enviar tweets..
+MAX_THREADS_SENDING_TWEETS = 30  # máximo de hilos para enviar tweets
+MAX_THREADS_CREATING_BOTS = 5  # máximo de hilos para crear bots
+MAX_THREADS_EXTRACTING_FOLLOWERS = 3
 USE_PROXY = True
 
 BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha de nacimiento del bot

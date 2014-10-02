@@ -339,6 +339,7 @@ class Scrapper(object):
         else:
             raise Exception(INVALID_EMAIL_DOMAIN_MSG)
 
+        self.email_scrapper.screenshots_dir = email_domain
         self.email_scrapper.open_browser()
 
     def signup_email_account(self):
@@ -461,7 +462,7 @@ class Scrapper(object):
         while self.browser.window_handles:
             time.sleep(0.5)
 
-    def fill_input_text(self, el, txt, attempt=0):
+    def fill_inpute_text(self, el, txt, attempt=0):
         """mousemoving"""
         self.click(el)
         self._clear_input_text(el)
@@ -576,6 +577,7 @@ class Scrapper(object):
                 get_img()
 
         g_scrapper = Scrapper(self.user)
+        g_scrapper.screenshots_dir = 'google_avatar'
         g_scrapper.open_browser()
         try:
             MIN_RES = 80  # mínima resolución que debe tener cada imagen encontrada, en px
@@ -652,6 +654,7 @@ class Scrapper(object):
         q_scrapper = None
         try:
             q_scrapper = Scrapper(self.user)
+            q_scrapper.screenshots_dir = 'quotationspage'
             q_scrapper.open_browser()
             sel_quote = get_quote_from_quotationspage()
             if not sel_quote:
@@ -678,7 +681,7 @@ class Scrapper(object):
         try:
             if settings.TAKE_SCREENSHOTS:
                 mkdir_if_not_exists(settings.SCREENSHOTS_ROOT)
-                user_dir = os.path.join(settings.SCREENSHOTS_ROOT, self.user.username)
+                user_dir = os.path.join(settings.SCREENSHOTS_ROOT, self.user.real_name)
                 mkdir_if_not_exists(user_dir)
 
                 dir = user_dir

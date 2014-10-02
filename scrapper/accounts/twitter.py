@@ -143,6 +143,12 @@ class TwitterScrapper(Scrapper):
                 raise TwitterEmailNotConfirmed(self.user)
             else:
                 raise TwitterAccountSuspended(self.user)
+        elif self.check_visibility('.resend-confirmation-email-link'):
+            self.click('.resend-confirmation-email-link')
+            self.user.twitter_confirmed_email_ok = False
+            self.user.save()
+            self.confirm_user_email()
+            self.login()
         else:
             self.user.it_works = True
             self.user.save()
@@ -235,6 +241,7 @@ class TwitterScrapper(Scrapper):
                     # eliminamos el archivo que habíamos guardado para el avatar
                     os.remove(avatar_path)
                     self.user.twitter_avatar_completed = True
+                    self.user.save()
             except Exception:
                 settings.LOGGER.exception('Error setting avatar for bot %s' % self.user.username)
 
@@ -242,6 +249,7 @@ class TwitterScrapper(Scrapper):
             try:
                 self.fill_input_text('#user_description', self.get_quote())
                 self.user.twitter_bio_completed = True
+                self.user.save()
             except Exception:
                 settings.LOGGER.exception('Error setting bio for bot %s' % self.user.username)
 
@@ -255,7 +263,6 @@ class TwitterScrapper(Scrapper):
             set_bio()
         self.click('.ProfilePage-editingButtons button.ProfilePage-saveButton')
         self.take_screenshot('profile_completed')
-        self.user.save()
         if self.user.has_tw_profile_completed():
             settings.LOGGER.info('Profile completed ok for bot %s' % self.user.username)
         else:
@@ -270,6 +277,7 @@ class TwitterScrapper(Scrapper):
                 settings.FAST_MODE = False
 
             # abrimos ventana para scrapear twitter
+            self.screenshots_dir = 'twitter'
             self.open_browser()
 
             # crea cuenta email

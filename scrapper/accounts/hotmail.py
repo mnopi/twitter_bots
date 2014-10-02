@@ -5,8 +5,7 @@ from scrapper.scrapper import Scrapper
 from scrapper.captcha_resolvers import DeathByCaptchaResolver
 from scrapper.exceptions import TwitterEmailNotFound
 from scrapper.utils import *
-from scrapper import settings
-from scrapper import delay
+from twitter_bots import settings
 
 
 class HotmailScrapper(Scrapper):
@@ -127,10 +126,10 @@ class HotmailScrapper(Scrapper):
             fill_form()
             self.delay.seconds(5)
             submit_form()
-            #wait_condition(lambda: 'summarypage' in self.browser.current_url.lower())
-            self.delay.seconds(15)
+            wait_condition(lambda: 'summarypage' in self.browser.current_url.lower(), timeout=60)
+            self.delay.seconds(7)
         except Exception, e:
-            LOGGER.exception('There was an error signing up %s' % self.user.email)
+            settings.LOGGER.exception('There was an error signing up %s' % self.user.email)
             raise e
 
         # lo dejamos en la bandeja de entrada
@@ -194,6 +193,7 @@ class HotmailScrapper(Scrapper):
 
     def confirm_tw_email(self):
         # refrescamos
+        self.screenshots_dir = 'confirm_email'
         self.go_to(settings.URLS['hotmail_login'])
 
         # si fuera necesario se loguea
