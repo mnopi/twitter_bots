@@ -1,6 +1,10 @@
+# -*- coding: utf-8 -*-
+
+
 import datetime
 from django.db import models
 from django.db.models import Count
+import pytz
 import simplejson
 import tweepy
 from core.models import TwitterBot
@@ -79,6 +83,7 @@ class TargetUser(models.Model):
 class Follower(models.Model):
     target_user = models.ForeignKey(TargetUser, related_name='followers', null=False)
     twitter_user = models.ForeignKey('TwitterUser', related_name='follower', null=False)
+    date_saved = models.DateTimeField(auto_now_add=True)
 
     def __unicode__(self):
         return '%s -> %s' % (self.twitter_user, self.target_user)
@@ -129,6 +134,7 @@ class TwitterUser(models.Model):
     followers_count = models.PositiveIntegerField(null=True)
     tweets_count = models.PositiveIntegerField(null=True)
     verified = models.BooleanField(default=False)
+    date_saved = models.DateTimeField(auto_now_add=True)
 
     def __unicode__(self):
         return self.username
@@ -206,6 +212,8 @@ class Extractor(models.Model):
     access_token_secret = models.CharField(null=False, max_length=200)
     twitter_bot = models.OneToOneField(TwitterBot, null=False)
     date_created = models.DateTimeField(auto_now_add=True)
+    last_request_date = models.DateTimeField(null=True)
+    is_rate_limited = models.BooleanField(default=False)
 
     def __unicode__(self):
         return self.twitter_bot.username
@@ -218,7 +226,7 @@ class Extractor(models.Model):
         #                              proxies={'https': self.twitter_bot.proxy})
         auth = tweepy.OAuthHandler(self.consumer_key, self.consumer_secret)
         auth.set_access_token(self.access_token, self.access_token_secret)
-        self.api = tweepy.API(auth)
+        self.api = tweepy.API(auth, proxy=self.twitter_bot.proxy)
 
     def get(self, uri):
         # url = 'https://api.twitter.com/1.1/followers/list.json?cursor=2&screen_name=candycrush&count=5000'
@@ -251,21 +259,18 @@ class Extractor(models.Model):
         tw_user = self.api.get_user(screen_name=target_user.username)
         target_user.followers_count = tw_user.followers_count
         target_user.save()
-
-    def extract_followers(self, target_username):
-
-        def create_twitter_user(tw_follower):
-            twitter_user = TwitterUser.objects.filter(twitter_id=tw_follower.id)
-            if not twitter_user.exists():
-                twitter_user = TwitterUser()
-                settings.LOGGER.info('Creating new twitter user %s' % tw_follower.screen_name)
+        
+    def create_twitter_user(self, tw_follower):
+        "tw_follower es el objeto devuelto por tweepy tras consultar la API"
+        twitter_user = TwitterUser.objects.filter(twitter_id=tw_follower.id)
+        if twitter_user.exists():
+            if twitter_user.count() > 1:
+                raise Exception('Duplicated twitter user with id %i' % twitter_user[0].twitter_id)
             else:
-                if len(twitter_user) > 1:
-                    raise Exception('Duplicated twitter user with id %i' % twitter_user[0].twitter_id)
-                else:
-                    twitter_user = twitter_user[0]
-                    settings.LOGGER.info('Twitter user %s exists previously saved. Getting..' % twitter_user.username)
-
+                settings.LOGGER.info('Twitter user %s already exists' % twitter_user[0].username)
+                return twitter_user[0], False
+        else:
+            twitter_user = TwitterUser()
             twitter_user.twitter_id = tw_follower.id
             twitter_user.created_date = tw_follower.created_at
             twitter_user.followers_count = tw_follower.followers_count
@@ -277,59 +282,108 @@ class Extractor(models.Model):
             twitter_user.time_zone = tw_follower.time_zone
             twitter_user.verified = tw_follower.verified
 
-            if 'status' in tw_follower:
-                if 'created_at' in tw_follower.status:
-                    twitter_user.last_tweet_date = self.format_datetime(tw_follower.status.created_at)
-                if 'source' in tw_follower.status:
-                    twitter_user.source = self.format_source(tw_follower['status']['source'])
+            if hasattr(tw_follower, 'status'):
+                if hasattr(tw_follower.status, 'created_at'):
+                    twitter_user.last_tweet_date = tw_follower.status.created_at
+                if hasattr(tw_follower.status, 'source'):
+                    twitter_user.source = self.format_source(tw_follower.status.source)
                 else:
                     twitter_user.source = TwitterUser.OTHERS
             else:
                 twitter_user.source = TwitterUser.OTHERS
 
-            twitter_user.save()
-            settings.LOGGER.info('Twitter user %s saved ok' % twitter_user.username)
-            return twitter_user
+            return twitter_user, True
 
+    def extract_followers(self, target_user):
         self.connect_twitter_api()
 
-        target_user = TargetUser.objects.get_or_create(username=target_username)[0]
         self.update_target_user_data(target_user)
 
-        next_cursor = target_user.next_cursor
-        while True:
-            settings.LOGGER.info('Extractor %s retrieving %s followers (cursor %i)' % (self.twitter_bot.username, target_username, next_cursor))
+        params = {
+            'screen_name': target_user.username,
+            'count': 200,
+        }
+        if target_user.next_cursor:
+            params.update({'cursor': target_user.next_cursor})
 
-            kwargs = {
-                'screen_name': target_username,
-                'count': 200
-            }
+        cursor = tweepy.Cursor(self.api.followers, **params)
 
-            # si esta a None entonces se dan por procesados todos sus followers
-            if next_cursor == None:
-                break
-            elif next_cursor != 0:
-                kwargs.update({'cursor': next_cursor})
+        try:
+            for page in cursor.pages():
+                self.last_request_date = datetime.datetime.now()
+                self.save()
+                settings.LOGGER.info("""Retrieved page with cursor %i
+                    \n\tNext cursor: %i
+                    \n\tPrevious cursor: %i
+                """ % (target_user.next_cursor, cursor.iterator.next_cursor,
+                       cursor.iterator.prev_cursor))
 
+                new_twitter_users = []
+                new_followers = []
+                # guardamos cada follower recibido, sin duplicar en BD
+                for tw_follower in page:
+                    # creamos twitter_user a partir del follower si ya no existe en BD
+                    twitter_user_id, is_new = self.create_twitter_user(tw_follower)
+                    if is_new:
+                        new_twitter_users.append(twitter_user_id)
+                        settings.LOGGER.info('New twitter user %s added to list' % twitter_user_id.__unicode__())
+                    else:
+                        follower = Follower(twitter_user=twitter_user_id, target_user=target_user)
+                        follower_already_exists = Follower.objects.filter(
+                            twitter_user=twitter_user_id, target_user=target_user).exists()
+                        if follower_already_exists:
+                            settings.LOGGER.info('Follower %s already exists' % follower.__unicode__())
+                        else:
+                            new_followers.append(follower)
+                            settings.LOGGER.info('New follower %s added to list' % follower.__unicode__())
+
+                before_saving = datetime.datetime.now()
+                TwitterUser.objects.bulk_create(new_twitter_users)
+                new_twitter_users_ids = TwitterUser.objects\
+                    .filter(date_saved__gt=before_saving)\
+                    .values_list('id', flat=True)
+
+                for twitter_user_id in new_twitter_users_ids:
+                    new_followers.append(
+                        Follower(twitter_user_id=twitter_user_id, target_user=target_user))
+
+                Follower.objects.bulk_create(new_followers)
+
+                # actualizamos el next_cursor para el target user
+                target_user.next_cursor = cursor.iterator.next_cursor
+                target_user.save()
+
+            settings.LOGGER.info('All followers from %s retrieved ok' % target_user.username)
+        except tweepy.error.TweepError as ex:
+            if ex.response.status_code == 429:
+                raise RateLimitedException(self)
+        
+    def extract_followers_from_all_target_users(self):
+        target_users_to_extract = TargetUser.objects.filter(projects__is_running=True).exclude(next_cursor=None)
+        if target_users_to_extract.exists():
+            target_user = target_users_to_extract.first()
+            self.extract_followers(target_user)
+        else:
+            settings.LOGGER.info('All followers were already extracted from all target users for active projects')
+                
+                
+        
+        
+
+    def is_available(self):
+        """Si fue marcadado como rate limited se mira si pasaron más de 15 minutos.
+        En ese caso se desmarca y se devielve True"""
+        if self.is_rate_limited:
             try:
-                tw_followers = self.api.followers(kwargs)
-            except tweepy.error.TweepError as ex:
-                if ex.response.status == 429:
-                    raise RateLimitedException(self)
-
-            for tw_follower in tw_followers:
-                # creamos twitter_user a partir del follower si ya no existe en BD
-                twitter_user = create_twitter_user(tw_follower)
-                Follower.objects.get_or_create(twitter_user=twitter_user, target_user=target_user)
-
-            # actualizamos el next_cursor para el target user
-            next_cursor = resp['next_cursor']
-            if not next_cursor:
-                next_cursor = None
-                target_user.next_cursor = next_cursor
-                target_user.save()
-                settings.LOGGER.info('All followers from %s retrieved ok' % target_username)
-                break
+                seconds_lapsed = (datetime.datetime.now().replace(tzinfo=pytz.UTC) - self.last_request_date).seconds
+            except Exception:
+                seconds_lapsed = (datetime.datetime.now() - self.last_request_date).seconds
+                
+            if seconds_lapsed > 15*60:
+                self.is_rate_limited = False
+                self.save()
+                return True
             else:
-                target_user.next_cursor = next_cursor
-                target_user.save()
+                return False
+        else:
+            return True

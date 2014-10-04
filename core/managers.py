@@ -130,8 +130,15 @@ class TwitterBotManager(models.Manager):
         return found_listed_proxy
 
     def get_valid_bot(self, **kwargs):
-        "De todo el conjunto de bots, escoge el primer bot considerado válido"
-        kwargs.update(it_works=True)
+        """
+        De todo el conjunto de bots, escoge el primer bot considerado válido:
+            -   que no haya tuiteado como mínimo entre tiempo random 2-5 minutos
+            -   en caso de ser varios se coge al del tuit más antiguo
+        """
+        kwargs.update({
+            'it_works': True,
+
+        })
         bot = self.get_all_bots(**kwargs)[0]
         try:
             bot.scrapper.login()

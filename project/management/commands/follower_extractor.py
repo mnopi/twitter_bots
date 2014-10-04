@@ -1,4 +1,5 @@
 import copy
+import random
 import time
 from project.exceptions import RateLimitedException
 from project.models import Project, TargetUser, Extractor
@@ -9,22 +10,21 @@ from django.core.management.base import BaseCommand, CommandError
 set_logger('follower_extractor')
 
 class Command(BaseCommand):
-    help = 'Creates bots'
+    help = 'Extract followers from all target users'
 
     def handle(self, *args, **options):
         settings.LOGGER.info('-- INITIALIZED follower extractor --')
         extractors = Extractor.objects.all()
-        target_users_to_extract = TargetUser.objects.filter(projects__is_running=True)
-        for target_user in target_users_to_extract:
-            for extractor in extractors:
+        for extractor in extractors:
+            if extractor.is_available():
                 try:
-                    extractor.extract_followers(target_user.username)
+                    settings.LOGGER.info('### Using extractor: %s @ %s - %s###' %
+                                         (extractor.twitter_bot.username,
+                                          extractor.twitter_bot.proxy,
+                                          extractor.twitter_bot.proxy_provider))
+                    extractor.extract_followers_from_all_target_users()
                 except RateLimitedException:
                     continue
 
-
-        for project in Project.objects.all():
-            project.extract_followers_from_all_target_users()
+        time.sleep(random.randint(5, 15))
         settings.LOGGER.info('-- FINISHED follower extractor --')
-        time.sleep(60)
-

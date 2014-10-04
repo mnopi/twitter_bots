@@ -25,6 +25,12 @@ class TwitterBot(models.Model):
     date_suspended_email = models.DateTimeField(null=True, blank=True)
     date_suspended_twitter = models.DateTimeField(null=True, blank=True)
     birth_date = models.DateTimeField(null=True, blank=True)
+    # LOCATIONS = {
+    #     (0, 'USA'),
+    #     (1, 'Europe'),
+    #     (2, 'Asia'),
+    # }
+    # location = models.IntegerField(max_length=1, choices=LOCATIONS, default=0)
 
     GENDERS = {
         (0, 'male'),

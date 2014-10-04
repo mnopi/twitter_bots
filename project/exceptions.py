@@ -1,4 +1,5 @@
 import threading
+import datetime
 from twitter_bots import settings
 
 __author__ = 'Michel'
@@ -7,6 +8,8 @@ __author__ = 'Michel'
 class RateLimitedException(Exception):
     def __init__(self, extractor):
         settings.LOGGER.warning('Rate limited exceeded for extractor %s' % extractor.twitter_bot.username)
+        extractor.is_rate_limited = True
+        extractor.save()
 
 
 class BotNotFoundException(Exception):

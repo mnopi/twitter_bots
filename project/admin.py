@@ -77,11 +77,25 @@ class TweetAdmin(admin.ModelAdmin):
     # list_display_links = ('username',)
 
 
+class FollowerAdmin(admin.ModelAdmin):
+    list_display = (
+        'target_user',
+        'twitter_user',
+        'date_saved',
+    )
+
+    search_fields = (
+        'target_user__username',
+        'twitter_user__username',
+    )
+    list_filter = ('target_user', 'date_saved',)
+
+
 # Register your models here.
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(TweetMsg)
 admin.site.register(TargetUser, TargetUserAdmin)
-admin.site.register(Follower)
+admin.site.register(Follower, FollowerAdmin)
 admin.site.register(TwitterUser)
 admin.site.register(Tweet, TweetAdmin)
 admin.site.register(Extractor)
