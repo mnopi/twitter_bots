@@ -12,5 +12,12 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         settings.LOGGER.info('-- INITIALIZED BOT CREATOR --')
-        TwitterBot.objects.create_bots()
+
+        TwitterBot.objects.clean_unregistered_bots()
+
+        if args and '1' in args:
+            TwitterBot.objects.create_bot()
+        else:
+            TwitterBot.objects.create_bots()
+
         settings.LOGGER.info('-- FINISHED BOT CREATOR --')

@@ -24,7 +24,7 @@ class Command(BaseCommand):
         num_bots = int(args[0])
 
         def create_bot(bot):
-            bot.process()
+            bot.register_accounts()
             settings.LOGGER.info('bot %s created' % bot.username)
 
         pool = ThreadPool(settings.MAX_THREADS)

@@ -1,15 +1,8 @@
-"""
-Django settings for twitter_bots project.
+# -*- coding: utf-8 -*-
 
-For more information on this file, see
-https://docs.djangoproject.com/en/1.6/topics/settings/
-
-For the full list of settings and their values, see
-https://docs.djangoproject.com/en/1.6/ref/settings/
-"""
-
-# Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 import os
+from scrapper.utils import mkdir_if_not_exists
+
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 
 PROJECT_ROOT = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
@@ -68,10 +61,10 @@ DATABASES = {
         "ENGINE": "django.db.backends.mysql",
         "NAME": "twitter_bots",
         "USER": "root",
-        # "PASSWORD": "1aragon1",
-        # "HOST": "192.168.1.156",
-        "PASSWORD": "",
-        "HOST": "localhost",
+        "PASSWORD": "1aragon1",
+        "HOST": "192.168.1.156",
+        # "PASSWORD": "",
+        # "HOST": "localhost",
         "PORT": "3306",
 
     }
@@ -152,19 +145,23 @@ PROXY_PROVIDERS_ACCOUNTS = {
 from scrapper.settings import *
 
 WEBDRIVERS_PATH = os.path.join(PROJECT_ROOT, 'scrapper', 'webdrivers')
-SCREENSHOTS_ROOT = os.path.join(PROJECT_ROOT, 'scrapper', 'screenshots')
 
 # phantomjs
 PHANTOMJS_PATH = os.path.join(WEBDRIVERS_PATH, 'phantomjs')
 PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs')
 
+SCREENSHOTS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'screenshots')
+AVATARS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'avatars')
+PHANTOMJS_COOKIES_DIR = os.path.join(PHANTOMJS_PATH, 'cookies')
+PROXIES_DIR = os.path.join(PROJECT_ROOT, 'core', 'proxies')
+
+# creamos estas carpetas si no existen, ya que las hemos añadido al gitignore
+mkdir_if_not_exists(SCREENSHOTS_DIR)
+mkdir_if_not_exists(AVATARS_DIR)
+mkdir_if_not_exists(PHANTOMJS_COOKIES_DIR)
+
 # by default in /Users/<User>/Library/Application Support/Ofi Labs/PhantomJS
 # PHANTOMJS_LOCALSTORAGES_PATH = os.path.join(PHANTOMJS_PATH, 'localstorages')
-
-PHANTOMJS_COOKIES_PATH = os.path.join(PHANTOMJS_PATH, 'cookies')
-
-
-PROXIES_DIR = os.path.join(PROJECT_ROOT, 'core', 'proxies')
 
 # intervalo de twiteo para cada bot en minutos
 TIME_BETWEEN_TWEETS = (2, 7)

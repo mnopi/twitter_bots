@@ -1,3 +1,4 @@
+import time
 from twitter_bots import settings
 
 
@@ -46,4 +47,4 @@ class TwitterBotDontExistsOnTwitterException(Exception):
 
 class NoMoreAvaiableProxiesException(Exception):
     def __init__(self):
-        settings.LOGGER.error('There is no more avaiable proxies. Finishing..')
+        settings.LOGGER.error('There is no more avaiable proxies. Sleeping..')

@@ -9,7 +9,6 @@ from twitter_bots import settings
 
 
 class HotmailScrapper(Scrapper):
-    SCREENSHOTS_DIR = 'hotmail'
 
     def sign_up(self):
         def resolve_captcha():
@@ -104,7 +103,9 @@ class HotmailScrapper(Scrapper):
             self.click('#iBirthMonth')
             for _ in range(0, self.user.birth_date.month):
                 self.send_special_key(Keys.ARROW_DOWN)
+            self.delay.seconds(1, force_delay=True)
             self.fill_input_text('#iBirthDay', self.user.birth_date.day)
+            self.delay.seconds(1, force_delay=True)
             self.fill_input_text('#iBirthYear', self.user.birth_date.year)
 
             # SEXO
@@ -118,19 +119,15 @@ class HotmailScrapper(Scrapper):
 
             self.click('#iOptinEmail')
 
-        try:
-            settings.LOGGER.info('Signing up %s..' % self.user.email)
-            self.go_to(settings.URLS['hotmail_reg'])
-            captcha_resolver = DeathByCaptchaResolver(self)
-            self.wait_visibility_of_css_element('#iliveswitch', timeout=10)
-            fill_form()
-            self.delay.seconds(5)
-            submit_form()
-            wait_condition(lambda: 'summarypage' in self.browser.current_url.lower(), timeout=60)
-            self.delay.seconds(7)
-        except Exception, e:
-            settings.LOGGER.exception('There was an error signing up %s' % self.user.email)
-            raise e
+        settings.LOGGER.info('Signing up %s..' % self.user.email)
+        self.go_to(settings.URLS['hotmail_reg'])
+        captcha_resolver = DeathByCaptchaResolver(self)
+        self.wait_visibility_of_css_element('#iliveswitch', timeout=10)
+        fill_form()
+        self.delay.seconds(5)
+        submit_form()
+        wait_condition(lambda: 'summarypage' in self.browser.current_url.lower(), timeout=60)
+        self.delay.seconds(7)
 
         # lo dejamos en la bandeja de entrada
         self.go_to(settings.URLS['hotmail_login'])
@@ -192,8 +189,6 @@ class HotmailScrapper(Scrapper):
             self.click('#notificationContainer button')
 
     def confirm_tw_email(self):
-        # refrescamos
-        self.screenshots_dir = 'confirm_email'
         self.go_to(settings.URLS['hotmail_login'])
 
         # si fuera necesario se loguea
@@ -211,13 +206,14 @@ class HotmailScrapper(Scrapper):
                 self.switch_to_window(-1)
                 self.wait_to_page_loaded()
                 self.delay.seconds(3)
-                self.send_keys(self.user.username)
-                self.send_special_key(Keys.TAB)
-                self.send_keys(self.user.password_twitter)
-                self.send_special_key(Keys.ENTER)
-                self.delay.seconds(7)
-                self.user.twitter_confirmed_email_ok = True
-                self.user.save()
+
+                # por si nos pide meter usuario y contraseña
+                if not self.check_visibility('#global-new-tweet-button'):
+                    self.send_keys(self.user.username)
+                    self.send_special_key(Keys.TAB)
+                    self.send_keys(self.user.password_twitter)
+                    self.send_special_key(Keys.ENTER)
+                    self.delay.seconds(7)
             else:
                 LOGGER.error('Error clicking confirm_tw_email button on twitter email body for user %s' % self.user.username)
         else:
@@ -225,4 +221,3 @@ class HotmailScrapper(Scrapper):
             raise TwitterEmailNotFound()
 
         self.delay.seconds(8)
-        LOGGER.info('Confirmed twitter email %s for user %s' % (self.user.email, self.user.username))

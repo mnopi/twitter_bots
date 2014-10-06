@@ -17,14 +17,18 @@ mutex = Lock()
 
 class TwitterBotManager(models.Manager):
     def create_bot(self, **kwargs):
-        bot = self.create(**kwargs)
-        bot.process()
+        try:
+            mutex.acquire()
+            bot = self.create(**kwargs)
+            bot.populate()
+        finally:
+            mutex.release()
+
+        bot.register_accounts()
 
     def create_bots(self):
-        self.clean_unregistered_bots()
-
-        proxies = self.get_available_proxies()
-        if proxies:
+        try:
+            proxies = self.get_available_proxies()
             if len(proxies) < settings.MAX_THREADS_CREATING_BOTS:
                 num_bots = len(proxies)
             else:
@@ -43,8 +47,8 @@ class TwitterBotManager(models.Manager):
             # for _ in range(0, num_bots):
             #     pool.add_task(self.create_bot, ignore_exceptions=True)
             # pool.wait_completion()
-        else:
-            time.sleep(60)
+        except NoMoreAvaiableProxiesException:
+            time.sleep(120)
 
     def clean_unregistered_bots(self):
         unregistered = self.get_unregistered_bots()
@@ -53,7 +57,7 @@ class TwitterBotManager(models.Manager):
             unregistered.delete()
 
     def get_unregistered_bots(self):
-        return self.filter(email_registered_ok=False, twitter_registered_ok=False)
+        return self.filter(email_registered_ok=False, twitter_registered_ok=False).exclude(must_verify_phone=True)
 
     def get_available_proxies(self):
         """Busca los proxies disponibles"""
@@ -75,7 +79,7 @@ class TwitterBotManager(models.Manager):
                     if num_users_with_that_proxy > 0:
                         latest_user_with_that_proxy = self.filter(proxy=proxy).latest('date')
                         diff_ok = (datetime.datetime.now().replace(tzinfo=pytz.utc)
-                                   - latest_user_with_that_proxy.date).days >= 5
+                                   - latest_user_with_that_proxy.date).days >= settings.MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY
                         return diff_ok
                     else:
                         # proxy libre

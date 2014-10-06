@@ -2,8 +2,10 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 import pytz
+from scrapper.accounts.hotmail import HotmailScrapper
 from scrapper.exceptions import NoMoreAvaiableProxiesException
-from scrapper.scrapper import Scrapper
+from scrapper.logger import get_browser_instance_id
+from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from scrapper.accounts.twitter import TwitterScrapper
 from core.managers import TwitterBotManager
 from twitter_bots import settings
@@ -24,7 +26,7 @@ class TwitterBot(models.Model):
     date = models.DateTimeField(auto_now_add=True)
     date_suspended_email = models.DateTimeField(null=True, blank=True)
     date_suspended_twitter = models.DateTimeField(null=True, blank=True)
-    birth_date = models.DateTimeField(null=True, blank=True)
+    birth_date = models.DateField(null=True, blank=True)
     # LOCATIONS = {
     #     (0, 'USA'),
     #     (1, 'Europe'),
@@ -74,7 +76,7 @@ class TwitterBot(models.Model):
 
     def is_valid(self):
         """Sólo se tomará el usuario como válido si no tiene cuenta suspendida y tiene el email confirmado"""
-        return self.it_works and not self.has_to_be_completed()
+        return self.it_works and not self.has_to_complete_registrations()
 
     def has_no_accounts(self):
         return not self.email_registered_ok and not self.twitter_registered_ok
@@ -97,7 +99,7 @@ class TwitterBot(models.Model):
     def has_to_set_tw_bio(self):
         return not self.twitter_bio_completed and settings.TW_SET_BIO
 
-    def has_to_be_completed(self):
+    def has_to_complete_registrations(self):
         return self.has_to_register_email() or \
                self.has_to_register_twitter() or \
                self.has_to_confirm_tw_email() or \
@@ -147,28 +149,91 @@ class TwitterBot(models.Model):
         "Mira si el proxy del usuario aparece en alguno de los .txt de la carpeta proxies"
         return self.__class__.objects.check_listed_proxy(self.proxy)
 
-    def process(self):
-        """Se procesa el bot una vez creado en BD. Esto sirve tanto para creación de bots como para
-        comprobar que todavía funciona"""
-        try:
-            from core.managers import mutex
-            try:
-                mutex.acquire()
-                if self.has_no_accounts():
-                    self.populate()
-                    self.assign_proxy()
-                elif not self.proxy:
-                    self.assign_proxy()
-            finally:
-                mutex.release()
+    def get_email_scrapper(self):
+        from scrapper.accounts.hotmail import HotmailScrapper
 
-            settings.LOGGER.info('Processing bot %s behind proxy %s' % (self.username, self.proxy))
-            if self.has_to_be_completed():
-                self.scrapper.scrape_bot_creation()
-        finally:
-            if self.has_no_accounts():
-                settings.LOGGER.exception('Bot %s has any account and will be deleted' % self.username)
-                self.delete()
+        email_domain = self.get_email_account_domain()
+        if email_domain == 'hotmail.com' or email_domain == 'outlook.com':
+            return HotmailScrapper(self)
+        else:
+            raise Exception(INVALID_EMAIL_DOMAIN_MSG)
+
+    def register_accounts(self):
+        if self.has_to_complete_registrations():
+            t1 = datetime.datetime.utcnow()
+            settings.LOGGER.info('Registering bot %s behind proxy %s @ %s' % (self.username, self.proxy, self.proxy_provider))
+
+            if settings.FAST_MODE and not settings.TEST_MODE:
+                settings.LOGGER.warning('Fast mode only avaiable on test mode!')
+                settings.FAST_MODE = False
+
+            try:
+                # init scrappers
+                self.twitter_scr = TwitterScrapper(self)
+                self.twitter_scr.open_browser()
+
+                if self.has_to_register_email() or self.has_to_confirm_tw_email():
+                    self.twitter_scr.check_proxy_works_ok()
+                    self.email_scr = self.get_email_scrapper()
+                    self.email_scr.open_browser()
+
+                # 1_signup_email
+                if self.has_to_register_email():
+                    self.email_scr.set_screenshots_dir('1_signup_email')
+                    try:
+                        self.email_scr.sign_up()
+                    except Exception as ex:
+                        settings.LOGGER.exception('Error on bot %s registering email %s' %
+                                                  (self.username, self.email))
+                        self.email_scr.take_screenshot('signup_email_failure')
+                        raise ex
+                    self.email_scr.take_screenshot('signed_up_sucessfully')
+                    self.email_registered_ok = True
+                    self.save()
+                    settings.LOGGER.info('%s %s signed up ok' % (get_browser_instance_id(self), self.email))
+
+                # 2_signup_twitter
+                if self.has_to_register_twitter():
+                    self.twitter_scr.set_screenshots_dir('2_signup_twitter')
+                    self.twitter_scr.sign_up()
+
+                # 3_confirm_tw_email
+                if self.has_to_confirm_tw_email():
+                    self.email_scr.set_screenshots_dir('3_confirm_tw_email')
+                    try:
+                        self.email_scr.confirm_tw_email()
+                    except Exception as ex:
+                        settings.LOGGER.exception('Error on bot %s confirming email %s' %
+                                                  (self.username, self.email))
+                        self.email_scr.take_screenshot('tw_email_confirmation_failure')
+                        raise ex
+                    self.email_scr.take_screenshot('tw_email_confirmed_sucessfully')
+                    self.twitter_confirmed_email_ok = True
+                    self.save()
+                    LOGGER.info('Confirmed twitter email %s for user %s' % (self.email, self.username))
+
+                # 4_profile_completion
+                if self.has_to_complete_tw_profile():
+                    self.twitter_scr.set_screenshots_dir('4_tw_profile_completion')
+                    self.twitter_scr.set_profile()
+            except Exception as ex:
+                settings.LOGGER.exception('Error registering bot %s' % self.username)
+                raise ex
+            finally:
+                # cerramos las instancias abiertas
+                try:
+                    if hasattr(self, 'email_scr'):
+                        self.email_scr.close_browser()
+                    self.twitter_scr.close_browser()
+                except Exception as ex:
+                    settings.LOGGER.exception('Error closing browsers instances for bot %s' % self.username)
+                    raise ex
+
+            self.it_works = True
+            self.save()
+            t2 = datetime.datetime.utcnow()
+            diff_secs = (t2 - t1).seconds
+            settings.LOGGER.info('Bot "%s" registered sucessfully in %s seconds' % (self.username, diff_secs))
 
     def generate_email(self):
         self.email = generate_random_username(self.real_name) + '@' + settings.EMAIL_ACCOUNT_TYPE
@@ -187,6 +252,7 @@ class TwitterBot(models.Model):
         self.has_fast_mode = settings.FAST_MODE
         self.webdriver = settings.WEBDRIVER
         self.random_offsets = settings.RANDOM_OFFSETS_ON_EL_CLICK
+        self.assign_proxy()
         self.save()
 
     def set_tw_profile(self):
@@ -195,12 +261,6 @@ class TwitterBot(models.Model):
         self.scrapper.set_profile()
         self.delay.seconds(7)
         self.scrapper.close_browser()
-
-    def confirm_tw_email(self):
-        ts = TwitterScrapper(self)
-        ts.set_email_scrapper()
-        ts.email_scrapper.login()
-        ts.email_scrapper.confirm_tw_email()
 
     def get_users_mentioned(self):
         "Devuelve todos los usuarios que ha mencionado el robot a lo largo de todos sus tweets"

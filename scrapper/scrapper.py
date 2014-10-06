@@ -2,6 +2,7 @@
 
 import sys
 import urllib
+import PIL
 from selenium.common.exceptions import NoSuchFrameException, TimeoutException
 from selenium.webdriver import ActionChains, DesiredCapabilities
 from selenium.webdriver.common.keys import Keys
@@ -27,7 +28,7 @@ class Scrapper(object):
     screenshots_dir = ''
     CMD_KEY = Keys.COMMAND if sys.platform == 'darwin' else Keys.CONTROL
 
-    def __init__(self, user=None, force_firefox=False):
+    def __init__(self, user=None, force_firefox=False, screenshots_dir=None):
         self.user = user
         self.delay = Delay(user)
         self.force_firefox = force_firefox
@@ -38,6 +39,7 @@ class Scrapper(object):
         self.captcha_sol = None  # parte del DOM donde se introducirá solución al captcha
         self.captcha_res = None  # solución al captcha ofrecida por deathbycaptcha
         self.form_errors = {}  # errores que ocurran en algún formulario
+        self.screenshots_dir = screenshots_dir or ''
         self.screenshot_num = 1  # contador para capturas de pantalla
         self.current_mouse_position = {'x': 0, 'y': 0}
 
@@ -48,8 +50,11 @@ class Scrapper(object):
         except Exception, e:
             settings.LOGGER.error('%s Proxy %s @ %s can\'t load twitter.com' %
                          (get_browser_instance_id(self.user), self.user.proxy, self.user.proxy_provider))
-            self.close_browser()
             raise e
+
+    def set_screenshots_dir(self, dir_name):
+        self.screenshots_dir = dir_name
+        self.screenshot_num = 1
 
     def open_browser(self, renew_user_agent=False):
         """Devuelve el navegador a usar"""
@@ -120,7 +125,7 @@ class Scrapper(object):
             if settings.USE_PROXY and self.user.proxy:
                 service_args = [
                     '--proxy=%s:%s' % (proxy_ip, str(proxy_port)),
-                    '--cookies-file=%s' % os.path.join(settings.PHANTOMJS_COOKIES_PATH, '%s.txt' % str(self.user.id)),
+                    '--cookies-file=%s' % os.path.join(settings.PHANTOMJS_COOKIES_DIR, '%s.txt' % str(self.user.id)),
                     # '--local-storage-path=%s' % settings.PHANTOMJS_LOCALSTORAGES_PATH,
                     # '--local-storage-quota=1024',
                 ]
@@ -182,9 +187,6 @@ class Scrapper(object):
         #     self.browser.add_cookie(cookie)
 
     def close_browser(self):
-        # antes guardamos cookies
-        #self.user.cookies = simplejson.dumps(self.browser.get_cookies())
-        self.user.save()
         try:
             self.browser.quit()
             settings.LOGGER.info('%s %s instance closed sucessfully' % (get_browser_instance_id(self.user), self.user.webdriver))
@@ -330,24 +332,6 @@ class Scrapper(object):
         else:
             return is_invisible_obj()
 
-    def set_email_scrapper(self):
-        from .accounts.hotmail import HotmailScrapper
-
-        email_domain = self.user.get_email_account_domain()
-        if email_domain == 'hotmail.com' or email_domain == 'outlook.com':
-            self.email_scrapper = HotmailScrapper(self.user)
-        else:
-            raise Exception(INVALID_EMAIL_DOMAIN_MSG)
-
-        self.email_scrapper.screenshots_dir = email_domain
-        self.email_scrapper.open_browser()
-
-    def signup_email_account(self):
-        self.email_scrapper.sign_up()
-        self.email_scrapper.take_screenshot('signed_up_sucessfully')
-        self.user.email_registered_ok = True
-        self.user.save()
-        settings.LOGGER.info('%s %s signed up ok' % (get_browser_instance_id(self.user), self.user.email))
 
     def login_email_account(self):
         from .accounts.hotmail import HotmailScrapper
@@ -462,7 +446,7 @@ class Scrapper(object):
         while self.browser.window_handles:
             time.sleep(0.5)
 
-    def fill_inpute_text(self, el, txt, attempt=0):
+    def fill_input_text(self, el, txt, attempt=0):
         """mousemoving"""
         self.click(el)
         self._clear_input_text(el)
@@ -577,23 +561,37 @@ class Scrapper(object):
                 get_img()
 
         g_scrapper = Scrapper(self.user)
-        g_scrapper.screenshots_dir = 'google_avatar'
+        g_scrapper.set_screenshots_dir('google_avatar')
         g_scrapper.open_browser()
         try:
             MIN_RES = 80  # mínima resolución que debe tener cada imagen encontrada, en px
             SEARCH_ATTEMPTS = 10
-            g_scrapper.go_to('http://www.google.com')
-            g_scrapper.click(g_scrapper.browser.find_element_by_partial_link_text('Images'))
-            img = get_img()
-            g_scrapper.click(img)
-            g_scrapper.wait_to_page_loaded()
-            img_button = g_scrapper.browser.find_element_by_partial_link_text('View image')
-            g_scrapper.click(img_button)
-            g_scrapper.wait_to_page_loaded()
-            urllib.urlretrieve(
-                g_scrapper.browser.current_url,
-                os.path.join(settings.PROJECT_ROOT, 'scrapper', 'avatars', '%s.png' % self.user.username)
-            )
+
+            # se queda intentando coger una imágen válida
+            while True:
+                avatar_path = os.path.join(settings.AVATARS_DIR, '%s.png' % self.user.username)
+                g_scrapper.go_to('http://www.google.com')
+                g_scrapper.click(g_scrapper.browser.find_element_by_partial_link_text('Images'))
+                img = get_img()
+                g_scrapper.click(img)
+                g_scrapper.wait_to_page_loaded()
+                img_button = g_scrapper.browser.find_element_by_partial_link_text('View image')
+                g_scrapper.click(img_button)
+                g_scrapper.wait_to_page_loaded()
+                urllib.urlretrieve(g_scrapper.browser.current_url, avatar_path)
+                import imghdr
+                if imghdr.what(avatar_path):
+                    break
+                else:
+                    os.remove(avatar_path)
+                    settings.LOGGER.warning('Invalid picture downloaded from %s. Trying again..' % g_scrapper.browser.current_url)
+
+                # try:
+                #     PIL.Image.open(avatar_path).close()
+                #     break
+                # except Exception:
+                #     settings.LOGGER.warning('Invalid picture downloaded from %s. Trying again..' % g_scrapper.browser.current_url)
+
         except Exception, e:
             settings.LOGGER.exception('%s Could not download picture from google for user "%s"' %
                              (get_browser_instance_id(self.user), self.user.username))
@@ -680,8 +678,8 @@ class Scrapper(object):
         """toma una captura sólo si se usa phantomjs"""
         try:
             if settings.TAKE_SCREENSHOTS:
-                mkdir_if_not_exists(settings.SCREENSHOTS_ROOT)
-                user_dir = os.path.join(settings.SCREENSHOTS_ROOT, self.user.real_name)
+                mkdir_if_not_exists(settings.SCREENSHOTS_DIR)
+                user_dir = os.path.join(settings.SCREENSHOTS_DIR, self.user.real_name)
                 mkdir_if_not_exists(user_dir)
 
                 dir = user_dir

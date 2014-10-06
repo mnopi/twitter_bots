@@ -99,7 +99,7 @@ class TwitterScrapper(Scrapper):
             settings.LOGGER.info('User %s successfully signed up on twitter' % self.user.username)
         except Exception, e:
             self.take_screenshot('twitter_registered_fail')
-            settings.LOGGER.exception('User %s has errors signing up twitter account' % self.user.username)
+            settings.LOGGER.exception('Error on bot %s signing up twitter account' % self.user.username)
             raise e
 
     def is_logged_in(self):
@@ -112,7 +112,6 @@ class TwitterScrapper(Scrapper):
     def login(self):
         """Hace todo el proceso de entrar en twitter y loguearse si fuera necesario por no tener las cookies guardadas"""
         try:
-            self.open_browser()
             self.go_to(settings.URLS['twitter_login'])
 
             # para ver si ya estamos logueados o no
@@ -230,12 +229,12 @@ class TwitterScrapper(Scrapper):
     def set_profile(self):
         """precondición: estar logueado y en la home"""
         def set_avatar():
+            avatar_path = os.path.join(settings.AVATARS_DIR, '%s.png' % self.user.username)
             try:
                 if self.check_visibility('button.ProfileAvatarEditing-button'):
                     self.download_pic_from_google()
 
                     self.click('button.ProfileAvatarEditing-button')
-                    avatar_path = os.path.join(settings.PROJECT_ROOT, 'scrapper', 'avatars', '%s.png' % self.user.username)
                     self.get_css_element('#photo-choose-existing input[type="file"]').send_keys(avatar_path)
                     self.click('#profile_image_upload_dialog-dialog button.profile-image-save')
                     # eliminamos el archivo que habíamos guardado para el avatar
@@ -253,9 +252,9 @@ class TwitterScrapper(Scrapper):
             except Exception:
                 settings.LOGGER.exception('Error setting bio for bot %s' % self.user.username)
 
-        self.go_to(settings.URLS['twitter_login'], wait_page_loaded=True)
-        self.click('a.DashboardProfileCard-avatarLink')
-        self.click('button.UserActions-editButton')
+        self.login()
+        self.click('ul#global-actions li.profile a')  # página de perfil
+        self.click('button.UserActions-editButton')  # botón de editar
         self.delay.seconds(3)
         if not self.user.twitter_avatar_completed and settings.TW_SET_AVATAR:
             set_avatar()
@@ -270,7 +269,6 @@ class TwitterScrapper(Scrapper):
 
     def scrape_bot_creation(self):
         try:
-            settings.LOGGER.info('Scraping bot "%s" creation..' % self.user.username)
             t1 = datetime.datetime.utcnow()
             if settings.FAST_MODE and not settings.TEST_MODE:
                 settings.LOGGER.warning('Fast mode only avaiable on test mode!')

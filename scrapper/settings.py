@@ -62,7 +62,7 @@ BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha d
 MAX_TWT_BOTS_PER_PROXY = 6
 
 # mínimo de días que tienen que pasar para que un bot se registre después de el anterior usando el mismo proxy
-DAYS_BETWEEN_REGISTRATIONS_PER_PROXY = 3
+MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY = 5
 
 PAGE_LOAD_TIMEOUT = 60
 EMAIL_ACCOUNT_TYPE = 'hotmail.com'
@@ -85,3 +85,4 @@ if TOR_MODE:
 if TEST_MODE:
     FAST_MODE = True
     WEBDRIVER = 'FI'
+    TAKE_SCREENSHOTS = True

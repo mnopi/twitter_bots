@@ -5,13 +5,13 @@ from PIL import Image
 import requests
 import simplejson
 import time
-from scrapper import settings
+from core.managers import mutex
+from twitter_bots import settings
 from scrapper.captcha_resolvers import deathbycaptcha
-from scrapper.logger import LOGGER
-
 
 DEFAULT_TIMEOUT = 30
 POLL_INTERVAL = 5
+MAX_REQ_ATTEMPTS = 5
 
 
 class CaptchaResolver(object):
@@ -50,8 +50,23 @@ class DeathByCaptchaResolver(CaptchaResolver):
                     'password': settings.DEATHBYCAPTCHA_PASSWORD,
                     'captchafile': open(captcha_filename, 'rb')
                 }
-                r = requests.post('http://api.dbcapi.me/api/captcha',
-                                  files=files, headers={'Accept': 'application/json'})
+
+                # intentamos pedir la resolución del captcha un máximo de MAX_REQ_ATTEMPTS intentos
+                num_attempts = 0
+                while True:
+                    mutex.acquire()
+                    try:
+                        r = requests.post('http://api.dbcapi.me/api/captcha',
+                                          files=files, headers={'Accept': 'application/json'})
+                        mutex.release()
+                        break
+                    except Exception:
+                        mutex.release()
+                        if num_attempts == MAX_REQ_ATTEMPTS:
+                            raise Exception('Max attempts exceeded to send captcha resolution')
+                        num_attempts += 1
+                        time.sleep(5)
+
                 resp = simplejson.loads(r.content)
 
                 if resp['captcha']:
@@ -65,10 +80,10 @@ class DeathByCaptchaResolver(CaptchaResolver):
                                 uploaded_captcha = pulled
                         if uploaded_captcha['text'] and uploaded_captcha['is_correct']:
                             self.scrapper.captcha_res = uploaded_captcha
-            except Exception:
+            except Exception as ex:
                 settings.LOGGER.exception('Failed uploading CAPTCHA, response:\n\t%s' % r.content)
                 self.scrapper.captcha_res = None
-                raise
+                raise ex
 
             os.remove(captcha_filename)  # borramos del disco duro la foto que teníamos del captcha
 
@@ -92,7 +107,7 @@ class DeathByCaptchaResolver(CaptchaResolver):
             client = deathbycaptcha.SocketClient(settings.DEATHBYCAPTCHA_USER, settings.DEATHBYCAPTCHA_PASSWORD)
             client.report(self.scrapper.captcha_res['captcha'])
         except Exception, e:
-            LOGGER.exception('Failed reporting wrong CAPTCHA')
+            settings.LOGGER.exception('Failed reporting wrong CAPTCHA')
 
 
     # usando la api de esta gente no funciona..

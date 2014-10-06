@@ -9,7 +9,7 @@ import datetime
 import requests
 from requests.packages.urllib3 import Timeout
 import simplejson
-from .logger import LOGGER
+from twitter_bots import settings
 
 
 def generate_random_string(size=None, with_special_chars=False, only_lowercase=False):
@@ -113,7 +113,7 @@ def generate_random_desktop_user_agent():
 
     def get_from_w3schools():
         # primero comprobamos que esté en pie la página
-        requests.get('http://w3schools.com', timeout=10)
+        requests.get('http://w3schools.com', timeout=80)
         ua = UserAgent()
         ua.update()
         while True:

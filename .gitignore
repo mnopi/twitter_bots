@@ -180,3 +180,5 @@ scrapper/screenshots/
 *.log
 scrapper/webdrivers/phantomjs/cookies/*
 logs/*
+scrapper/avatars/*
+*_captcha.png
