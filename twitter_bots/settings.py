@@ -154,11 +154,15 @@ SCREENSHOTS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'screenshots')
 AVATARS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'avatars')
 PHANTOMJS_COOKIES_DIR = os.path.join(PHANTOMJS_PATH, 'cookies')
 PROXIES_DIR = os.path.join(PROJECT_ROOT, 'core', 'proxies')
+LOGS_DIR = os.path.join(PROJECT_ROOT, 'logs')
+SUPERVISOR_LOGS_DIR = os.path.join(LOGS_DIR, 'supervisor')
 
 # creamos estas carpetas si no existen, ya que las hemos añadido al gitignore
 mkdir_if_not_exists(SCREENSHOTS_DIR)
 mkdir_if_not_exists(AVATARS_DIR)
 mkdir_if_not_exists(PHANTOMJS_COOKIES_DIR)
+mkdir_if_not_exists(LOGS_DIR)
+mkdir_if_not_exists(SUPERVISOR_LOGS_DIR)
 
 # by default in /Users/<User>/Library/Application Support/Ofi Labs/PhantomJS
 # PHANTOMJS_LOCALSTORAGES_PATH = os.path.join(PHANTOMJS_PATH, 'localstorages')
