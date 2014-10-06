@@ -91,12 +91,24 @@ class FollowerAdmin(admin.ModelAdmin):
     list_filter = ('target_user', 'date_saved',)
 
 
+class TwitterUserAdmin(admin.ModelAdmin):
+    list_display = (
+        'username',
+        'date_saved',
+    )
+
+    search_fields = (
+        'username',
+    )
+    list_filter = ('date_saved',)
+
+
 # Register your models here.
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(TweetMsg)
 admin.site.register(TargetUser, TargetUserAdmin)
 admin.site.register(Follower, FollowerAdmin)
-admin.site.register(TwitterUser)
+admin.site.register(TwitterUser, TwitterUserAdmin)
 admin.site.register(Tweet, TweetAdmin)
 admin.site.register(Extractor)
 admin.site.register(Link)

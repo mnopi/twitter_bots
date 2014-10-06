@@ -7,6 +7,7 @@ from django.db.models import Count
 import pytz
 import simplejson
 import tweepy
+import time
 from core.models import TwitterBot
 from project.exceptions import RateLimitedException
 from project.managers import TargetUserManager, TweetManager, ProjectManager
@@ -338,6 +339,7 @@ class Extractor(models.Model):
                             settings.LOGGER.info('New follower %s added to list' % follower.__unicode__())
 
                 before_saving = datetime.datetime.now()
+                time.sleep(2)  # para que se note la diferencia por si guarda muy rapido los twitterusers
                 TwitterUser.objects.bulk_create(new_twitter_users)
                 new_twitter_users_ids = TwitterUser.objects\
                     .filter(date_saved__gt=before_saving)\
@@ -366,10 +368,6 @@ class Extractor(models.Model):
         else:
             settings.LOGGER.info('All followers were already extracted from all target users for active projects')
                 
-                
-        
-        
-
     def is_available(self):
         """Si fue marcadado como rate limited se mira si pasaron más de 15 minutos.
         En ese caso se desmarca y se devielve True"""

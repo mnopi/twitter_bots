@@ -161,6 +161,9 @@ class TwitterBotManager(models.Manager):
                     # solo cogemos los usuarios de las plataformas para el proyecto. Por ejemplo, si hay
                     # twitterusers de ios y no tenemos enlaces de ios, que no se envie a estos
 
+                    # iterando por las plataformas de un proyecto de momento no hay prioridad
+                    # y la primera será la primera que se le añada
+
                     for platform in project.get_platforms():
                         project_users = TwitterUser.objects.filter(follower__target_user__projects=project)
                         project_unmentioned_users = project_users.filter(mentions=None, source=platform)
@@ -225,7 +228,8 @@ class TwitterBotManager(models.Manager):
 
         try:
             settings.LOGGER.info('%s Bot %s sending tweet: "%s"' % (thread_name, bot.username, tweet_msg))
-            bot.scrapper.screenshots_dir = str(tweet.pk)
+                bot.scrapper.set_screenshots_dir(str(tweet.pk))
+            bot.scrapper.open_browser()
             bot.scrapper.login()
             bot.scrapper.send_tweet(tweet_msg)
             tweet.sending = False
