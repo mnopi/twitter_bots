@@ -8,33 +8,33 @@ from django.db import models
 class Migration(SchemaMigration):
 
     def forwards(self, orm):
-        # Deleting field 'TwitterBot.cookies'
-        db.delete_column(u'core_twitterbot', 'cookies')
-        db.delete_column(u'core_twitterbot', 'proxy')
-        db.delete_column(u'core_twitterbot', 'proxy_provider')
-
-
-        # Changing field 'TwitterBot.birth_date'
-        db.alter_column(u'core_twitterbot', 'birth_date', self.gf('django.db.models.fields.DateField')(null=True))
-
-    def backwards(self, orm):
-        # Adding field 'TwitterBot.cookies'
-        db.add_column(u'core_twitterbot', 'cookies',
-                      self.gf('django.db.models.fields.TextField')(null=True, blank=True),
-                      keep_default=False)
+        # Adding model 'Proxy'
+        db.create_table(u'core_proxy', (
+            (u'id', self.gf('django.db.models.fields.AutoField')(primary_key=True)),
+            ('proxy', self.gf('django.db.models.fields.CharField')(max_length=21, blank=True)),
+            ('proxy_provider', self.gf('django.db.models.fields.CharField')(max_length=50, blank=True)),
+            ('is_unavailable_for_registration', self.gf('django.db.models.fields.BooleanField')(default=False)),
+            ('date_unavailable_for_registration', self.gf('django.db.models.fields.DateTimeField')(null=True, blank=True)),
+            ('is_unavailable_for_use', self.gf('django.db.models.fields.BooleanField')(default=False)),
+            ('date_unavailable_for_use', self.gf('django.db.models.fields.DateTimeField')(null=True, blank=True)),
+            ('is_phone_required', self.gf('django.db.models.fields.BooleanField')(default=False)),
+            ('date_phone_required', self.gf('django.db.models.fields.DateTimeField')(null=True, blank=True)),
+        ))
+        db.send_create_signal(u'core', ['Proxy'])
 
         # Adding field 'TwitterBot.proxy'
         db.add_column(u'core_twitterbot', 'proxy',
-                      self.gf('django.db.models.fields.CharField')(default='fuckedup', max_length=21),
+                      self.gf('django.db.models.fields.related.ForeignKey')(blank=True, related_name='twitter_bots', null=True, to=orm['core.Proxy']),
                       keep_default=False)
 
-        # Adding field 'TwitterBot.proxy_provider'
-        db.add_column(u'core_twitterbot', 'proxy_provider',
-                      self.gf('django.db.models.fields.CharField')(default='', max_length=50, blank=True),
-                      keep_default=False)
 
-        # Changing field 'TwitterBot.birth_date'
-        db.alter_column(u'core_twitterbot', 'birth_date', self.gf('django.db.models.fields.DateTimeField')(null=True))
+    def backwards(self, orm):
+        # Deleting model 'Proxy'
+        db.delete_table(u'core_proxy')
+
+        # Deleting field 'TwitterBot.proxy'
+        db.delete_column(u'core_twitterbot', 'proxy_id')
+
 
     models = {
         u'auth.group': {
@@ -57,6 +57,18 @@ class Migration(SchemaMigration):
             'model': ('django.db.models.fields.CharField', [], {'max_length': '100'}),
             'name': ('django.db.models.fields.CharField', [], {'max_length': '100'})
         },
+        u'core.proxy': {
+            'Meta': {'object_name': 'Proxy'},
+            'date_phone_required': ('django.db.models.fields.DateTimeField', [], {'null': 'True', 'blank': 'True'}),
+            'date_unavailable_for_registration': ('django.db.models.fields.DateTimeField', [], {'null': 'True', 'blank': 'True'}),
+            'date_unavailable_for_use': ('django.db.models.fields.DateTimeField', [], {'null': 'True', 'blank': 'True'}),
+            u'id': ('django.db.models.fields.AutoField', [], {'primary_key': 'True'}),
+            'is_phone_required': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
+            'is_unavailable_for_registration': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
+            'is_unavailable_for_use': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
+            'proxy': ('django.db.models.fields.CharField', [], {'max_length': '21', 'blank': 'True'}),
+            'proxy_provider': ('django.db.models.fields.CharField', [], {'max_length': '50', 'blank': 'True'})
+        },
         u'core.twitterbot': {
             'Meta': {'object_name': 'TwitterBot'},
             'birth_date': ('django.db.models.fields.DateField', [], {'null': 'True', 'blank': 'True'}),
@@ -73,6 +85,7 @@ class Migration(SchemaMigration):
             'must_verify_phone': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
             'password_email': ('django.db.models.fields.CharField', [], {'max_length': '20', 'blank': 'True'}),
             'password_twitter': ('django.db.models.fields.CharField', [], {'max_length': '20', 'blank': 'True'}),
+            'proxy': ('django.db.models.fields.related.ForeignKey', [], {'blank': 'True', 'related_name': "'twitter_bots'", 'null': 'True', 'to': u"orm['core.Proxy']"}),
             'random_mouse_paths': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
             'random_offsets': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
             'real_name': ('django.db.models.fields.CharField', [], {'max_length': '50', 'blank': 'True'}),

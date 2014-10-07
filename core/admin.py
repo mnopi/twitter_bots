@@ -5,7 +5,7 @@ from django.contrib.auth.admin import UserAdmin
 from django.http import HttpResponseRedirect
 from django.shortcuts import render_to_response
 from core.forms import MyUserChangeForm, TwitterBotForm
-from core.models import User, TwitterBot
+from core.models import User, TwitterBot, Proxy
 from project.models import Tweet
 from scrapper.scrapper import Scrapper
 from django.contrib import messages
@@ -45,7 +45,7 @@ class ValidBotListFilter(admin.SimpleListFilter):
 class TwitterBotAdmin(admin.ModelAdmin):
     list_display = (
         'username',
-        'it_works',
+        'is_active',
         # 'is_manually_registered',
         'email_registered_ok',
         'twitter_registered_ok',
@@ -54,10 +54,8 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'twitter_bio_completed',
         'date',
         'proxy',
-        'proxy_provider',
         # 'user_agent',
         'webdriver',
-        'must_verify_phone',
     )
     search_fields = ('real_name', 'username', 'email', 'real_name')
     list_filter = (ValidBotListFilter,)
@@ -219,5 +217,33 @@ class TwitterBotAdmin(admin.ModelAdmin):
             self.message_user(request, msg, level=messages.ERROR)
     send_pending_tweets.short_description = "Send all pending tweets"
 
+
+class ProxyAdmin(admin.ModelAdmin):
+    list_display = (
+        'proxy',
+        'proxy_provider',
+        'is_unavailable_for_registration',
+        'date_unavailable_for_registration',
+        'is_unavailable_for_use',
+        'date_unavailable_for_use',
+        'is_phone_required',
+        'date_phone_required',
+    )
+
+    search_fields = (
+        'proxy',
+    )
+    list_filter = (
+        'proxy_provider',
+        'is_unavailable_for_registration',
+        'date_unavailable_for_registration',
+        'is_unavailable_for_use',
+        'date_unavailable_for_use',
+        'is_phone_required',
+        'date_phone_required',
+    )
+
+
 admin.site.register(User, MyUserAdmin)
 admin.site.register(TwitterBot, TwitterBotAdmin)
+admin.site.register(Proxy, ProxyAdmin)

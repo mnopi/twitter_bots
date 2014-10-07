@@ -3,11 +3,10 @@ import threading
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 import pytz
-from scrapper.exceptions import NoMoreAvaiableProxiesException, FailureSendingTweetException
 from scrapper.logger import get_browser_instance_id
 from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from scrapper.accounts.twitter import TwitterScrapper
-from core.managers import TwitterBotManager
+from core.managers import TwitterBotManager, ProxyManager
 from scrapper.utils import *
 
 
@@ -38,12 +37,10 @@ class TwitterBot(models.Model):
     }
     gender = models.IntegerField(max_length=1, choices=GENDERS, default=0)
 
-    it_works = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=False)
     is_manually_registered = models.BooleanField(default=False)
     has_fast_mode = models.BooleanField(default=False)
     user_agent = models.TextField(null=False, blank=True)
-    proxy = models.CharField(max_length=21, null=False, blank=True)
-    proxy_provider = models.CharField(max_length=50, null=False, blank=True)
 
     email_registered_ok = models.BooleanField(default=False)
     twitter_registered_ok = models.BooleanField(default=False)
@@ -61,7 +58,9 @@ class TwitterBot(models.Model):
     webdriver = models.CharField(max_length=2, choices=WEBDRIVERS, default='FI')
     random_offsets = models.BooleanField(default=False)
     random_mouse_paths = models.BooleanField(default=False)
-    must_verify_phone = models.BooleanField(default=False)
+
+    # RELATIONSHIPS
+    proxy = models.ForeignKey('Proxy', null=True, blank=True, related_name='twitter_bots')
 
     objects = TwitterBotManager()
 
@@ -107,7 +106,7 @@ class TwitterBot(models.Model):
         return not self.has_to_set_tw_avatar() and not self.has_to_set_tw_bio()
 
     def mark_as_suspended(self):
-        self.it_works = False
+        self.is_active = False
         self.date_suspended = datetime.datetime.now()
         self.save()
         settings.LOGGER.warning('User %s has marked as suspended on twitter' % self.username)
@@ -279,9 +278,9 @@ class TwitterBot(models.Model):
 
     def tweeting_time_interval_lapsed(self):
         "Mira si ha pasado el suficiente tiempo desde la ultima vez que tuiteo"
-        bot_tweets = self.get_sent_ok_tweets().order_by('-date_sent')
+        bot_tweets = self.get_sent_ok_tweets()
         if bot_tweets:
-            last_tweet = bot_tweets[0]
+            last_tweet = bot_tweets.latest('date_sent')
             now_utc = datetime.datetime.now().replace(tzinfo=pytz.utc)
             random_seconds = random.randint(60*settings.TIME_BETWEEN_TWEETS[0], 60*settings.TIME_BETWEEN_TWEETS[1])  # entre 2 y 7 minutos por tweet
             return (now_utc - last_tweet.date_sent).seconds >= random_seconds
@@ -369,3 +368,25 @@ class TwitterBot(models.Model):
             raise ex
         finally:
             self.scrapper.close_browser()
+
+
+class Proxy(models.Model):
+    proxy = models.CharField(max_length=21, null=False, blank=True)
+    proxy_provider = models.CharField(max_length=50, null=False, blank=True)
+
+    is_unavailable_for_registration = models.BooleanField(default=False)
+    date_unavailable_for_registration = models.DateTimeField(null=True, blank=True)
+
+    is_unavailable_for_use = models.BooleanField(default=False)
+    date_unavailable_for_use = models.DateTimeField(null=True, blank=True)
+
+    is_phone_required = models.BooleanField(default=False)
+    date_phone_required = models.DateTimeField(null=True, blank=True)
+
+    objects = ProxyManager()
+
+    class Meta:
+        verbose_name_plural = "proxies"
+
+    def __unicode__(self):
+        return '%s @ %s' % (self.proxy, self.proxy_provider)

@@ -20,8 +20,8 @@ class Command(BaseCommand):
                 try:
                     settings.LOGGER.info('### Using extractor: %s @ %s - %s###' %
                                          (extractor.twitter_bot.username,
-                                          extractor.twitter_bot.proxy,
-                                          extractor.twitter_bot.proxy_provider))
+                                          extractor.twitter_bot.proxy.proxy,
+                                          extractor.twitter_bot.proxy.proxy_provider))
                     extractor.extract_followers_from_all_target_users()
                 except RateLimitedException:
                     continue

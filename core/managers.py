@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import random
 import os
 import time
 import threading
@@ -6,9 +7,8 @@ import datetime
 
 from django.db import models
 import pytz
-from project.exceptions import BotNotFoundException
-from scrapper.exceptions import BotDetectedAsSpammerException, NoMoreAvaiableProxiesException, \
-    FailureSendingTweetException
+from project.exceptions import BotsWithTweetNotFoundException
+from scrapper.exceptions import BotDetectedAsSpammerException, NoMoreAvaiableProxiesException
 from scrapper.thread_pool import ThreadPool
 from twitter_bots import settings
 from multiprocessing import Lock
@@ -133,40 +133,40 @@ class TwitterBotManager(models.Manager):
 
         return found_listed_proxy
 
-    def get_valid_bot(self, **kwargs):
-        """
-        De todo el conjunto de bots, escoge el primer bot considerado válido:
-            -   que no haya tuiteado como mínimo entre tiempo random 2-5 minutos
-            -   en caso de ser varios se coge al del tuit más antiguo
-        """
-        kwargs.update({
-            'it_works': True,
-
-        })
-        bot = self.get_all_bots(**kwargs)[0]
-        try:
-            bot.scrapper.login()
-            return bot
-        except Exception:
-            bot.mark_as_not_twitter_registered_ok()
-            self.get_valid_bot(**kwargs)
-
-    def get_bot_and_tweet_to_send(self):
+    def get_bots_with_tweet_to_send(self, limit=None):
         """
         devuelve la tupla (bot, tweet) que el primer bot pueda tuitear. En caso de no poderse
         construir el tweet con ningún bot entonces se lanza excepción
         """
-        for bot in self.get_all_bots().filter(it_works=True):
-            if bot.can_tweet():
-                tweet_to_send = bot.make_tweet_to_send()
-                if tweet_to_send:
-                    return bot, tweet_to_send
+        avaiable_bots_with_tweet = []
+        for bot in self.get_all_twitteable_bots():
+            tweet_to_send = bot.make_tweet_to_send()
+            if tweet_to_send:
+                avaiable_bots_with_tweet.append((bot, tweet_to_send))
+                settings.LOGGER.info('Added bot %s with tweet %s' % (bot.username, tweet_to_send.compose()))
+                if limit and len(avaiable_bots_with_tweet) == limit:
+                    break
 
-        raise BotNotFoundException()
+        if len(avaiable_bots_with_tweet):
+            settings.LOGGER.info('Found %i bots with tweet to send' % len(avaiable_bots_with_tweet))
+            return avaiable_bots_with_tweet
+        else:
+            raise BotsWithTweetNotFoundException()
 
-    def get_all_bots(self):
-        """Escoge todos aquellos bots que tengan phantomJS"""
-        return self.filter(webdriver='PH').exclude(proxy='tor')
+    def get_all_active_bots(self):
+        """Escoge todos aquellos bots que tengan phantomJS, no tengan proxy tor y el proxy funcione"""
+        return self.filter(webdriver='PH', is_active=True)\
+            .exclude(proxy__proxy='tor')\
+            .exclude(proxy__is_unavailable_for_use=True)
+
+    def get_all_twitteable_bots(self):
+        now_utc = datetime.datetime.now().replace(tzinfo=pytz.utc)
+        random_seconds = random.randint(60*settings.TIME_BETWEEN_TWEETS[0], 60*settings.TIME_BETWEEN_TWEETS[1])  # entre 2 y 7 minutos por tweet
+        date_sent_limit = now_utc - datetime.timedelta(seconds=random_seconds)
+
+        return self.get_all_active_bots()\
+            .exclude(tweets__sending=True)\
+            .exclude(tweets__date_sent__gt=date_sent_limit)
 
     def send_mention(self, username, tweet_msg):
         "Del conjunto de robots se escoge uno para enviar el tweet al usuario"
@@ -183,55 +183,33 @@ class TwitterBotManager(models.Manager):
             self.send_mentions(user_list, tweet_msg)
 
     def send_tweet(self):
-        def unlock_mutex():
-            try:
-                # settings.LOGGER.info('%s mutex releasing..' % thread_name)
-                mutex.release()
-                # settings.LOGGER.info('%s mutex released ok' % thread_name)
-            except Exception as ex:
-                settings.LOGGER.exception('%s error releasing mutex' % thread_name)
-                raise ex
-
-        tweet = bot = tweet_msg = None
-
-        try:
-            mutex.acquire()
-
-            # ESCOGEMOS ROBOT Y TWEET
-            bot, tweet = self.get_bot_and_tweet_to_send()
-            tweet_msg = tweet.compose()
-        finally:
-            # QUITAMOS CANDADO
-            unlock_mutex()
-
+        """Escoge un robot cualquiera de los disponibles para enviar un tweet"""
+        bots_with_tweet = self.get_bots_with_tweet_to_send(limit=1)
+        bot, tweet = bots_with_tweet[0]
         bot.send_tweet(tweet)
 
     def send_tweets(self):
-        from project.models import Tweet
         settings.LOGGER.info('--- Trying to send %i tweets ---' % settings.MAX_THREADS_SENDING_TWEETS)
 
-        threads = []
-        for n in range(settings.MAX_THREADS_SENDING_TWEETS):
-            thread = threading.Thread(target=self.send_tweet)
-            thread.start()
-            threads.append(thread)
+        bots_with_tweet = self.get_bots_with_tweet_to_send()
 
-        # to wait until all three functions are finished
-        for thread in threads:
-            thread.join()
+        # threads = []
+        # for bwt in bots_with_tweet:
+        #     bot, tweet = bwt
+        #     thread = threading.Thread(target=bot.send_tweet, args=tweet)
+        #     thread.start()
+        #     threads.append(thread)
+        #
+        # # to wait until all three functions are finished
+        # for thread in threads:
+        #     thread.join()
 
-        # pool = ThreadPool(settings.MAX_THREADS)
-        # for _ in pending_tweets:
-        # while True:
-        # for _ in pending_tweets:
-        #     LOGGER.info('Adding task..')
-        #     pool.add_task(self.send_tweet)
-        #     LOGGER.info('Checking if all tweets sent..')
-        #     if Tweet.objects.all_sent_ok():
-        #         break
-        #     else:
-        #         time.sleep(0.3)
-        # pool.wait_completion()
+        pool = ThreadPool(settings.MAX_THREADS_SENDING_TWEETS)
+        for bwt in bots_with_tweet:
+            bot, tweet = bwt
+            settings.LOGGER.info('Adding task (bot: %s, tweet: %s)' % (bot.username, tweet.compose()))
+            pool.add_task(bot.send_tweet, tweet)
+        pool.wait_completion()
 
     # def process_all_bots(self):
     #     bots = self.get_all_bots()
@@ -243,3 +221,59 @@ class TwitterBotManager(models.Manager):
     #     settings.LOGGER.info('%i bots processed ok' % bots.count())
 
 
+
+class ProxyManager(models.Manager):
+    def get_txt_proxies(self):
+        """Devuelve una lista de todos los proxies metidos en los .txt"""
+        txt_proxies = []
+        for (dirpath, dirnames, filenames) in os.walk(settings.PROXIES_DIR):
+            for filename in filenames:  # myprivateproxy.txt
+                filename_has_proxies = False
+                with open(os.path.join(dirpath, filename)) as f:
+                    proxies_lines = f.readlines()
+                    for proxy in proxies_lines:
+                        proxy = proxy.replace('\n', '')
+                        proxy = proxy.replace(' ', '')
+                        proxy_provider = filename.split('.')[0]
+                        txt_proxies.append((proxy, proxy_provider))
+                        filename_has_proxies = True
+                if not filename_has_proxies:
+                    raise Exception('file %s has not proxies inside' % os.path.join(dirpath, filename))
+        return txt_proxies
+
+    def sync_proxies(self):
+        "Sincroniza BD y los proxies disponibles en los txt"
+
+        def clean_old_proxies():
+            """Quita de BD aquellos proxies que ya no estén en los .txt, ya que cada mes
+            se renuevan los .txt con los nuevos"""
+
+            def is_on_txt(db_proxy):
+                for txt_proxy, txt_proxy_provider in txt_proxies:
+                    if txt_proxy == db_proxy.proxy:
+                        return True
+                return False
+
+            settings.LOGGER.info('Cleaning old proxies..')
+            old_count = 0
+            db_proxies = self.all()
+            for db_proxy in db_proxies:
+                if not is_on_txt(db_proxy):
+                    db_proxy.delete()
+                    old_count += 1
+                    settings.LOGGER.info('Deleted old proxy %s @ %s' % (db_proxy.proxy, db_proxy.proxy_provider))
+            settings.LOGGER.info('%i old proxies removed ok from database' % old_count)
+
+        def add_new_proxies():
+            settings.LOGGER.info('Adding new proxies to database..')
+            new_count = 0
+            for txt_proxy, txt_proxy_provider in txt_proxies:
+                if not self.filter(proxy=txt_proxy, proxy_provider=txt_proxy_provider).exists():
+                    self.create(proxy=txt_proxy, proxy_provider=txt_proxy_provider)
+                    settings.LOGGER.info('\tAdded new proxy %s @ %s' % (txt_proxy, txt_proxy_provider))
+                    new_count += 1
+            settings.LOGGER.info('%i new proxies added ok into database' % new_count)
+
+        txt_proxies = self.get_txt_proxies()
+        clean_old_proxies()
+        add_new_proxies()

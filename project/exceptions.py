@@ -12,6 +12,6 @@ class RateLimitedException(Exception):
         extractor.save()
 
 
-class BotNotFoundException(Exception):
+class BotsWithTweetNotFoundException(Exception):
     def __init__(self):
-        settings.LOGGER.warning('###%s### - Bot not found to mention any user' % threading.current_thread().name)
+        settings.LOGGER.warning('###%s### - Bots not found to mention any user' % threading.current_thread().name)

@@ -1,10 +1,7 @@
 # -*- coding: utf-8 -*-
-import os
 from selenium.common.exceptions import MoveTargetOutOfBoundsException
-from selenium.webdriver.common.keys import Keys
 
 from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
-from scrapper.captcha_resolvers import DeathByCaptchaResolver
 from scrapper.exceptions import TwitterEmailNotFound, BotDetectedAsSpammerException, BotMustVerifyPhone, \
     TwitterBotDontExistsOnTwitterException, FailureSendingTweetException, TwitterEmailNotConfirmed, \
     TwitterAccountSuspended
@@ -331,8 +328,6 @@ class TwitterScrapper(Scrapper):
             settings.LOGGER.info('Failure sending tweet from %s' % self.user.username)
             self.take_screenshot('failure_sending_tweet')
             tweet.delete()
-            self.it_works = False
-            self.save()
             raise FailureSendingTweetException()
         else:
             settings.LOGGER.info('Tweet sent ok from %s' % self.user.username)

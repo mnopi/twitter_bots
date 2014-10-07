@@ -228,7 +228,7 @@ class Extractor(models.Model):
         #                              proxies={'https': self.twitter_bot.proxy})
         auth = tweepy.OAuthHandler(self.consumer_key, self.consumer_secret)
         auth.set_access_token(self.access_token, self.access_token_secret)
-        self.api = tweepy.API(auth, proxy=self.twitter_bot.proxy)
+        self.api = tweepy.API(auth, proxy=self.twitter_bot.proxy.proxy)
 
     def get(self, uri):
         # url = 'https://api.twitter.com/1.1/followers/list.json?cursor=2&screen_name=candycrush&count=5000'
