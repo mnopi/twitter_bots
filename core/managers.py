@@ -277,3 +277,10 @@ class ProxyManager(models.Manager):
         txt_proxies = self.get_txt_proxies()
         clean_old_proxies()
         add_new_proxies()
+
+    def get_valid_proxies(self):
+        return self.filter(
+            is_unavailable_for_registration=False,
+            is_unavailable_for_use=False,
+            is_phone_required=False,
+        )

@@ -133,18 +133,16 @@ class TwitterBot(models.Model):
     def assign_proxy(self, proxy=None, proxy_provider=None):
         """Le asigna un proxy disponible"""
         if settings.TOR_MODE:
-            self.proxy = 'tor'
+            self.proxy = Proxy.objects.get_or_create(proxy='tor', proxy_provider='tor')
         elif proxy and proxy_provider:
-            self.proxy = proxy
-            self.proxy_provider = proxy_provider
-            self.save()
+            self.proxy = Proxy.objects.get(proxy=proxy, proxy_provider=proxy_provider)
         else:
-            self.proxy, self.proxy_provider = random.choice(self.__class__.objects.get_available_proxies())
-            self.save()
+            self.proxy = Proxy.objects.get_valid_proxies().order_by('?')[0]
+        self.save()
 
     def has_proxy_listed(self):
         "Mira si el proxy del usuario aparece en alguno de los .txt de la carpeta proxies"
-        return self.__class__.objects.check_listed_proxy(self.proxy)
+        return Proxy.objects.filter(proxy=self.proxy).exists()
 
     def get_email_scrapper(self):
         from scrapper.accounts.hotmail import HotmailScrapper
