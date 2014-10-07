@@ -189,7 +189,7 @@ class TwitterBotManager(models.Manager):
         bot.send_tweet(tweet)
 
     def send_tweets(self):
-        settings.LOGGER.info('--- Trying to send %i tweets ---' % settings.MAX_THREADS_SENDING_TWEETS)
+        # settings.LOGGER.info('--- Trying to send %i tweets ---' % settings.MAX_THREADS_SENDING_TWEETS)
 
         bots_with_tweet = self.get_bots_with_tweet_to_send()
 

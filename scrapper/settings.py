@@ -37,7 +37,7 @@ TOR_MODE = False
 TEST_MODE = False
 ###############
 FAST_MODE = False  # para saltarse los delays en testeo
-TAKE_SCREENSHOTS = True
+TAKE_SCREENSHOTS = False
 
 
 REGISTER_EMAIL = True  # para activar o no el registro del email
@@ -49,7 +49,7 @@ TW_SET_BIO = True
 if not REGISTER_EMAIL:
     TW_CONFIRM_EMAIL = False
 
-MAX_THREADS_SENDING_TWEETS = 1  # máximo de hilos para enviar tweets
+MAX_THREADS_SENDING_TWEETS = 20  # máximo de hilos para enviar tweets
 MAX_THREADS_CREATING_BOTS = 5  # máximo de hilos para crear bots
 MAX_THREADS_EXTRACTING_FOLLOWERS = 3
 USE_PROXY = True

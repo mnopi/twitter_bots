@@ -123,7 +123,8 @@ class TwitterScrapper(Scrapper):
             self.clear_local_storage()
             self.check_account_suspended()
         except Exception, e:
-            settings.LOGGER.exception('Login on twitter error for %s' % self.user.username)
+            settings.LOGGER.exception('%s Login on twitter error for %s' % (get_thread_name(), self.user.username))
+            self.take_screenshot('login_failure', force_take=True)
             raise e
 
     def check_account_suspended(self):
@@ -141,10 +142,8 @@ class TwitterScrapper(Scrapper):
                 raise TwitterAccountSuspended(self.user)
         elif self.check_visibility('.resend-confirmation-email-link'):
             self.click('.resend-confirmation-email-link')
-            self.user.twitter_confirmed_email_ok = False
-            self.user.save()
-            self.confirm_user_email()
-            self.login()
+            self.delay.seconds(4)
+            raise TwitterEmailNotConfirmed(self.user)
         else:
             self.user.it_works = True
             self.user.save()
@@ -265,47 +264,6 @@ class TwitterScrapper(Scrapper):
         else:
             settings.LOGGER.info('Profile completed with errors for bot %s' % self.user.username)
 
-    def scrape_bot_creation(self):
-        try:
-            t1 = datetime.datetime.utcnow()
-            if settings.FAST_MODE and not settings.TEST_MODE:
-                settings.LOGGER.warning('Fast mode only avaiable on test mode!')
-                settings.FAST_MODE = False
-
-            # abrimos ventana para scrapear twitter
-            self.screenshots_dir = 'twitter'
-            self.open_browser()
-
-            # crea cuenta email
-            self.set_email_scrapper()
-            if self.user.has_to_register_email():
-                self.check_proxy_works_ok()
-                self.signup_email_account()
-
-            # crea cuenta twitter
-            if self.user.has_to_register_twitter():
-                self.sign_up()
-
-            # confirma email de twitter y rellena perfil en twitter
-            if self.user.has_to_confirm_tw_email():
-                self.email_scrapper.confirm_tw_email()
-
-            self.email_scrapper.close_browser()
-
-            if self.user.has_to_complete_tw_profile():
-                self.login()
-                self.set_profile()
-
-            self.user.it_works = True
-            self.user.save()
-            t2 = datetime.datetime.utcnow()
-            diff_secs = (t2 - t1).seconds
-            settings.LOGGER.info('Bot "%s" creation scrapped sucessfully in %s seconds' % (self.user.username, diff_secs))
-        except Exception as ex:
-            settings.LOGGER.exception('Error scraping bot "%s" for creation' % self.user.username)
-            self.close()
-            raise ex
-
     def close(self):
         if hasattr(self, 'email_scrapper'):
             self.email_scrapper.close_browser()
@@ -325,13 +283,13 @@ class TwitterScrapper(Scrapper):
         if self.check_visibility('#global-tweet-dialog'):
             # si aún aparece el diálogo de twitear es que no se envió ok
             # si el  se elimina y se marca el bot como inválido
-            settings.LOGGER.info('Failure sending tweet from %s' % self.user.username)
-            self.take_screenshot('failure_sending_tweet')
+            settings.LOGGER.warning('%s Failure sending tweet %i from %s' % (get_thread_name(), tweet.pk, self.user.username))
+            self.take_screenshot('failure_sending_tweet', force_take=True)
             tweet.delete()
             raise FailureSendingTweetException()
         else:
-            settings.LOGGER.info('Tweet sent ok from %s' % self.user.username)
-            self.take_screenshot('tweet_sent_ok')
+            settings.LOGGER.info('%s %s sent tweet %i ok' % (get_thread_name(), self.user.username, tweet.pk))
+            self.take_screenshot('tweet_sent_ok', force_take=True)
 
         self.delay.seconds(7)
 

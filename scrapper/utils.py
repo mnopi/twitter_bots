@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import threading
 import os
 from fake_useragent import UserAgent
 import random
@@ -57,7 +58,7 @@ def generate_random_username(full_name=None, gender=None):
     return first_name_prefix + last_name.lower() + last_digits
 
 
-def wait_condition(cond, timeout=30, err_msg="Timeout waiting condition"):
+def wait_condition(cond, timeout=80, err_msg="Timeout waiting condition"):
     """Se espera hasta un máximo 'timeout' a que ocurra la condición 'cond', que puede tratarse
     de un valor booleano o bien una función a ejecutar cada vez que queramos comprobar su estado"""
     wait_start = datetime.datetime.now()
@@ -159,3 +160,6 @@ def create_file_if_not_exists(file):
 class QuoteGenerator(object):
     def get_quote(self):
         pass
+
+def get_thread_name():
+    return '###%s### - ' % threading.current_thread().name

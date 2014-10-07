@@ -49,7 +49,7 @@ class Scrapper(object):
             self.go_to('http://twitter.com')
         except Exception, e:
             settings.LOGGER.error('%s Proxy %s @ %s can\'t load twitter.com' %
-                         (get_browser_instance_id(self.user), self.user.proxy, self.user.proxy_provider))
+                         (get_browser_instance_id(self.user), self.user.proxy.proxy, self.user.proxy.proxy_provider))
             raise e
 
     def set_screenshots_dir(self, dir_name):
@@ -216,7 +216,7 @@ class Scrapper(object):
         """Cuando no se consigue cargar una página se hace esto"""
         err_msg = 'Error using proxy %s @ %s to request address %s, maybe you are using ' \
                   'unauthorized IP to connect or provider refreshed proxies list' \
-                  % (self.user.proxy, self.user.proxy_provider, self.browser.current_url)
+                  % (self.user.proxy.proxy, self.user.proxy.proxy_provider, self.browser.current_url)
         if type(e) is TimeoutException:
             settings.LOGGER.error('%s Timeout error: %s' % (get_browser_instance_id(self.user), err_msg))
         else:
@@ -674,10 +674,10 @@ class Scrapper(object):
         y = element.location['y']
         self.browser.execute_script('window.scrollTo(0, {0})'.format(y))
 
-    def take_screenshot(self, title):
+    def take_screenshot(self, title, force_take=False):
         """toma una captura sólo si se usa phantomjs"""
         try:
-            if settings.TAKE_SCREENSHOTS:
+            if settings.TAKE_SCREENSHOTS or force_take:
                 mkdir_if_not_exists(settings.SCREENSHOTS_DIR)
                 user_dir = os.path.join(settings.SCREENSHOTS_DIR, self.user.real_name)
                 mkdir_if_not_exists(user_dir)

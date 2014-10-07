@@ -346,10 +346,7 @@ class TwitterBot(models.Model):
         return None
 
     def send_tweet(self, tweet):
-        thread_name = '###%s### - ' % threading.current_thread().name
         try:
-            tweet_msg = tweet.compose()
-            settings.LOGGER.info('%s Bot %s sending tweet: "%s"' % (thread_name, self.username, tweet_msg))
             self.scrapper.set_screenshots_dir(str(tweet.pk))
             self.scrapper.open_browser()
             self.scrapper.login()
@@ -358,14 +355,6 @@ class TwitterBot(models.Model):
             tweet.sent_ok = True
             tweet.date_sent = datetime.datetime.now()
             tweet.save()
-            settings.LOGGER.info('Bot %s sent tweet ok: "%s"' % (self.username, tweet_msg))
-        except Exception as ex:
-            try:
-                settings.LOGGER.exception('%s Error sending tweet' % thread_name)
-            except Exception as ex:
-                settings.LOGGER.exception('%s Error catching exception' % thread_name)
-                raise ex
-            raise ex
         finally:
             self.scrapper.close_browser()
 

@@ -8,6 +8,8 @@ class TwitterEmailNotFound(Exception):
 
 class TwitterEmailNotConfirmed(Exception):
     def __init__(self, bot):
+        bot.twitter_confirmed_email_ok = False
+        bot.save()
         settings.LOGGER.warning('Bot %s hasnt confirmed twitter email %s yet' % (bot.username, bot.email))
 
 
@@ -19,7 +21,7 @@ class TwitterAccountSuspended(Exception):
 class BotDetectedAsSpammerException(Exception):
     def __init__(self, bot):
         settings.LOGGER.warning('Bot %s was detected as spammer' % bot.username)
-        bot.it_works = False
+        bot.is_active = False
         bot.save()
 
 

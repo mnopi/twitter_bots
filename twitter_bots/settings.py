@@ -161,7 +161,7 @@ SUPERVISOR_LOGS_DIR = os.path.join(LOGS_DIR, 'supervisor')
 # PHANTOMJS_LOCALSTORAGES_PATH = os.path.join(PHANTOMJS_PATH, 'localstorages')
 
 # intervalo de twiteo para cada bot en minutos
-# TIME_BETWEEN_TWEETS = (100, 200)
+# TIME_BETWEEN_TWEETS = (1000, 2000)
 TIME_BETWEEN_TWEETS = (2, 7)
 MAX_MENTIONS_PER_TWEET = 2
 
