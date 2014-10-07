@@ -133,7 +133,7 @@ class TwitterScrapper(Scrapper):
         """Una vez logueado miramos si fue suspendida la cuenta"""
         bot_is_suspended = lambda: self.get_css_element('#account-suspended') and \
                                    self.get_css_element('#account-suspended').is_displayed()
-        if check_condition(bot_is_suspended()):
+        if check_condition(bot_is_suspended):
             self.user.mark_as_suspended()
 
             if 'confirm your email' in self.get_css_element('#account-suspended').text:
@@ -261,6 +261,7 @@ class TwitterScrapper(Scrapper):
         if not self.user.twitter_bio_completed and settings.TW_SET_BIO:
             set_bio()
         self.click('.ProfilePage-editingButtons button.ProfilePage-saveButton')
+        self.delay.seconds(7)
         self.take_screenshot('profile_completed')
         if self.user.has_tw_profile_completed():
             settings.LOGGER.info('Profile completed ok for bot %s' % self.user.username)
@@ -313,9 +314,9 @@ class TwitterScrapper(Scrapper):
             self.email_scrapper.close_browser()
         self.close_browser()
 
-    def send_tweet(self, msg):
+    def send_tweet(self, tweet):
         self.click('#global-new-tweet-button')
-        self.send_keys(msg)
+        self.send_keys(tweet.compose())
 
         # self.click('#tweet-box-mini-home-profile')
         # self.delay.seconds(1, force_delay=True)
@@ -326,8 +327,12 @@ class TwitterScrapper(Scrapper):
 
         if self.check_visibility('#global-tweet-dialog'):
             # si aún aparece el diálogo de twitear es que no se envió ok
+            # si el  se elimina y se marca el bot como inválido
             settings.LOGGER.info('Failure sending tweet from %s' % self.user.username)
             self.take_screenshot('failure_sending_tweet')
+            tweet.delete()
+            self.it_works = False
+            self.save()
             raise FailureSendingTweetException()
         else:
             settings.LOGGER.info('Tweet sent ok from %s' % self.user.username)

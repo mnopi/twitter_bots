@@ -162,6 +162,7 @@ SUPERVISOR_LOGS_DIR = os.path.join(LOGS_DIR, 'supervisor')
 
 # intervalo de twiteo para cada bot en minutos
 TIME_BETWEEN_TWEETS = (2, 7)
+MAX_MENTIONS_PER_TWEET = 2
 # TIME_BETWEEN_TWEETS = (30, 40)
 
 

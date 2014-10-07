@@ -151,40 +151,18 @@ class TwitterBotManager(models.Manager):
             bot.mark_as_not_twitter_registered_ok()
             self.get_valid_bot(**kwargs)
 
-    def get_bot_available_to_mention(self):
-        from project.models import Project, TwitterUser, Tweet, Link
-
+    def get_bot_and_tweet_to_send(self):
+        """
+        devuelve la tupla (bot, tweet) que el primer bot pueda tuitear. En caso de no poderse
+        construir el tweet con ningún bot entonces se lanza excepción
+        """
         for bot in self.get_all_bots().filter(it_works=True):
             if bot.can_tweet():
-                for project in Project.objects.filter(is_running=True):
-
-                    # solo cogemos los usuarios de las plataformas para el proyecto. Por ejemplo, si hay
-                    # twitterusers de ios y no tenemos enlaces de ios, que no se envie a estos
-
-                    # iterando por las plataformas de un proyecto de momento no hay prioridad
-                    # y la primera será la primera que se le añada
-
-                    for platform in project.get_platforms():
-                        project_users = TwitterUser.objects.filter(follower__target_user__projects=project)
-                        project_unmentioned_users = project_users.filter(mentions=None, source=platform)
-
-                        # saco alguno que no fue mencionado por el bot
-                        unmentioned_by_bot = project_unmentioned_users.exclude(mentions__bot_used=bot)
-                        if unmentioned_by_bot.exists():
-                            user_to_mention = unmentioned_by_bot.first()
-                            tweet_with_mention = Tweet(
-                                project=project,
-                                tweet_msg=project.tweet_msgs.order_by('?')[0],
-                                link=project.links.filter(platform=user_to_mention.source).order_by('?')[0],
-                                bot_used=bot,
-                                sending=True,
-                            )
-                            tweet_with_mention.save()
-                            tweet_with_mention.mentioned_users.add(user_to_mention)
-                            return bot, tweet_with_mention
+                tweet_to_send = bot.make_tweet_to_send()
+                if tweet_to_send:
+                    return bot, tweet_to_send
 
         raise BotNotFoundException()
-
 
     def get_all_bots(self):
         """Escoge todos aquellos bots que tengan phantomJS"""
@@ -207,51 +185,29 @@ class TwitterBotManager(models.Manager):
     def send_tweet(self):
         def unlock_mutex():
             try:
-                settings.LOGGER.info('%s mutex releasing..' % thread_name)
+                # settings.LOGGER.info('%s mutex releasing..' % thread_name)
                 mutex.release()
-                settings.LOGGER.info('%s mutex released ok' % thread_name)
+                # settings.LOGGER.info('%s mutex released ok' % thread_name)
             except Exception as ex:
                 settings.LOGGER.exception('%s error releasing mutex' % thread_name)
+                raise ex
 
         tweet = bot = tweet_msg = None
-        thread_name = '###%s### - ' % threading.current_thread().name
 
         try:
             mutex.acquire()
 
             # ESCOGEMOS ROBOT Y TWEET
-            bot, tweet = self.get_bot_available_to_mention()
+            bot, tweet = self.get_bot_and_tweet_to_send()
             tweet_msg = tweet.compose()
         finally:
             # QUITAMOS CANDADO
             unlock_mutex()
 
-        try:
-            settings.LOGGER.info('%s Bot %s sending tweet: "%s"' % (thread_name, bot.username, tweet_msg))
-                bot.scrapper.set_screenshots_dir(str(tweet.pk))
-            bot.scrapper.open_browser()
-            bot.scrapper.login()
-            bot.scrapper.send_tweet(tweet_msg)
-            tweet.sending = False
-            tweet.sent_ok = True
-            tweet.date_sent = datetime.datetime.now()
-            tweet.save()
-            settings.LOGGER.info('Bot %s sent tweet ok: "%s"' % (bot.username, tweet_msg))
-        except Exception as ex:
-            try:
-                settings.LOGGER.exception('%s Error sending tweet' % thread_name)
-                if type(ex) is FailureSendingTweetException:
-                    tweet.delete()
-            except Exception as ex:
-                settings.LOGGER.exception('%s Error catching exception' % thread_name)
-                raise ex
-            raise ex
-        finally:
-            bot.scrapper.close_browser()
+        bot.send_tweet(tweet)
 
     def send_tweets(self):
         from project.models import Tweet
-        Tweet.objects.clean_not_sent_ok()
         settings.LOGGER.info('--- Trying to send %i tweets ---' % settings.MAX_THREADS_SENDING_TWEETS)
 
         threads = []

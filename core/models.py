@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
+import threading
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 import pytz
-from scrapper.accounts.hotmail import HotmailScrapper
-from scrapper.exceptions import NoMoreAvaiableProxiesException
+from scrapper.exceptions import NoMoreAvaiableProxiesException, FailureSendingTweetException
 from scrapper.logger import get_browser_instance_id
 from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from scrapper.accounts.twitter import TwitterScrapper
 from core.managers import TwitterBotManager
-from twitter_bots import settings
-
 from scrapper.utils import *
 
 
@@ -257,9 +255,8 @@ class TwitterBot(models.Model):
 
     def set_tw_profile(self):
         """Se completa avatar y bio en su perfil de twitter"""
-        self.scrapper.login()
+        self.scrapper.open_browser()
         self.scrapper.set_profile()
-        self.delay.seconds(7)
         self.scrapper.close_browser()
 
     def get_users_mentioned(self):
@@ -306,3 +303,69 @@ class TwitterBot(models.Model):
             return self.tweeting_time_interval_lapsed()
         else:
             return False
+
+    def make_tweet_to_send(self):
+        """
+        entre los proyectos marcados como activos, solo escogemos los usuarios de
+        las plataformas disponibles para el proyecto. Por ejemplo, si hay
+        twitterusers de ios y no tenemos enlaces de ios, que no se envie a estos
+
+        iterando por las plataformas de un proyecto de momento no hay prioridad
+        y la primera será la primera que se le añada
+        """
+        from project.models import Project, TwitterUser, Tweet
+
+        for project in Project.objects.filter(is_running=True):
+            for platform in project.get_platforms():
+                project_users = TwitterUser.objects.filter(follower__target_user__projects=project)
+                project_unmentioned_users = project_users.filter(mentions=None, source=platform)
+
+                # saco alguno que no fue mencionado por el bot
+                unmentioned_by_bot = project_unmentioned_users.exclude(mentions__bot_used=self)
+                if unmentioned_by_bot.exists():
+                    tweet_to_send = Tweet(
+                        project=project,
+                        tweet_msg=project.tweet_msgs.order_by('?')[0],
+                        link=project.links.filter(platform=platform).order_by('?')[0],
+                        bot_used=self,
+                        sending=True,
+                    )
+                    tweet_to_send.save()
+
+                    # añadimos usuarios a mencionar
+                    users_avaiable_to_mention = unmentioned_by_bot.count() \
+                        if unmentioned_by_bot.count() < settings.MAX_MENTIONS_PER_TWEET \
+                        else settings.MAX_MENTIONS_PER_TWEET
+                    for unmentioned in unmentioned_by_bot.all()[:users_avaiable_to_mention]:
+                        if tweet_to_send.length() + len(unmentioned.username) + 2 <= 140:
+                            tweet_to_send.mentioned_users.add(unmentioned)
+                        else:
+                            break
+
+                    return tweet_to_send
+
+        return None
+
+    def send_tweet(self, tweet):
+        thread_name = '###%s### - ' % threading.current_thread().name
+        try:
+            tweet_msg = tweet.compose()
+            settings.LOGGER.info('%s Bot %s sending tweet: "%s"' % (thread_name, self.username, tweet_msg))
+            self.scrapper.set_screenshots_dir(str(tweet.pk))
+            self.scrapper.open_browser()
+            self.scrapper.login()
+            self.scrapper.send_tweet(tweet)
+            tweet.sending = False
+            tweet.sent_ok = True
+            tweet.date_sent = datetime.datetime.now()
+            tweet.save()
+            settings.LOGGER.info('Bot %s sent tweet ok: "%s"' % (self.username, tweet_msg))
+        except Exception as ex:
+            try:
+                settings.LOGGER.exception('%s Error sending tweet' % thread_name)
+            except Exception as ex:
+                settings.LOGGER.exception('%s Error catching exception' % thread_name)
+                raise ex
+            raise ex
+        finally:
+            self.scrapper.close_browser()

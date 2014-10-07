@@ -71,7 +71,6 @@ def wait_condition(cond, timeout=30, err_msg="Timeout waiting condition"):
 def check_condition(cond, timeout=5, **kwargs):
     """Mira si se cumple la condición 'cond', dándole por default un timeout de 5 segundos"""
     try:
-
         wait_condition(cond, timeout=timeout, **kwargs)
         return True
     except Exception:

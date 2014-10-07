@@ -159,6 +159,7 @@ class Tweet(models.Model):
 
     def compose(self):
         mu_txt = ''
+        # solo se podrá consultar los usuarios mencionados si antes se guardó la instancia del tweet en BD
         for mu in self.mentioned_users.all():
             mu_txt += '@%s ' % mu.username
 
