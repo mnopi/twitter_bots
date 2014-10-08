@@ -153,6 +153,18 @@ class TwitterBotManager(models.Manager):
         else:
             raise BotsWithTweetNotFoundException()
 
+    def get_one_bot_with_tweet_to_send(self):
+        """
+        devuelve la tupla (bot, tweet) que el primer bot pueda tuitear. En caso de no poderse
+        construir el tweet con ningún bot entonces se lanza excepción
+        """
+        for bot in self.get_all_twitteable_bots():
+            tweet_to_send = bot.make_tweet_to_send()
+            if tweet_to_send:
+                return bot, tweet_to_send
+
+        raise BotsWithTweetNotFoundException()
+
     def get_all_active_bots(self):
         """Escoge todos aquellos bots que tengan phantomJS, no tengan proxy tor y el proxy funcione"""
         return self.filter(webdriver='PH', is_active=True)\
@@ -160,13 +172,20 @@ class TwitterBotManager(models.Manager):
             .exclude(proxy__is_unavailable_for_use=True)
 
     def get_all_twitteable_bots(self):
+        """
+        Entre los activos coge:
+            - los que no tengan asociados tweets que se estén enviando
+            - los que no hayan tuiteado por última vez a partir del intervalo aleatorio TIME_BETWEEN_TWEETS
+            - los que no sean extractores, para evitar que twitter detecte actividad múltiple desde misma cuenta
+        """
         now_utc = datetime.datetime.now().replace(tzinfo=pytz.utc)
         random_seconds = random.randint(60*settings.TIME_BETWEEN_TWEETS[0], 60*settings.TIME_BETWEEN_TWEETS[1])  # entre 2 y 7 minutos por tweet
         date_sent_limit = now_utc - datetime.timedelta(seconds=random_seconds)
 
         return self.get_all_active_bots()\
             .exclude(tweets__sending=True)\
-            .exclude(tweets__date_sent__gt=date_sent_limit)
+            .exclude(tweets__date_sent__gt=date_sent_limit)\
+            .filter(extractor=None)
 
     def send_mention(self, username, tweet_msg):
         "Del conjunto de robots se escoge uno para enviar el tweet al usuario"
@@ -184,14 +203,20 @@ class TwitterBotManager(models.Manager):
 
     def send_tweet(self):
         """Escoge un robot cualquiera de los disponibles para enviar un tweet"""
-        bots_with_tweet = self.get_bots_with_tweet_to_send(limit=1)
-        bot, tweet = bots_with_tweet[0]
+        try:
+            mutex.acquire()
+            bot, tweet = self.get_one_bot_with_tweet_to_send()
+        finally:
+            mutex.release()
+
         bot.send_tweet(tweet)
 
     def send_tweets(self):
-        # settings.LOGGER.info('--- Trying to send %i tweets ---' % settings.MAX_THREADS_SENDING_TWEETS)
-
-        bots_with_tweet = self.get_bots_with_tweet_to_send()
+        pool = ThreadPool(settings.MAX_THREADS_SENDING_TWEETS)
+        for task_num in range(settings.TASKS_PER_EXECUTION):
+            settings.LOGGER.info('Adding task %i' % task_num)
+            pool.add_task(self.send_tweet)
+        pool.wait_completion()
 
         # threads = []
         # for bwt in bots_with_tweet:
@@ -204,12 +229,6 @@ class TwitterBotManager(models.Manager):
         # for thread in threads:
         #     thread.join()
 
-        pool = ThreadPool(settings.MAX_THREADS_SENDING_TWEETS)
-        for bwt in bots_with_tweet:
-            bot, tweet = bwt
-            settings.LOGGER.info('Adding task (bot: %s, tweet: %s)' % (bot.username, tweet.compose()))
-            pool.add_task(bot.send_tweet, tweet)
-        pool.wait_completion()
 
     # def process_all_bots(self):
     #     bots = self.get_all_bots()

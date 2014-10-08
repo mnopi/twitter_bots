@@ -212,7 +212,7 @@ class Extractor(models.Model):
     consumer_secret = models.CharField(null=False, max_length=200)
     access_token = models.CharField(null=False, max_length=200)
     access_token_secret = models.CharField(null=False, max_length=200)
-    twitter_bot = models.OneToOneField(TwitterBot, null=False)
+    twitter_bot = models.OneToOneField(TwitterBot, null=False, related_name='extractor')
     date_created = models.DateTimeField(auto_now_add=True)
     last_request_date = models.DateTimeField(null=True)
     is_rate_limited = models.BooleanField(default=False)

@@ -1,6 +1,7 @@
 import threading
 import datetime
 from twitter_bots import settings
+import time
 
 __author__ = 'Michel'
 
@@ -15,3 +16,4 @@ class RateLimitedException(Exception):
 class BotsWithTweetNotFoundException(Exception):
     def __init__(self):
         settings.LOGGER.warning('###%s### - Bots not found to mention any user' % threading.current_thread().name)
+        time.sleep(10)
