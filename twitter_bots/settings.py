@@ -147,7 +147,7 @@ WEBDRIVERS_PATH = os.path.join(PROJECT_ROOT, 'scrapper', 'webdrivers')
 
 # phantomjs
 PHANTOMJS_PATH = os.path.join(WEBDRIVERS_PATH, 'phantomjs')
-PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs')
+PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_linux_bin')
 
 SCREENSHOTS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'screenshots')
 AVATARS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'avatars')
