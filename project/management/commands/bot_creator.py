@@ -1,5 +1,6 @@
 import copy
 from core.models import TwitterBot, Proxy
+from scrapper.exceptions import FatalError
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
 
@@ -13,12 +14,15 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         settings.LOGGER.info('-- INITIALIZED BOT CREATOR --')
 
-        TwitterBot.objects.clean_unregistered_bots()
-        Proxy.objects.sync_proxies()
+        try:
+            TwitterBot.objects.clean_unregistered_bots()
+            # Proxy.objects.sync_proxies()
 
-        if args and '1' in args:
-            TwitterBot.objects.create_bot()
-        else:
-            TwitterBot.objects.create_bots()
+            if args and '1' in args:
+                TwitterBot.objects.create_bot()
+            else:
+                TwitterBot.objects.create_bots()
+        except Exception:
+            raise FatalError()
 
         settings.LOGGER.info('-- FINISHED BOT CREATOR --')

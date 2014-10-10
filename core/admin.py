@@ -45,7 +45,9 @@ class ValidBotListFilter(admin.SimpleListFilter):
 class TwitterBotAdmin(admin.ModelAdmin):
     list_display = (
         'username',
-        'is_active',
+        'is_being_created',
+        'is_suspended',
+        'is_suspended_email',
         # 'is_manually_registered',
         'email_registered_ok',
         'twitter_registered_ok',
@@ -58,7 +60,13 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'webdriver',
     )
     search_fields = ('real_name', 'username', 'email', 'real_name')
-    list_filter = (ValidBotListFilter,)
+    list_filter = (
+        ValidBotListFilter,
+        'webdriver',
+        'date',
+        'is_suspended',
+        'is_suspended_email',
+    )
     ordering = ('-date',)
     list_display_links = ('username',)
 
@@ -66,10 +74,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'open_browser_instance',
         'login_email_account',
         'login_twitter_account',
-        'process_bot',
-        'process_all_bots',
-        'create_new_bot',
-        'create_bots',
+        'complete_creation',
         'set_twitter_profile',
         'confirm_twitter_email',
         'send_tweet_from_selected_bot',
@@ -112,6 +117,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
             user = queryset[0]
             scr = TwitterScrapper(user)
             try:
+                scr.open_browser()
                 scr.login()
                 # mantenemos hasta que se cierre la ventana de firefox
                 scr.wait_until_closed_windows()
@@ -122,6 +128,18 @@ class TwitterBotAdmin(admin.ModelAdmin):
         else:
             self.message_user(request, "Only select one user for this action", level=messages.WARNING)
     login_twitter_account.short_description = "Perform login on twitter"
+
+    def complete_creation(self, request, queryset):
+        if queryset.count() == 1:
+            bot = queryset[0]
+            try:
+                bot.complete_creation()
+                self.message_user(request, "Bot %s creation completed ok" % bot.username)
+            except Exception:
+                self.message_user(request, "Error completing bot %s creation" % bot.username, level=messages.ERROR)
+        else:
+            self.message_user(request, "Only select one bot for this action", level=messages.WARNING)
+    complete_creation.short_description = "Complete bot creation"
 
     def create_new_bot(self, request, queryset):
         try:
@@ -136,7 +154,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
         if queryset.count() == 1:
             bot = queryset[0]
             try:
-                bot.register_accounts()
+                bot.complete_creation()
                 self.message_user(request, "Bot %s processed ok" % bot.username)
             except Exception:
                 self.message_user(request, "There was errors processing bot %s." % bot.username, level=messages.ERROR)
@@ -222,6 +240,7 @@ class ProxyAdmin(admin.ModelAdmin):
     list_display = (
         'proxy',
         'proxy_provider',
+        'num_bots',
         'is_unavailable_for_registration',
         'date_unavailable_for_registration',
         'is_unavailable_for_use',
@@ -242,6 +261,9 @@ class ProxyAdmin(admin.ModelAdmin):
         'is_phone_required',
         'date_phone_required',
     )
+
+    def num_bots(self, obj):
+        return obj.twitter_bots.count()
 
 
 admin.site.register(User, MyUserAdmin)

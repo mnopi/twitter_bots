@@ -37,7 +37,9 @@ class TwitterBot(models.Model):
     }
     gender = models.IntegerField(max_length=1, choices=GENDERS, default=0)
 
-    is_active = models.BooleanField(default=False)
+    is_suspended = models.BooleanField(default=False)
+    is_suspended_email = models.BooleanField(default=False)
+    is_being_created = models.BooleanField(default=True)
     is_manually_registered = models.BooleanField(default=False)
     has_fast_mode = models.BooleanField(default=False)
     user_agent = models.TextField(null=False, blank=True)
@@ -60,7 +62,8 @@ class TwitterBot(models.Model):
     random_mouse_paths = models.BooleanField(default=False)
 
     # RELATIONSHIPS
-    proxy = models.ForeignKey('Proxy', null=True, blank=True, related_name='twitter_bots')
+    # si elimino
+    proxy = models.ForeignKey('Proxy', null=True, blank=True, related_name='twitter_bots', on_delete=models.DO_NOTHING)
 
     objects = TwitterBotManager()
 
@@ -70,10 +73,6 @@ class TwitterBot(models.Model):
     def __init__(self, *args, **kwargs):
         super(TwitterBot, self).__init__(*args, **kwargs)
         self.scrapper = TwitterScrapper(self)
-
-    def is_valid(self):
-        """Sólo se tomará el usuario como válido si no tiene cuenta suspendida y tiene el email confirmado"""
-        return self.it_works and not self.has_to_complete_registrations()
 
     def has_no_accounts(self):
         return not self.email_registered_ok and not self.twitter_registered_ok
@@ -96,7 +95,7 @@ class TwitterBot(models.Model):
     def has_to_set_tw_bio(self):
         return not self.twitter_bio_completed and settings.TW_SET_BIO
 
-    def has_to_complete_registrations(self):
+    def has_to_complete_creation(self):
         return self.has_to_register_email() or \
                self.has_to_register_twitter() or \
                self.has_to_confirm_tw_email() or \
@@ -106,7 +105,7 @@ class TwitterBot(models.Model):
         return not self.has_to_set_tw_avatar() and not self.has_to_set_tw_bio()
 
     def mark_as_suspended(self):
-        self.is_active = False
+        self.is_suspended = False
         self.date_suspended = datetime.datetime.now()
         self.save()
         settings.LOGGER.warning('User %s has marked as suspended on twitter' % self.username)
@@ -137,7 +136,7 @@ class TwitterBot(models.Model):
         elif proxy and proxy_provider:
             self.proxy = Proxy.objects.get(proxy=proxy, proxy_provider=proxy_provider)
         else:
-            self.proxy = Proxy.objects.get_valid_proxies().order_by('?')[0]
+            self.proxy = Proxy.objects.get_available_proxies_for_registration().order_by('?')[0]
         self.save()
 
     def has_proxy_listed(self):
@@ -153,10 +152,11 @@ class TwitterBot(models.Model):
         else:
             raise Exception(INVALID_EMAIL_DOMAIN_MSG)
 
-    def register_accounts(self):
-        if self.has_to_complete_registrations():
+    def complete_creation(self):
+        if self.has_to_complete_creation():
             t1 = datetime.datetime.utcnow()
-            settings.LOGGER.info('Registering bot %s behind proxy %s @ %s' % (self.username, self.proxy, self.proxy_provider))
+            settings.LOGGER.info('Completing creation for bot %s behind proxy %s @ %s' %
+                                 (self.username, self.proxy.proxy, self.proxy.proxy_provider))
 
             if settings.FAST_MODE and not settings.TEST_MODE:
                 settings.LOGGER.warning('Fast mode only avaiable on test mode!')
@@ -180,11 +180,12 @@ class TwitterBot(models.Model):
                     except Exception as ex:
                         settings.LOGGER.exception('Error on bot %s registering email %s' %
                                                   (self.username, self.email))
-                        self.email_scr.take_screenshot('signup_email_failure')
+                        self.email_scr.take_screenshot('signup_email_failure', force_take=True)
                         raise ex
-                    self.email_scr.take_screenshot('signed_up_sucessfully')
+                    self.email_scr.take_screenshot('signed_up_sucessfully', force_take=True)
                     self.email_registered_ok = True
                     self.save()
+                    self.delay.seconds(7)
                     settings.LOGGER.info('%s %s signed up ok' % (get_browser_instance_id(self), self.email))
 
                 # 2_signup_twitter
@@ -200,19 +201,20 @@ class TwitterBot(models.Model):
                     except Exception as ex:
                         settings.LOGGER.exception('Error on bot %s confirming email %s' %
                                                   (self.username, self.email))
-                        self.email_scr.take_screenshot('tw_email_confirmation_failure')
+                        self.email_scr.take_screenshot('tw_email_confirmation_failure', force_take=True)
                         raise ex
-                    self.email_scr.take_screenshot('tw_email_confirmed_sucessfully')
                     self.twitter_confirmed_email_ok = True
                     self.save()
-                    LOGGER.info('Confirmed twitter email %s for user %s' % (self.email, self.username))
+                    self.delay.seconds(8)
+                    settings.LOGGER.info('Confirmed twitter email %s for user %s' % (self.email, self.username))
+                    self.email_scr.take_screenshot('tw_email_confirmed_sucessfully', force_take=True)
 
                 # 4_profile_completion
                 if self.has_to_complete_tw_profile():
                     self.twitter_scr.set_screenshots_dir('4_tw_profile_completion')
                     self.twitter_scr.set_profile()
             except Exception as ex:
-                settings.LOGGER.exception('Error registering bot %s' % self.username)
+                settings.LOGGER.exception('Error completing creation for bot %s' % self.username)
                 raise ex
             finally:
                 # cerramos las instancias abiertas
@@ -220,15 +222,15 @@ class TwitterBot(models.Model):
                     if hasattr(self, 'email_scr'):
                         self.email_scr.close_browser()
                     self.twitter_scr.close_browser()
+                    self.is_being_created = False
+                    self.save()
                 except Exception as ex:
                     settings.LOGGER.exception('Error closing browsers instances for bot %s' % self.username)
                     raise ex
 
-            self.it_works = True
-            self.save()
             t2 = datetime.datetime.utcnow()
             diff_secs = (t2 - t1).seconds
-            settings.LOGGER.info('Bot "%s" registered sucessfully in %s seconds' % (self.username, diff_secs))
+            settings.LOGGER.info('Bot "%s" completed sucessfully in %s seconds' % (self.username, diff_secs))
 
     def generate_email(self):
         self.email = generate_random_username(self.real_name) + '@' + settings.EMAIL_ACCOUNT_TYPE

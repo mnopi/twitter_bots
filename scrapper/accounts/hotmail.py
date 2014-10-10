@@ -3,7 +3,7 @@ from selenium.webdriver.common.keys import Keys
 
 from scrapper.scrapper import Scrapper
 from scrapper.captcha_resolvers import DeathByCaptchaResolver
-from scrapper.exceptions import TwitterEmailNotFound
+from scrapper.exceptions import TwitterEmailNotFound, EmailAccountSuspended
 from scrapper.utils import *
 from twitter_bots import settings
 
@@ -65,7 +65,7 @@ class HotmailScrapper(Scrapper):
                                         )
                 if captcha_error_visible:
                     self.click('#iHipHolder input.hipInputText')
-                    self.take_screenshot('form_wrong_captcha')
+                    self.take_screenshot('form_wrong_captcha', force_take=True)
                     errors = True
                     #captcha_resolver.report_wrong_captcha()
                     resolve_captcha()
@@ -127,11 +127,16 @@ class HotmailScrapper(Scrapper):
         self.delay.seconds(5)
         submit_form()
         wait_condition(lambda: 'summarypage' in self.browser.current_url.lower(), timeout=60)
-        self.delay.seconds(7)
 
         # lo dejamos en la bandeja de entrada
         self.go_to(settings.URLS['hotmail_login'])
         self._quit_inbox_shit()
+
+    def check_account_suspended(self):
+        not_suspended = lambda: 'unblock' not in self.browser.title.lower()
+        suspended = not check_condition(not_suspended)
+        if suspended:
+            raise EmailAccountSuspended(self.user)
 
     def login(self):
         def submit_form(attempts=0):
@@ -171,11 +176,13 @@ class HotmailScrapper(Scrapper):
             self.go_to(settings.URLS['hotmail_login'])
             self.fill_input_text('#idDiv_PWD_UsernameTb input', self.user.email)
             self.fill_input_text('#idDiv_PWD_PasswordTb input', self.user.password_email)
+            self.click('#idChkBx_PWD_KMSI0Pwd')  # para mantener la sesión si cierro navegador
             submit_form()
+            self.check_account_suspended()
             self._quit_inbox_shit()
-            LOGGER.info('User %s logged in hotmail' % self.user.email)
+            settings.LOGGER.info('User %s logged in hotmail' % self.user.email)
         except Exception as ex:
-            LOGGER.exception('The was a problem loggin in %s' % self.user.email)
+            settings.LOGGER.exception('The was a problem loggin in %s' % self.user.email)
             raise ex
 
     def _quit_inbox_shit(self):
@@ -215,9 +222,7 @@ class HotmailScrapper(Scrapper):
                     self.send_special_key(Keys.ENTER)
                     self.delay.seconds(7)
             else:
-                LOGGER.error('Error clicking confirm_tw_email button on twitter email body for user %s' % self.user.username)
+                settings.LOGGER.error('Error clicking confirm_tw_email button on twitter email body for user %s' % self.user.username)
         else:
-            LOGGER.warning('No twitter email arrived for user %s, resending twitter email..' % self.user.username)
+            settings.LOGGER.warning('No twitter email arrived for user %s, resending twitter email..' % self.user.username)
             raise TwitterEmailNotFound()
-
-        self.delay.seconds(8)

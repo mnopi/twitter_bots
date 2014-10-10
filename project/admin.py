@@ -103,6 +103,24 @@ class TwitterUserAdmin(admin.ModelAdmin):
     list_filter = ('date_saved',)
 
 
+class ExtractorAdmin(admin.ModelAdmin):
+    list_display = (
+        'twitter_bot',
+        'date_created',
+        'last_request_date',
+        'is_rate_limited',
+    )
+
+    search_fields = (
+        'twitter_bot__username',
+    )
+    list_filter = (
+        'date_created',
+        'last_request_date',
+        'is_rate_limited',
+    )
+
+
 # Register your models here.
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(TweetMsg)
@@ -110,7 +128,7 @@ admin.site.register(TargetUser, TargetUserAdmin)
 admin.site.register(Follower, FollowerAdmin)
 admin.site.register(TwitterUser, TwitterUserAdmin)
 admin.site.register(Tweet, TweetAdmin)
-admin.site.register(Extractor)
+admin.site.register(Extractor, ExtractorAdmin)
 admin.site.register(Link)
 
 

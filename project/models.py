@@ -10,7 +10,7 @@ import tweepy
 import time
 from core.models import TwitterBot
 from project.exceptions import RateLimitedException
-from project.managers import TargetUserManager, TweetManager, ProjectManager
+from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager
 from twitter_bots import settings
 
 
@@ -217,6 +217,8 @@ class Extractor(models.Model):
     last_request_date = models.DateTimeField(null=True)
     is_rate_limited = models.BooleanField(default=False)
 
+    objects = ExtractorManager()
+
     def __unicode__(self):
         return self.twitter_bot.username
 
@@ -296,7 +298,7 @@ class Extractor(models.Model):
 
             return twitter_user, True
 
-    def extract_followers(self, target_user):
+    def extract_followers(self, target_user, skip_page_on_existing=False):
         self.connect_twitter_api()
 
         self.update_target_user_data(target_user)
@@ -334,7 +336,11 @@ class Extractor(models.Model):
                         follower_already_exists = Follower.objects.filter(
                             twitter_user=twitter_user_id, target_user=target_user).exists()
                         if follower_already_exists:
-                            settings.LOGGER.info('Follower %s already exists' % follower.__unicode__())
+                            if skip_page_on_existing:
+                                settings.LOGGER.info('Follower %s already exists, skipping page..' % follower.__unicode__())
+                                break
+                            else:
+                                settings.LOGGER.info('Follower %s already exists' % follower.__unicode__())
                         else:
                             new_followers.append(follower)
                             settings.LOGGER.info('New follower %s added to list' % follower.__unicode__())
@@ -342,6 +348,7 @@ class Extractor(models.Model):
                 before_saving = datetime.datetime.now()
                 time.sleep(2)  # para que se note la diferencia por si guarda muy rapido los twitterusers
                 TwitterUser.objects.bulk_create(new_twitter_users)
+                # pillamos todos los ids de los nuevos twitter_user creados
                 new_twitter_users_ids = TwitterUser.objects\
                     .filter(date_saved__gt=before_saving)\
                     .values_list('id', flat=True)
@@ -358,14 +365,18 @@ class Extractor(models.Model):
 
             settings.LOGGER.info('All followers from %s retrieved ok' % target_user.username)
         except tweepy.error.TweepError as ex:
-            if ex.response.status_code == 429:
+            if hasattr(ex.response, 'status_code') and ex.response.status_code == 429:
                 raise RateLimitedException(self)
+            else:
+                settings.LOGGER.exception('')
+                time.sleep(7)
+                raise ex
         
     def extract_followers_from_all_target_users(self):
         target_users_to_extract = TargetUser.objects.filter(projects__is_running=True).exclude(next_cursor=None)
         if target_users_to_extract.exists():
             target_user = target_users_to_extract.first()
-            self.extract_followers(target_user)
+            self.extract_followers(target_user, skip_page_on_existing=True)
         else:
             settings.LOGGER.info('All followers were already extracted from all target users for active projects')
                 

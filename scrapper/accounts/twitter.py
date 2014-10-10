@@ -88,14 +88,14 @@ class TwitterScrapper(Scrapper):
             wait_condition(lambda: 'congratulations' in self.browser.current_url or
                                    'welcome' in self.browser.current_url)
 
-            self.take_screenshot('twitter_registered_ok')
+            self.take_screenshot('twitter_registered_ok', force_take=True)
 
             # finalmente lo ponemos como registrado en twitter
             self.user.twitter_registered_ok = True
             self.user.save()
             settings.LOGGER.info('User %s successfully signed up on twitter' % self.user.username)
         except Exception, e:
-            self.take_screenshot('twitter_registered_fail')
+            self.take_screenshot('twitter_registered_fail', force_take=True)
             settings.LOGGER.exception('Error on bot %s signing up twitter account' % self.user.username)
             raise e
 
@@ -145,7 +145,7 @@ class TwitterScrapper(Scrapper):
             self.delay.seconds(4)
             raise TwitterEmailNotConfirmed(self.user)
         else:
-            self.user.it_works = True
+            self.user.is_suspended = False
             self.user.save()
 
         # if self.check_visibility('#account-suspended'):
@@ -235,34 +235,54 @@ class TwitterScrapper(Scrapper):
                     self.click('#profile_image_upload_dialog-dialog button.profile-image-save')
                     # eliminamos el archivo que habíamos guardado para el avatar
                     os.remove(avatar_path)
-                    self.user.twitter_avatar_completed = True
-                    self.user.save()
+                    return True
             except Exception:
                 settings.LOGGER.exception('Error setting avatar for bot %s' % self.user.username)
+                self.take_screenshot('set_avatar_failure', force_take=True)
+                return False
 
         def set_bio():
             try:
                 self.fill_input_text('#user_description', self.get_quote())
-                self.user.twitter_bio_completed = True
-                self.user.save()
+                return True
             except Exception:
                 settings.LOGGER.exception('Error setting bio for bot %s' % self.user.username)
+                self.take_screenshot('set_bio_failure', force_take=True)
+                return False
 
-        self.login()
-        self.click('ul#global-actions li.profile a')  # página de perfil
-        self.click('button.UserActions-editButton')  # botón de editar
-        self.delay.seconds(3)
-        if not self.user.twitter_avatar_completed and settings.TW_SET_AVATAR:
-            set_avatar()
-        if not self.user.twitter_bio_completed and settings.TW_SET_BIO:
-            set_bio()
-        self.click('.ProfilePage-editingButtons button.ProfilePage-saveButton')
-        self.delay.seconds(7)
-        self.take_screenshot('profile_completed')
-        if self.user.has_tw_profile_completed():
-            settings.LOGGER.info('Profile completed ok for bot %s' % self.user.username)
-        else:
-            settings.LOGGER.info('Profile completed with errors for bot %s' % self.user.username)
+        try:
+            self.login()
+
+            # vamos a página de perfil haciendo click en cualquier botón que nos lleve ahí
+            self.click('.DashboardProfileCard-name a')  # vamos a su página de perfil
+            self.click('button.UserActions-editButton')  # damos a botón de editar
+            self.delay.seconds(3)
+
+            avatar_completed = bio_completed = False
+            if self.user.has_to_set_tw_avatar():
+                avatar_completed = set_avatar()
+            if self.user.has_to_set_tw_bio():
+                bio_completed = set_bio()
+            self.click('.ProfilePage-editingButtons button.ProfilePage-saveButton')  # click en guardar perfil
+            self.delay.seconds(7)
+
+            # sólo una vez se hizo click en el botón de guardar reflejamos cambios en BD
+            if avatar_completed:
+                self.user.twitter_avatar_completed = True
+                self.user.save()
+            if bio_completed:
+                self.user.twitter_bio_completed = True
+                self.user.save()
+
+            if self.user.has_tw_profile_completed():
+                settings.LOGGER.info('Profile completed ok for bot %s' % self.user.username)
+                self.take_screenshot('profile_completed_ok', force_take=True)
+            else:
+                settings.LOGGER.info('Profile completed with errors for bot %s' % self.user.username)
+        except Exception as ex:
+            settings.LOGGER.exception('Error on bot %s creating twitter profile' % self.user.username)
+            self.take_screenshot('profile_completion_failure', force_take=True)
+            raise ex
 
     def close(self):
         if hasattr(self, 'email_scrapper'):

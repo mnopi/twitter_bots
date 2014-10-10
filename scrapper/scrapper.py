@@ -17,6 +17,7 @@ import telnetlib
 from .delay import Delay
 from .exceptions import RequestAttemptsExceededException
 from .logger import get_browser_instance_id
+import my_phantomjs_webdriver
 from utils import *
 from twitter_bots import settings
 
@@ -137,7 +138,7 @@ class Scrapper(object):
             dcap["phantomjs.page.settings.userAgent"] = (self.user.user_agent)
             dcap["phantomjs.page.customHeaders.Accept-Language"] = 'en-us'
 
-            self.browser = webdriver.PhantomJS(
+            self.browser = my_phantomjs_webdriver.WebDriver(
                 settings.PHANTOMJS_BIN_PATH,
                 service_args=service_args,
                 desired_capabilities=dcap
@@ -214,9 +215,9 @@ class Scrapper(object):
 
     def _request_error_callback(self, e):
         """Cuando no se consigue cargar una página se hace esto"""
-        err_msg = 'Error using proxy %s @ %s to request address %s, maybe you are using ' \
+        err_msg = 'Error on bot %s using proxy %s @ %s to request address %s, maybe you are using ' \
                   'unauthorized IP to connect or provider refreshed proxies list' \
-                  % (self.user.proxy.proxy, self.user.proxy.proxy_provider, self.browser.current_url)
+                  % (self.user.username, self.user.proxy.proxy, self.user.proxy.proxy_provider, self.browser.current_url)
         if type(e) is TimeoutException:
             settings.LOGGER.error('%s Timeout error: %s' % (get_browser_instance_id(self.user), err_msg))
         else:
@@ -510,7 +511,7 @@ class Scrapper(object):
         if el_str:
             msg = '%s click_%s' % (get_browser_instance_id(self.user), el_str)
             self.take_screenshot(msg)
-            settings.LOGGER.info(msg)
+            settings.LOGGER.debug(msg)
 
     def _quit_focus_from_address_bar(self):
         self.send_special_key(Keys.TAB)
@@ -565,10 +566,17 @@ class Scrapper(object):
         g_scrapper.open_browser()
         try:
             MIN_RES = 80  # mínima resolución que debe tener cada imagen encontrada, en px
-            SEARCH_ATTEMPTS = 10
+            SEARCH_ATTEMPTS = 5
 
             # se queda intentando coger una imágen válida
+            attempt_num = 0
             while True:
+
+                if attempt_num > SEARCH_ATTEMPTS:
+                    settings.LOGGER.warning('Exceeded %i attempts downloading picture profile for bot %s'
+                                            % (SEARCH_ATTEMPTS, self.user.username))
+                    break
+
                 avatar_path = os.path.join(settings.AVATARS_DIR, '%s.png' % self.user.username)
                 g_scrapper.go_to('http://www.google.com')
                 g_scrapper.click(g_scrapper.browser.find_element_by_partial_link_text('Images'))
@@ -584,7 +592,10 @@ class Scrapper(object):
                     break
                 else:
                     os.remove(avatar_path)
-                    settings.LOGGER.warning('Invalid picture downloaded from %s. Trying again..' % g_scrapper.browser.current_url)
+                    attempt_num += 1
+                    settings.LOGGER.warning('Invalid picture downloaded from %s. Trying again (%i)..' %
+                                            g_scrapper.browser.current_url, attempt_num)
+                    self.take_screenshot('picture_download_failure', force_take=True)
 
                 # try:
                 #     PIL.Image.open(avatar_path).close()

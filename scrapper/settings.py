@@ -50,8 +50,9 @@ if not REGISTER_EMAIL:
     TW_CONFIRM_EMAIL = False
 
 MAX_THREADS_SENDING_TWEETS = 20  # máximo de hilos para enviar tweets
-MAX_THREADS_CREATING_BOTS = 5  # máximo de hilos para crear bots
 MAX_THREADS_EXTRACTING_FOLLOWERS = 3
+MAX_THREADS_CREATING_BOTS = 2  # máximo de hilos para crear bots
+MAX_THREADS_COMPLETING_PENDANT_BOTS = 1  # máximo de hilos para restaurar creación de robots todavía a medias
 USE_PROXY = True
 
 BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha de nacimiento del bot
@@ -59,7 +60,8 @@ BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha d
 #driver = webdriver.PhantomJS(CHROMEDRIVER_PATH)
 #driver = webdriver.Chrome(CHROMEDRIVER_PATH)
 
-MAX_TWT_BOTS_PER_PROXY = 6
+MAX_TWT_BOTS_PER_PROXY_FOR_REGISTRATIONS = 6  # máximo de robots que pueden haber creados a la vez desde misma ip
+MAX_TWT_BOTS_PER_PROXY_FOR_LOGIN = 12  # máximo de robots que se pueden loguear a la vez desde una misma ip
 
 # mínimo de días que tienen que pasar para que un bot se registre después de el anterior usando el mismo proxy
 MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY = 5
