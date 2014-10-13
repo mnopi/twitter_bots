@@ -15,9 +15,6 @@ class Command(BaseCommand):
         settings.LOGGER.info('-- INITIALIZED BOT CREATOR --')
 
         try:
-            TwitterBot.objects.clean_unregistered_bots()
-            # Proxy.objects.sync_proxies()
-
             if args and '1' in args:
                 TwitterBot.objects.create_bot()
             else:

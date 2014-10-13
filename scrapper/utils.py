@@ -9,6 +9,7 @@ import names
 import datetime
 import requests
 from requests.packages.urllib3 import Timeout
+import shutil
 import simplejson
 from twitter_bots import settings
 
@@ -150,6 +151,11 @@ def try_except(fn, ex_msg):
 def mkdir_if_not_exists(path_to_dir):
     if not os.path.exists(path_to_dir):
         os.makedirs(path_to_dir)
+
+
+def rmdir_if_exists(path_to_dir):
+    if os.path.exists(path_to_dir):
+        shutil.rmtree(path_to_dir)
 
 
 def create_file_if_not_exists(file):

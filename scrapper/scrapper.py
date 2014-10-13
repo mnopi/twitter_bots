@@ -2,7 +2,6 @@
 
 import sys
 import urllib
-import PIL
 from selenium.common.exceptions import NoSuchFrameException, TimeoutException
 from selenium.webdriver import ActionChains, DesiredCapabilities
 from selenium.webdriver.common.keys import Keys
@@ -32,7 +31,7 @@ class Scrapper(object):
     def __init__(self, user=None, force_firefox=False, screenshots_dir=None):
         self.user = user
         self.delay = Delay(user)
-        self.force_firefox = force_firefox
+        self.force_firefox = force_firefox or settings.FORCE_FIREFOX
         # contiene el header USER-AGENT a enviar en las peticiones HTTP, esto muestra el S.O. usado,
         # navegador, etc para el servidor que recibe la petición (twitter, gmail, etc)
         self.browser = None  # navegador a usar por el webdriver de selenium
@@ -47,7 +46,7 @@ class Scrapper(object):
     def check_proxy_works_ok(self):
         """Mira si funciona correctamente el proxy que se supone que tenemos contratado"""
         try:
-            self.go_to('http://twitter.com')
+            self.go_to('http://twitter.com', timeout=60)
         except Exception, e:
             settings.LOGGER.error('%s Proxy %s @ %s can\'t load twitter.com' %
                          (get_browser_instance_id(self.user), self.user.proxy.proxy, self.user.proxy.proxy_provider))
@@ -143,7 +142,7 @@ class Scrapper(object):
                 service_args=service_args,
                 desired_capabilities=dcap
             )
-            settings.LOGGER.info('%s phantomJS instance opened successfully' % get_browser_instance_id(self.user))
+            settings.LOGGER.debug('%s phantomJS instance opened successfully' % get_browser_instance_id(self.user))
 
         # si ya hay navegador antes de abrirlo nos aseguramos que esté cerrado para no acumular una instancia más
         # cada vez que abrimos
@@ -190,7 +189,7 @@ class Scrapper(object):
     def close_browser(self):
         try:
             self.browser.quit()
-            settings.LOGGER.info('%s %s instance closed sucessfully' % (get_browser_instance_id(self.user), self.user.webdriver))
+            settings.LOGGER.debug('%s %s instance closed sucessfully' % (get_browser_instance_id(self.user), self.user.webdriver))
         except Exception as ex:
             if not self.browser:
                 settings.LOGGER.warning('%s %s instance was not opened browser' % (get_browser_instance_id(self.user), self.user.webdriver))
@@ -212,27 +211,6 @@ class Scrapper(object):
             ActionChains(self.browser).key_down(self.CMD_KEY).send_keys('n').key_up(self.CMD_KEY).perform()
         self.switch_to_window(-1)
         self.go_to(url)
-
-    def _request_error_callback(self, e):
-        """Cuando no se consigue cargar una página se hace esto"""
-        err_msg = 'Error on bot %s using proxy %s @ %s to request address %s, maybe you are using ' \
-                  'unauthorized IP to connect or provider refreshed proxies list' \
-                  % (self.user.username, self.user.proxy.proxy, self.user.proxy.proxy_provider, self.browser.current_url)
-        if type(e) is TimeoutException:
-            settings.LOGGER.error('%s Timeout error: %s' % (get_browser_instance_id(self.user), err_msg))
-        else:
-            settings.LOGGER.error('%s %s' % (get_browser_instance_id(self.user), err_msg))
-
-        if hasattr(self, 'email_scrapper'):
-            self.email_scrapper.close_browser()
-        else:
-            self.close_browser()
-
-        # cambiamos el proxy si es un proxy que no pertenece a las listas actuales
-        if not self.user.has_proxy_listed():
-            self.user.assign_proxy()
-
-        raise e
 
     def switch_to_window(self, i):
         "Cambia a la ventana de ínidice i. Para ir a la última abierta: switch_to_window(-1)"
@@ -415,7 +393,7 @@ class Scrapper(object):
             if timeout:
                 self.browser.set_page_load_timeout(timeout)
             self.browser.get(url)
-            settings.LOGGER.info('%s go_to: %s' % (get_browser_instance_id(self.user), url))
+            settings.LOGGER.debug('%s go_to: %s' % (get_browser_instance_id(self.user), url))
             if 'about:blank' in self.browser.current_url:
                 raise Exception()
             self.take_screenshot('go_to')
@@ -424,11 +402,32 @@ class Scrapper(object):
             self.check_user_agent_compatibility()
             self._quit_focus_from_address_bar()
         except Exception, e:
-            if type(e) is TimeoutException and ignore_timeout_error:
-                settings.LOGGER.warning('%s Timeout loading url %s, ignoring TimeoutException..' %
-                               (get_browser_instance_id(self.user), url))
-            else:
-                self._request_error_callback(e)
+            if type(e) is TimeoutException:
+                if ignore_timeout_error:
+                    settings.LOGGER.warning('%s Timeout loading url %s, ignoring TimeoutException..' %
+                                   (get_browser_instance_id(self.user), url))
+                else:
+                    err_msg = 'Error on bot %s using proxy %s @ %s to request address %s, maybe you are using ' \
+                              'unauthorized IP to connect or provider refreshed proxies list. Page load timeout: %i secs' \
+                              % (self.user.username, self.user.proxy.proxy, self.user.proxy.proxy_provider,
+                                 self.browser.current_url, settings.PAGE_LOAD_TIMEOUT)
+                    if type(e) is TimeoutException:
+                        settings.LOGGER.error('%s Timeout error: %s' % (get_browser_instance_id(self.user), err_msg))
+                    else:
+                        settings.LOGGER.error('%s %s' % (get_browser_instance_id(self.user), err_msg))
+
+                    self.take_screenshot('go_to_error', force_take=True)
+
+                    if hasattr(self, 'email_scrapper'):
+                        self.email_scrapper.close_browser()
+                    else:
+                        self.close_browser()
+
+                    # cambiamos el proxy si es un proxy que no pertenece a las listas actuales
+                    if not self.user.has_proxy_listed():
+                        self.user.assign_proxy()
+
+                    raise e
         finally:
             if timeout:
                 self.browser.set_page_load_timeout(settings.PAGE_LOAD_TIMEOUT)
@@ -561,23 +560,23 @@ class Scrapper(object):
                 # si no se encontró ninguna imagen con el suficiente tamaño se vuelve a buscar con otro nombre
                 get_img()
 
+        avatar_path = os.path.join(settings.AVATARS_DIR, '%s.png' % self.user.username)
+        MIN_RES = 80  # mínima resolución que debe tener cada imagen encontrada, en px
+        SEARCH_ATTEMPTS = 3
+
         g_scrapper = Scrapper(self.user)
         g_scrapper.set_screenshots_dir('google_avatar')
         g_scrapper.open_browser()
+
+        # se queda intentando coger una imágen válida
+        attempt_num = 0
         try:
-            MIN_RES = 80  # mínima resolución que debe tener cada imagen encontrada, en px
-            SEARCH_ATTEMPTS = 5
-
-            # se queda intentando coger una imágen válida
-            attempt_num = 0
             while True:
-
                 if attempt_num > SEARCH_ATTEMPTS:
                     settings.LOGGER.warning('Exceeded %i attempts downloading picture profile for bot %s'
                                             % (SEARCH_ATTEMPTS, self.user.username))
-                    break
+                    raise Exception()
 
-                avatar_path = os.path.join(settings.AVATARS_DIR, '%s.png' % self.user.username)
                 g_scrapper.go_to('http://www.google.com')
                 g_scrapper.click(g_scrapper.browser.find_element_by_partial_link_text('Images'))
                 img = get_img()
@@ -586,6 +585,7 @@ class Scrapper(object):
                 img_button = g_scrapper.browser.find_element_by_partial_link_text('View image')
                 g_scrapper.click(img_button)
                 g_scrapper.wait_to_page_loaded()
+                g_scrapper.delay.seconds(10)  # para que dé tiempo a cargar la página final con la imágen
                 urllib.urlretrieve(g_scrapper.browser.current_url, avatar_path)
                 import imghdr
                 if imghdr.what(avatar_path):
@@ -594,8 +594,8 @@ class Scrapper(object):
                     os.remove(avatar_path)
                     attempt_num += 1
                     settings.LOGGER.warning('Invalid picture downloaded from %s. Trying again (%i)..' %
-                                            g_scrapper.browser.current_url, attempt_num)
-                    self.take_screenshot('picture_download_failure', force_take=True)
+                                            (g_scrapper.browser.current_url, attempt_num))
+                    self.take_screenshot('picture_download_failure_attempt_%i' % attempt_num, force_take=True)
 
                 # try:
                 #     PIL.Image.open(avatar_path).close()
@@ -606,7 +606,8 @@ class Scrapper(object):
         except Exception, e:
             settings.LOGGER.exception('%s Could not download picture from google for user "%s"' %
                              (get_browser_instance_id(self.user), self.user.username))
-            g_scrapper._request_error_callback(e)
+            g_scrapper.take_screenshot('picture_download_failure')
+            raise e
         finally:
             g_scrapper.close_browser()
 

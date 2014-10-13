@@ -23,24 +23,18 @@ class ValidBotListFilter(admin.SimpleListFilter):
 
     def lookups(self, request, model_admin):
         return (
-            ('valid', 'valid'),
-            ('test', 'test'),
+            ('completed', 'completed'),
+            ('uncompleted', 'uncompleted'),
+            ('unregistered', 'unregistered'),
         )
 
     def queryset(self, request, queryset):
-        """
-        Returns the filtered queryset based on the value
-        provided in the query string and retrievable via
-        `self.value()`.
-        """
-        # Compare the requested value (either '80s' or '90s')
-        # to decide how to filter the queryset.
-        if self.value() == 'valid':
-            return queryset\
-                .filter(it_works=True, webdriver='PH')\
-                .exclude(proxy='tor', must_verify_phone=True)
-        if self.value() == 'test':
-            return queryset.filter(webdriver='FI')
+        if self.value() == 'uncompleted':
+            return TwitterBot.objects.get_uncompleted_bots()
+        if self.value() == 'completed':
+            return TwitterBot.objects.get_completed_bots()
+        if self.value() == 'unregistered':
+            return TwitterBot.objects.get_unregistered_bots()
 
 class TwitterBotAdmin(admin.ModelAdmin):
     list_display = (
@@ -59,7 +53,13 @@ class TwitterBotAdmin(admin.ModelAdmin):
         # 'user_agent',
         'webdriver',
     )
-    search_fields = ('real_name', 'username', 'email', 'real_name')
+    search_fields = (
+        'real_name',
+        'username',
+        'email',
+        'real_name',
+        'proxy__proxy',
+    )
     list_filter = (
         ValidBotListFilter,
         'webdriver',

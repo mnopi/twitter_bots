@@ -1,4 +1,5 @@
 import time
+import datetime
 from twitter_bots import settings
 
 
@@ -15,8 +16,7 @@ class TwitterEmailNotConfirmed(Exception):
 
 class TwitterAccountSuspended(Exception):
     def __init__(self, bot):
-        bot.is_suspended = True
-        bot.save()
+        bot.mark_as_suspended()
         settings.LOGGER.warning('Bot %s has his twitter account suspended' % bot.username)
 
 
@@ -41,7 +41,8 @@ class FailureSendingTweetException(Exception):
 
 class BotMustVerifyPhone(Exception):
     def __init__(self, bot):
-        bot.proxy.must_verify_phone = True
+        bot.proxy.is_phone_required = True
+        bot.proxy.date_phone_required = datetime.datetime.utcnow()
         bot.proxy.save()
         settings.LOGGER.warning('Bot %s must do mobile phone verification' % bot.username)
 

@@ -35,9 +35,10 @@ COMPATIBLE_EMAIL_ACCOUNTS = [
 ###############
 TOR_MODE = False
 TEST_MODE = False
+FORCE_FIREFOX = False
 ###############
 FAST_MODE = False  # para saltarse los delays en testeo
-TAKE_SCREENSHOTS = False
+TAKE_SCREENSHOTS = True
 
 
 REGISTER_EMAIL = True  # para activar o no el registro del email
@@ -51,8 +52,8 @@ if not REGISTER_EMAIL:
 
 MAX_THREADS_SENDING_TWEETS = 20  # máximo de hilos para enviar tweets
 MAX_THREADS_EXTRACTING_FOLLOWERS = 3
-MAX_THREADS_CREATING_BOTS = 2  # máximo de hilos para crear bots
-MAX_THREADS_COMPLETING_PENDANT_BOTS = 1  # máximo de hilos para restaurar creación de robots todavía a medias
+MAX_THREADS_CREATING_BOTS = 3  # máximo de hilos para crear bots
+MAX_THREADS_COMPLETING_PENDANT_BOTS = 3  # máximo de hilos para restaurar creación de robots todavía a medias
 USE_PROXY = True
 
 BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha de nacimiento del bot
@@ -66,7 +67,7 @@ MAX_TWT_BOTS_PER_PROXY_FOR_LOGIN = 12  # máximo de robots que se pueden loguear
 # mínimo de días que tienen que pasar para que un bot se registre después de el anterior usando el mismo proxy
 MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY = 5
 
-PAGE_LOAD_TIMEOUT = 60
+PAGE_LOAD_TIMEOUT = 300
 EMAIL_ACCOUNT_TYPE = 'hotmail.com'
 
 RANDOM_OFFSETS_ON_EL_CLICK = False  # activar offset al hacer click con el ratón sobre un elemento dado

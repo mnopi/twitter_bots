@@ -17,7 +17,7 @@ mutex = Lock()
 
 
 class TwitterBotManager(models.Manager):
-    def create_bot(self, **kwargs):
+    def  create_bot(self, **kwargs):
         try:
             mutex.acquire()
             bot = self.create(**kwargs)
@@ -28,6 +28,9 @@ class TwitterBotManager(models.Manager):
         bot.complete_creation()
 
     def create_bots(self):
+        self.clean_unregistered_bots()
+        self.put_previous_being_created_to_false()
+
         from core.models import Proxy
         proxies = Proxy.objects.get_available_proxies_for_registration()
 
@@ -54,22 +57,27 @@ class TwitterBotManager(models.Manager):
             settings.LOGGER.warning('Found %s unregistered bots and will be deleted' % unregistered.count())
             unregistered.delete()
 
+    def put_previous_being_created_to_false(self):
+        self.filter(is_being_created=True).update(is_being_created=False)
+
     def get_unregistered_bots(self):
         return self.filter(email_registered_ok=False, twitter_registered_ok=False)
 
     def get_uncompleted_bots(self):
         """Devuelve todos los robots pendientes de terminar registros, perfil, etc"""
-        return [
-            bot for bot in self.get_all_active_bots()
-            if bot.has_to_complete_creation() and not bot.is_being_created
-        ]
+        return self.get_all_active_bots().filter(
+            Q(twitter_registered_ok=False) |
+            Q(twitter_confirmed_email_ok=False) |
+            Q(twitter_avatar_completed=False) |
+            Q(twitter_bio_completed=False)
+        )
 
     def get_one_bot_with_tweet_to_send(self):
         """
         devuelve la tupla (bot, tweet) que el primer bot pueda tuitear. En caso de no poderse
         construir el tweet con ningún bot entonces se lanza excepción
         """
-        for bot in self.get_all_twitteable_bots():
+        for bot in self.get_all_twitteable_bots().all():
             tweet_to_send = bot.make_tweet_to_send()
             if tweet_to_send:
                 return bot, tweet_to_send
@@ -77,22 +85,30 @@ class TwitterBotManager(models.Manager):
         raise BotsWithTweetNotFoundException()
 
     def get_all_active_bots(self):
-        """Escoge todos aquellos bots que tengan phantomJS, no tengan proxy tor y el proxy funcione"""
+        """Escoge todos los bots que se puedan usar, incluyendo completos e incompletos,
+        pero que al menos tengan el correo registrado, con proxy ok y que no estén siendo creados"""
         return self.filter(
                 webdriver='PH',
                 is_suspended=False,
-                is_suspended_email=False
+                is_suspended_email=False,
+                email_registered_ok=True,
             )\
             .exclude(proxy__proxy='tor')\
-            .exclude(proxy__is_unavailable_for_use=True)
+            .exclude(proxy__is_unavailable_for_use=True)\
+            .exclude(is_being_created=True)
 
-    def get_completed_bots(self, bots):
-        """De los bots que toma devuelve sólo aquello que estén completamente creados"""
-        return [bot for bot in bots if not bot.has_to_complete_creation()]
+    def get_completed_bots(self):
+        """De los bots que toma devuelve sólo aquellos que estén completamente creados"""
+        return self.get_all_active_bots()\
+            .filter(
+                twitter_confirmed_email_ok=True,
+                twitter_avatar_completed=True,
+                twitter_bio_completed=True,
+            )
 
     def get_all_twitteable_bots(self):
         """
-        Entre los activos coge:
+        Entre los completamente creados coge:
             - los que no tengan asociados tweets que se estén enviando
             - los que no hayan tuiteado por última vez a partir del intervalo aleatorio TIME_BETWEEN_TWEETS
             - los que no sean extractores, para evitar que twitter detecte actividad múltiple desde misma cuenta
@@ -101,13 +117,10 @@ class TwitterBotManager(models.Manager):
         random_seconds = random.randint(60*settings.TIME_BETWEEN_TWEETS[0], 60*settings.TIME_BETWEEN_TWEETS[1])  # entre 2 y 7 minutos por tweet
         date_sent_limit = now_utc - datetime.timedelta(seconds=random_seconds)
 
-        all_twitteable_bots = self.get_all_active_bots()\
+        return self.get_completed_bots()\
             .exclude(tweets__sending=True)\
             .exclude(tweets__date_sent__gt=date_sent_limit)\
             .filter(extractor=None)
-
-        # de todos los tuiteables sacamos sólo los que estén completos
-        return self.get_completed_bots(all_twitteable_bots)
 
     def send_tweet(self):
         """Escoge un robot cualquiera de los disponibles para enviar un tweet"""
@@ -140,7 +153,7 @@ class TwitterBotManager(models.Manager):
     def complete_pendant_bot_creations(self):
         """Mira qué robots aparecen incompletos y termina de hacer en cada uno lo que quede"""
         pool = ThreadPool(settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
-        for bot in self.get_uncompleted_bots():
+        for bot in self.get_uncompleted_bots().all():
             pool.add_task(bot.complete_creation)
         pool.wait_completion()
 
@@ -202,6 +215,7 @@ class ProxyManager(models.Manager):
         add_new_proxies()
 
     def get_valid_proxies(self):
+        """Devuelve los proxies válidos para poder crear nuevos bots"""
         return self.filter(
             is_unavailable_for_registration=False,
             is_unavailable_for_use=False,

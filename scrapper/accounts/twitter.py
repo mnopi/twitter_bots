@@ -57,7 +57,7 @@ class TwitterScrapper(Scrapper):
             settings.LOGGER.info('User %s signing up on twitter..' % self.user.username)
             self.go_to(settings.URLS['twitter_reg'])
             # esperamos a que se cargue bien el formulario
-            self.wait_visibility_of_css_element('#full-name', timeout=15)
+            self.wait_visibility_of_css_element('#full-name', timeout=settings.PAGE_LOAD_TIMEOUT)
 
             # rellenamos
             self.fill_input_text('#full-name', self.user.real_name)
@@ -132,8 +132,6 @@ class TwitterScrapper(Scrapper):
         bot_is_suspended = lambda: self.get_css_element('#account-suspended') and \
                                    self.get_css_element('#account-suspended').is_displayed()
         if check_condition(bot_is_suspended):
-            self.user.mark_as_suspended()
-
             if 'confirm your email' in self.get_css_element('#account-suspended').text:
                 self.click('#account-suspended a')
                 self.delay.seconds(4)
@@ -195,32 +193,6 @@ class TwitterScrapper(Scrapper):
             return self.browser.execute_script("return document.readyState;") == 'complete'
         else:
             return False
-
-    def confirm_user_email(self):
-        """Le damos al rollo del email de confirmación.."""
-        try:
-            settings.LOGGER.info('Confirming email %s for twitter user: %s..' % (self.user.email, self.user.username))
-            if self.user.has_to_confirm_tw_email():
-                from .hotmail import HotmailScrapper
-
-                email_domain = self.user.get_email_account_domain()
-                if email_domain == 'hotmail.com' or email_domain == 'outlook.com':
-                    self.email_scrapper = HotmailScrapper(self.user)
-                else:
-                    raise Exception(INVALID_EMAIL_DOMAIN_MSG)
-
-                self.email_scrapper.open_browser()
-                self.email_scrapper.confirm_tw_email()
-                self.email_scrapper.close_browser()
-                self.user.twitter_confirmed_email_ok = True
-                self.user.save()
-                settings.LOGGER.info('Twitter email confirmed ok for %s with email: %s' % (self.user.username, self.user.email))
-        except TwitterEmailNotFound:
-            self.login()
-            self.confirm_user_email()
-        except Exception, e:
-            settings.LOGGER.exception('Error confirming twitter email. User: %s, email: %s' %(self.user.username, self.user.email))
-            raise e
 
     def set_profile(self):
         """precondición: estar logueado y en la home"""

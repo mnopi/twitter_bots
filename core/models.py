@@ -3,6 +3,7 @@ import threading
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 import pytz
+from scrapper.exceptions import TwitterEmailNotFound
 from scrapper.logger import get_browser_instance_id
 from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from scrapper.accounts.twitter import TwitterScrapper
@@ -84,7 +85,7 @@ class TwitterBot(models.Model):
         return not self.twitter_registered_ok
 
     def has_to_confirm_tw_email(self):
-        return settings.TW_CONFIRM_EMAIL and not self.twitter_confirmed_email_ok
+        return not self.twitter_confirmed_email_ok
 
     def has_to_complete_tw_profile(self):
         return not self.has_tw_profile_completed()
@@ -96,19 +97,25 @@ class TwitterBot(models.Model):
         return not self.twitter_bio_completed and settings.TW_SET_BIO
 
     def has_to_complete_creation(self):
-        return self.has_to_register_email() or \
-               self.has_to_register_twitter() or \
-               self.has_to_confirm_tw_email() or \
-               self.has_to_complete_tw_profile()
+        return not self.email_registered_ok or \
+               not self.twitter_registered_ok or \
+               not self.twitter_confirmed_email_ok or \
+               not self.has_tw_profile_completed()
 
     def has_tw_profile_completed(self):
         return not self.has_to_set_tw_avatar() and not self.has_to_set_tw_bio()
 
     def mark_as_suspended(self):
-        self.is_suspended = False
+        self.is_suspended = True
         self.date_suspended = datetime.datetime.now()
         self.save()
         settings.LOGGER.warning('User %s has marked as suspended on twitter' % self.username)
+
+    def unmark_as_suspended(self):
+        self.is_suspended = False
+        self.date_suspended = None
+        self.save()
+        settings.LOGGER.warning('User %s has lift suspension on his twitter account' % self.username)
 
     def mark_as_not_twitter_registered_ok(self):
         self.twitter_registered_ok = False
@@ -158,6 +165,9 @@ class TwitterBot(models.Model):
             settings.LOGGER.info('Completing creation for bot %s behind proxy %s @ %s' %
                                  (self.username, self.proxy.proxy, self.proxy.proxy_provider))
 
+            # eliminamos el directorio de capturas previas para el usuario
+            rmdir_if_exists(os.path.join(settings.SCREENSHOTS_DIR, self.real_name))
+
             if settings.FAST_MODE and not settings.TEST_MODE:
                 settings.LOGGER.warning('Fast mode only avaiable on test mode!')
                 settings.FAST_MODE = False
@@ -182,10 +192,10 @@ class TwitterBot(models.Model):
                                                   (self.username, self.email))
                         self.email_scr.take_screenshot('signup_email_failure', force_take=True)
                         raise ex
-                    self.email_scr.take_screenshot('signed_up_sucessfully', force_take=True)
                     self.email_registered_ok = True
                     self.save()
-                    self.delay.seconds(7)
+                    self.email_scr.take_screenshot('signed_up_sucessfully', force_take=True)
+                    self.email_scr.delay.seconds(7)
                     settings.LOGGER.info('%s %s signed up ok' % (get_browser_instance_id(self), self.email))
 
                 # 2_signup_twitter
@@ -198,6 +208,9 @@ class TwitterBot(models.Model):
                     self.email_scr.set_screenshots_dir('3_confirm_tw_email')
                     try:
                         self.email_scr.confirm_tw_email()
+                    except TwitterEmailNotFound:
+                        self.twitter_scr.set_screenshots_dir('resend_conf_email')
+                        self.twitter_scr.login()
                     except Exception as ex:
                         settings.LOGGER.exception('Error on bot %s confirming email %s' %
                                                   (self.username, self.email))
@@ -205,7 +218,7 @@ class TwitterBot(models.Model):
                         raise ex
                     self.twitter_confirmed_email_ok = True
                     self.save()
-                    self.delay.seconds(8)
+                    self.email_scr.delay.seconds(8)
                     settings.LOGGER.info('Confirmed twitter email %s for user %s' % (self.email, self.username))
                     self.email_scr.take_screenshot('tw_email_confirmed_sucessfully', force_take=True)
 
@@ -236,21 +249,25 @@ class TwitterBot(models.Model):
         self.email = generate_random_username(self.real_name) + '@' + settings.EMAIL_ACCOUNT_TYPE
 
     def populate(self):
-        self.gender = random.randint(0, 1)
+        try:
+            self.gender = random.randint(0, 1)
 
-        gender_str = 'female' if self.gender == 1 else 'male'
-        self.real_name = names.get_full_name(gender=gender_str)
-        self.generate_email()
-        self.username = generate_random_username(self.real_name)
-        self.password_email = generate_random_string()
-        self.password_twitter = generate_random_string(only_lowercase=True)
-        self.birth_date = random_date(settings.BIRTH_INTERVAL[0], settings.BIRTH_INTERVAL[1])
-        self.user_agent = generate_random_desktop_user_agent()
-        self.has_fast_mode = settings.FAST_MODE
-        self.webdriver = settings.WEBDRIVER
-        self.random_offsets = settings.RANDOM_OFFSETS_ON_EL_CLICK
-        self.assign_proxy()
-        self.save()
+            gender_str = 'female' if self.gender == 1 else 'male'
+            self.real_name = names.get_full_name(gender=gender_str)
+            self.generate_email()
+            self.username = generate_random_username(self.real_name)
+            self.password_email = generate_random_string()
+            self.password_twitter = generate_random_string(only_lowercase=True)
+            self.birth_date = random_date(settings.BIRTH_INTERVAL[0], settings.BIRTH_INTERVAL[1])
+            self.user_agent = generate_random_desktop_user_agent()
+            self.has_fast_mode = settings.FAST_MODE
+            self.webdriver = settings.WEBDRIVER
+            self.random_offsets = settings.RANDOM_OFFSETS_ON_EL_CLICK
+            self.assign_proxy()
+            self.save()
+        except Exception as ex:
+            settings.LOGGER.exception('Error populating bot')
+            raise ex
 
     def set_tw_profile(self):
         """Se completa avatar y bio en su perfil de twitter"""
@@ -362,6 +379,7 @@ class TwitterBot(models.Model):
 class Proxy(models.Model):
     proxy = models.CharField(max_length=21, null=False, blank=True)
     proxy_provider = models.CharField(max_length=50, null=False, blank=True)
+    date_added = models.DateTimeField(auto_now_add=True)
 
     is_unavailable_for_registration = models.BooleanField(default=False)
     date_unavailable_for_registration = models.DateTimeField(null=True, blank=True)

@@ -128,10 +128,6 @@ class HotmailScrapper(Scrapper):
         submit_form()
         wait_condition(lambda: 'summarypage' in self.browser.current_url.lower(), timeout=60)
 
-        # lo dejamos en la bandeja de entrada
-        self.go_to(settings.URLS['hotmail_login'])
-        self._quit_inbox_shit()
-
     def check_account_suspended(self):
         not_suspended = lambda: 'unblock' not in self.browser.title.lower()
         suspended = not check_condition(not_suspended)
@@ -174,12 +170,14 @@ class HotmailScrapper(Scrapper):
 
         try:
             self.go_to(settings.URLS['hotmail_login'])
-            self.fill_input_text('#idDiv_PWD_UsernameTb input', self.user.email)
-            self.fill_input_text('#idDiv_PWD_PasswordTb input', self.user.password_email)
-            self.click('#idChkBx_PWD_KMSI0Pwd')  # para mantener la sesión si cierro navegador
-            submit_form()
-            self.check_account_suspended()
+            if self.check_visibility('#idDiv_PWD_UsernameTb'):
+                self.fill_input_text('#idDiv_PWD_UsernameTb input', self.user.email)
+                self.fill_input_text('#idDiv_PWD_PasswordTb input', self.user.password_email)
+                self.click('#idChkBx_PWD_KMSI0Pwd')  # para mantener la sesión si cierro navegador
+                submit_form()
+                self.wait_to_page_loaded()
             self._quit_inbox_shit()
+            self.check_account_suspended()
             settings.LOGGER.info('User %s logged in hotmail' % self.user.email)
         except Exception as ex:
             settings.LOGGER.exception('The was a problem loggin in %s' % self.user.email)
@@ -196,33 +194,31 @@ class HotmailScrapper(Scrapper):
             self.click('#notificationContainer button')
 
     def confirm_tw_email(self):
-        self.go_to(settings.URLS['hotmail_login'])
+        self.login()
 
-        # si fuera necesario se loguea
-        if 'login' in self.browser.current_url:
-            self.login()
+        # vemos si realmente estamos en la bandeja de entrada
+        if not self.check_visibility('#pageInbox'):
+            self.take_screenshot('not_really_on_inbox_page')
+            raise Exception('%s is not really on inbox page after login' % self.user.email)
 
         twitter_email_title = get_element(lambda: self.browser.find_element_by_partial_link_text('Twitter account'))
         if twitter_email_title:
             self.click(twitter_email_title)
             self.wait_to_page_loaded()
-            confirm_btn = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm your'))
-            if confirm_btn:
-                self.click(confirm_btn)
-                self.delay.seconds(3)
-                self.switch_to_window(-1)
-                self.wait_to_page_loaded()
-                self.delay.seconds(3)
+            confirm_btn = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm'))
+            self.click(confirm_btn)
+            self.delay.seconds(3)
+            self.switch_to_window(-1)
+            self.wait_to_page_loaded()
+            self.delay.seconds(3)
 
-                # por si nos pide meter usuario y contraseña
-                if not self.check_visibility('#global-new-tweet-button'):
-                    self.send_keys(self.user.username)
-                    self.send_special_key(Keys.TAB)
-                    self.send_keys(self.user.password_twitter)
-                    self.send_special_key(Keys.ENTER)
-                    self.delay.seconds(7)
-            else:
-                settings.LOGGER.error('Error clicking confirm_tw_email button on twitter email body for user %s' % self.user.username)
+            # por si nos pide meter usuario y contraseña
+            if not self.check_visibility('#global-new-tweet-button'):
+                self.send_keys(self.user.username)
+                self.send_special_key(Keys.TAB)
+                self.send_keys(self.user.password_twitter)
+                self.send_special_key(Keys.ENTER)
+                self.delay.seconds(7)
         else:
             settings.LOGGER.warning('No twitter email arrived for user %s, resending twitter email..' % self.user.username)
             raise TwitterEmailNotFound()
