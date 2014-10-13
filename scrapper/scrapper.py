@@ -45,12 +45,7 @@ class Scrapper(object):
 
     def check_proxy_works_ok(self):
         """Mira si funciona correctamente el proxy que se supone que tenemos contratado"""
-        try:
-            self.go_to('http://twitter.com', timeout=60)
-        except Exception, e:
-            settings.LOGGER.error('%s Proxy %s @ %s can\'t load twitter.com' %
-                         (get_browser_instance_id(self.user), self.user.proxy.proxy, self.user.proxy.proxy_provider))
-            raise e
+        self.go_to('http://twitter.com')
 
     def set_screenshots_dir(self, dir_name):
         self.screenshots_dir = dir_name
@@ -426,6 +421,8 @@ class Scrapper(object):
                     # cambiamos el proxy si es un proxy que no pertenece a las listas actuales
                     if not self.user.has_proxy_listed():
                         self.user.assign_proxy()
+                        settings.LOGGER.info('Assigned new proxy %s to bot %s' %
+                                             (self.user.proxy.proxy, self.user.username))
 
                     raise e
         finally:

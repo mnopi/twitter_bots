@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import random
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Max
 import os
 import time
 import threading
@@ -9,7 +9,7 @@ import datetime
 from django.db import models
 import pytz
 from project.exceptions import BotsWithTweetNotFoundException
-from scrapper.exceptions import BotDetectedAsSpammerException, NoMoreAvaiableProxiesException
+from scrapper.exceptions import BotDetectedAsSpammerException, NoMoreAvaiableProxiesForCreatingBots
 from scrapper.thread_pool import ThreadPool
 from twitter_bots import settings
 from multiprocessing import Lock
@@ -231,20 +231,37 @@ class ProxyManager(models.Manager):
         pass
 
     def get_available_proxies_for_registration(self):
-        """
-        Para devolver proxies disponibles para registrar bot:
-            - proxies que tengan menos de x bots asignados para registro
-            - que el último bot registrado con esos proxies lo haya hecho hace más de x días
-        """
-        date_last_registration_limit = datetime.datetime.now().replace(tzinfo=pytz.utc) - \
-                                       datetime.timedelta(days=settings.MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY)
+        """Devuelve proxies disponibles para registrar un bot"""
 
-        available_proxies = self.get_valid_proxies()\
+        # proxies válidos que tengan un número de bots inferior al límite y con ningún bot suspendido
+        proxies_with_available_space = self.get_valid_proxies()\
             .annotate(num_bots=Count('twitter_bots'))\
-            .filter(num_bots__lt=settings.MAX_TWT_BOTS_PER_PROXY_FOR_REGISTRATIONS)\
-            .filter(Q(twitter_bots=None) | Q(twitter_bots__date__lte=date_last_registration_limit))
+            .filter(num_bots__lt=settings.MAX_TWT_BOTS_PER_PROXY_FOR_REGISTRATIONS)
+
+        ids = []
+
+        # proxies sin bots
+        ids.extend([
+            result['id'] for result in proxies_with_available_space.filter(twitter_bots=None).values('id')
+        ])
+
+        # proxies con bots, aquellos que:
+        #   - bot más reciente sea igual o más antiguo que la fecha de registro más antigua permitida
+        #   - no tengan ni un bot como suspendido
+        oldest_allowed_registation_date = datetime.datetime.now().replace(tzinfo=pytz.utc) - \
+                                       datetime.timedelta(days=settings.MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY)
+        ids.extend([
+            result['id'] for result in
+                proxies_with_available_space\
+                .annotate(latest_bot_date=Max('twitter_bots__date'))\
+                .filter(latest_bot_date__lte=oldest_allowed_registation_date)\
+                .filter(twitter_bots__is_suspended=False)\
+                .values('id')
+        ])
+
+        available_proxies = self.filter(id__in=ids)
 
         if not available_proxies:
-            raise NoMoreAvaiableProxiesException()
+            raise NoMoreAvaiableProxiesForCreatingBots()
 
         return available_proxies

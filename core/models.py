@@ -88,7 +88,7 @@ class TwitterBot(models.Model):
         return not self.twitter_confirmed_email_ok
 
     def has_to_complete_tw_profile(self):
-        return not self.has_tw_profile_completed()
+        return not self.is_suspended and not self.has_tw_profile_completed()
 
     def has_to_set_tw_avatar(self):
         return not self.twitter_avatar_completed and settings.TW_SET_AVATAR
@@ -265,6 +265,8 @@ class TwitterBot(models.Model):
             self.random_offsets = settings.RANDOM_OFFSETS_ON_EL_CLICK
             self.assign_proxy()
             self.save()
+            settings.LOGGER.info('Bot %s populated with proxy %s @ %s' %
+                                 (self.username, self.proxy.proxy, self.proxy.proxy_provider))
         except Exception as ex:
             settings.LOGGER.exception('Error populating bot')
             raise ex

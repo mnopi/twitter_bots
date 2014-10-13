@@ -58,9 +58,9 @@ class TwitterBotDontExistsOnTwitterException(Exception):
         settings.LOGGER.warning('Username %s dont exists on twitter' % bot.username)
 
 
-class NoMoreAvaiableProxiesException(Exception):
+class NoMoreAvaiableProxiesForCreatingBots(Exception):
     def __init__(self):
-        settings.LOGGER.error('There is no more avaiable proxies. Sleeping..')
+        settings.LOGGER.error('There is no more avaiable proxies for creating new bots. Sleeping..')
         time.sleep(120)
 
 
