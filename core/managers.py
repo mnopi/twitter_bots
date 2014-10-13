@@ -94,7 +94,9 @@ class TwitterBotManager(models.Manager):
                 email_registered_ok=True,
             )\
             .exclude(proxy__proxy='tor')\
+            .exclude(proxy__is_unavailable_for_registration=True)\
             .exclude(proxy__is_unavailable_for_use=True)\
+            .exclude(proxy__is_phone_required=True)\
             .exclude(is_being_created=True)
 
     def get_completed_bots(self):
@@ -152,10 +154,15 @@ class TwitterBotManager(models.Manager):
 
     def complete_pendant_bot_creations(self):
         """Mira qué robots aparecen incompletos y termina de hacer en cada uno lo que quede"""
-        pool = ThreadPool(settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
-        for bot in self.get_uncompleted_bots().all():
-            pool.add_task(bot.complete_creation)
-        pool.wait_completion()
+        uncompleted_bots = self.get_uncompleted_bots()
+        if uncompleted_bots.exists():
+            pool = ThreadPool(settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
+            for bot in uncompleted_bots.all():
+                pool.add_task(bot.complete_creation)
+            pool.wait_completion()
+        else:
+            settings.LOGGER.info('There is no more pendant bots to complete')
+            time.sleep(60)
 
 
 class ProxyManager(models.Manager):

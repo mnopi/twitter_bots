@@ -38,7 +38,7 @@ TEST_MODE = False
 FORCE_FIREFOX = False
 ###############
 FAST_MODE = False  # para saltarse los delays en testeo
-TAKE_SCREENSHOTS = True
+TAKE_SCREENSHOTS = False
 
 
 REGISTER_EMAIL = True  # para activar o no el registro del email
@@ -50,10 +50,10 @@ TW_SET_BIO = True
 if not REGISTER_EMAIL:
     TW_CONFIRM_EMAIL = False
 
-MAX_THREADS_SENDING_TWEETS = 20  # máximo de hilos para enviar tweets
+MAX_THREADS_SENDING_TWEETS = 100  # máximo de hilos para enviar tweets
 MAX_THREADS_EXTRACTING_FOLLOWERS = 3
-MAX_THREADS_CREATING_BOTS = 3  # máximo de hilos para crear bots
-MAX_THREADS_COMPLETING_PENDANT_BOTS = 3  # máximo de hilos para restaurar creación de robots todavía a medias
+MAX_THREADS_CREATING_BOTS = 20  # máximo de hilos para crear bots
+MAX_THREADS_COMPLETING_PENDANT_BOTS = 20  # máximo de hilos para restaurar creación de robots todavía a medias
 USE_PROXY = True
 
 BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha de nacimiento del bot
