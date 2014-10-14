@@ -146,10 +146,6 @@ class TwitterBot(models.Model):
             self.proxy = Proxy.objects.get_available_proxies_for_registration().order_by('?')[0]
         self.save()
 
-    def has_proxy_listed(self):
-        "Mira si el proxy del usuario aparece en alguno de los .txt de la carpeta proxies"
-        return Proxy.objects.filter(proxy=self.proxy).exists()
-
     def get_email_scrapper(self):
         from scrapper.accounts.hotmail import HotmailScrapper
 

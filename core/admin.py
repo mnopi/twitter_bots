@@ -66,6 +66,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'date',
         'is_suspended',
         'is_suspended_email',
+        'proxy__proxy_provider',
     )
     ordering = ('-date',)
     list_display_links = ('username',)

@@ -61,9 +61,9 @@ DATABASES = {
         "NAME": "twitter_bots",
         "USER": "mnopi",
         "PASSWORD": "1aragon1",
-        "HOST": "192.168.1.115",
+        #"HOST": "192.168.1.115",
         # "PASSWORD": "",
-        # "HOST": "localhost",
+         "HOST": "localhost",
         "PORT": "3306",
 
     }

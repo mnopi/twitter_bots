@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import time
 import datetime
 from twitter_bots import settings
@@ -68,3 +70,36 @@ class FatalError(Exception):
     def __init__(self):
         settings.LOGGER.exception('FATAL ERROR')
         time.sleep(10)
+
+
+class ProxyConnectionError(Exception):
+    """Cuando no se puede conectar al proxy"""
+    def __init__(self, bot):
+        settings.LOGGER.error('Error connecting to proxy %s' % bot.proxy.__unicode__())
+        time.sleep(10)
+
+
+class InternetConnectionError(Exception):
+    """Cuando no se puede conectar al proxy"""
+    def __init__(self):
+        settings.LOGGER.error('Error connecting to Internet')
+        time.sleep(100)
+
+
+class ProxyTimeoutError(Exception):
+    """Cuando se puede conectar al proxy pero no responde la página que pedimos"""
+    def __init__(self, scrapper):
+
+        settings.LOGGER.error('Timeout error on bot %s using proxy %s to request address %s, maybe you are using '
+                              'unauthorized IP to connect. Page load timeout: %i secs' %
+                              (scrapper.user.username, scrapper.user.proxy.__unicode__(),
+                               scrapper.browser.current_url, settings.PAGE_LOAD_TIMEOUT))
+
+        scrapper.take_screenshot('proxy_timeout_error', force_take=True)
+
+        if hasattr(scrapper, 'email_scrapper'):
+            scrapper.email_scrapper.close_browser()
+        else:
+            scrapper.close_browser()
+
+        time.sleep(5)

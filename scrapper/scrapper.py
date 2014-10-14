@@ -14,7 +14,8 @@ from selenium import webdriver
 import socket
 import telnetlib
 from .delay import Delay
-from .exceptions import RequestAttemptsExceededException
+from .exceptions import RequestAttemptsExceededException, ProxyConnectionError, ProxyTimeoutError, \
+    InternetConnectionError
 from .logger import get_browser_instance_id
 import my_phantomjs_webdriver
 from utils import *
@@ -388,43 +389,30 @@ class Scrapper(object):
             if timeout:
                 self.browser.set_page_load_timeout(timeout)
             self.browser.get(url)
-            settings.LOGGER.debug('%s go_to: %s' % (get_browser_instance_id(self.user), url))
             if 'about:blank' in self.browser.current_url:
                 raise Exception()
-            self.take_screenshot('go_to')
             if wait_page_loaded:
                 self.wait_to_page_loaded()
             self.check_user_agent_compatibility()
             self._quit_focus_from_address_bar()
+            settings.LOGGER.debug('%s go_to: %s' % (get_browser_instance_id(self.user), url))
+            self.take_screenshot('go_to')
         except Exception, e:
-            if type(e) is TimeoutException:
+            if self.browser.page_source == '<html><head></head><body></body></html>':
+                # en caso de fallo de conexión probamos sin proxy
+                browser = my_phantomjs_webdriver.WebDriver(settings.PHANTOMJS_BIN_PATH)
+                browser.get('http://google.com')
+                if browser.page_source == '<html><head></head><body></body></html>':
+                    raise InternetConnectionError()
+                else:
+                    # si va bien sin proxy entonces el problema es del proxy
+                    raise ProxyConnectionError(self.user)
+            elif type(e) is TimeoutException:
                 if ignore_timeout_error:
                     settings.LOGGER.warning('%s Timeout loading url %s, ignoring TimeoutException..' %
                                    (get_browser_instance_id(self.user), url))
                 else:
-                    err_msg = 'Error on bot %s using proxy %s @ %s to request address %s, maybe you are using ' \
-                              'unauthorized IP to connect or provider refreshed proxies list. Page load timeout: %i secs' \
-                              % (self.user.username, self.user.proxy.proxy, self.user.proxy.proxy_provider,
-                                 self.browser.current_url, settings.PAGE_LOAD_TIMEOUT)
-                    if type(e) is TimeoutException:
-                        settings.LOGGER.error('%s Timeout error: %s' % (get_browser_instance_id(self.user), err_msg))
-                    else:
-                        settings.LOGGER.error('%s %s' % (get_browser_instance_id(self.user), err_msg))
-
-                    self.take_screenshot('go_to_error', force_take=True)
-
-                    if hasattr(self, 'email_scrapper'):
-                        self.email_scrapper.close_browser()
-                    else:
-                        self.close_browser()
-
-                    # cambiamos el proxy si es un proxy que no pertenece a las listas actuales
-                    if not self.user.has_proxy_listed():
-                        self.user.assign_proxy()
-                        settings.LOGGER.info('Assigned new proxy %s to bot %s' %
-                                             (self.user.proxy.proxy, self.user.username))
-
-                    raise e
+                    raise ProxyTimeoutError(self)
         finally:
             if timeout:
                 self.browser.set_page_load_timeout(settings.PAGE_LOAD_TIMEOUT)
