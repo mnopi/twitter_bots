@@ -17,6 +17,7 @@ from twitter_bots import settings
 class Project(models.Model):
     name = models.CharField(max_length=100, null=False, blank=True)
     target_users = models.ManyToManyField('TargetUser', related_name='projects', blank=True)
+    hashtags = models.ManyToManyField('Hashtag', related_name='projects', blank=True)
     is_running = models.BooleanField(default=True)
     has_tracked_clicks = models.BooleanField(default=False)
 
@@ -214,8 +215,17 @@ class Extractor(models.Model):
     access_token_secret = models.CharField(null=False, max_length=200)
     twitter_bot = models.OneToOneField(TwitterBot, null=False, related_name='extractor')
     date_created = models.DateTimeField(auto_now_add=True)
-    last_request_date = models.DateTimeField(null=True)
+    last_request_date = models.DateTimeField(null=True, blank=True)
     is_rate_limited = models.BooleanField(default=False)
+    minutes_window = models.PositiveIntegerField(null=True)
+
+    FOLLOWER_MODE = 1
+    HASHTAG_MODE = 2
+    MODES = (
+        (FOLLOWER_MODE, 'follower mode'),
+        (HASHTAG_MODE, 'hashtag mode'),
+    )
+    mode = models.PositiveIntegerField(null=False, choices=MODES)
 
     objects = ExtractorManager()
 
@@ -264,9 +274,9 @@ class Extractor(models.Model):
         target_user.followers_count = tw_user.followers_count
         target_user.save()
         
-    def create_twitter_user(self, tw_follower):
+    def create_twitter_user_obj(self, tw_user_from_api):
         "tw_follower es el objeto devuelto por tweepy tras consultar la API"
-        twitter_user = TwitterUser.objects.filter(twitter_id=tw_follower.id)
+        twitter_user = TwitterUser.objects.filter(twitter_id=tw_user_from_api.id)
         if twitter_user.exists():
             if twitter_user.count() > 1:
                 raise Exception('Duplicated twitter user with id %i' % twitter_user[0].twitter_id)
@@ -275,22 +285,22 @@ class Extractor(models.Model):
                 return twitter_user[0], False
         else:
             twitter_user = TwitterUser()
-            twitter_user.twitter_id = tw_follower.id
-            twitter_user.created_date = tw_follower.created_at
-            twitter_user.followers_count = tw_follower.followers_count
-            twitter_user.geo_enabled = tw_follower.geo_enabled
-            twitter_user.language = tw_follower.lang[:2] if tw_follower.lang else TwitterUser.DEFAULT_LANG
-            twitter_user.full_name = tw_follower.name
-            twitter_user.username = tw_follower.screen_name
-            twitter_user.tweets_count = tw_follower.statuses_count
-            twitter_user.time_zone = tw_follower.time_zone
-            twitter_user.verified = tw_follower.verified
+            twitter_user.twitter_id = tw_user_from_api.id
+            twitter_user.created_date = tw_user_from_api.created_at
+            twitter_user.followers_count = tw_user_from_api.followers_count
+            twitter_user.geo_enabled = tw_user_from_api.geo_enabled
+            twitter_user.language = tw_user_from_api.lang[:2] if tw_user_from_api.lang else TwitterUser.DEFAULT_LANG
+            twitter_user.full_name = tw_user_from_api.name
+            twitter_user.username = tw_user_from_api.screen_name
+            twitter_user.tweets_count = tw_user_from_api.statuses_count
+            twitter_user.time_zone = tw_user_from_api.time_zone
+            twitter_user.verified = tw_user_from_api.verified
 
-            if hasattr(tw_follower, 'status'):
-                if hasattr(tw_follower.status, 'created_at'):
-                    twitter_user.last_tweet_date = tw_follower.status.created_at
-                if hasattr(tw_follower.status, 'source'):
-                    twitter_user.source = self.format_source(tw_follower.status.source)
+            if hasattr(tw_user_from_api, 'status'):
+                if hasattr(tw_user_from_api.status, 'created_at'):
+                    twitter_user.last_tweet_date = tw_user_from_api.status.created_at
+                if hasattr(tw_user_from_api.status, 'source'):
+                    twitter_user.source = self.format_source(tw_user_from_api.status.source)
                 else:
                     twitter_user.source = TwitterUser.OTHERS
             else:
@@ -327,7 +337,7 @@ class Extractor(models.Model):
                 # guardamos cada follower recibido, sin duplicar en BD
                 for tw_follower in page:
                     # creamos twitter_user a partir del follower si ya no existe en BD
-                    twitter_user_id, is_new = self.create_twitter_user(tw_follower)
+                    twitter_user_id, is_new = self.create_twitter_user_obj(tw_follower)
                     if is_new:
                         new_twitter_users.append(twitter_user_id)
                         settings.LOGGER.info('New twitter user %s added to list' % twitter_user_id.__unicode__())
@@ -371,12 +381,89 @@ class Extractor(models.Model):
                 settings.LOGGER.exception('')
                 time.sleep(7)
                 raise ex
-        
+
+    def extract_hashtag_users(self, hashtag):
+        self.connect_twitter_api()
+
+        while True:
+            results = self.api.search(
+                q=hashtag.q,
+                geocode=hashtag.geocode,
+                lang=hashtag.lang,
+                result_type=hashtag.result_type,
+                max_id=hashtag.max_id,
+                count=10,
+            )
+
+            self.last_request_date = datetime.datetime.now()
+            self.save()
+            settings.LOGGER.info('Retrieved 100 tweets for hashtag "%s" (max_id=%s)' %
+                                 (hashtag.q, str(hashtag.max_id)))
+
+            new_twitter_users = []
+            new_hashtag_users = []
+
+            for result in results:
+                twitter_user, is_new = self.create_twitter_user_obj(result.user)
+                if is_new:
+                    new_twitter_users.append(twitter_user)
+                    settings.LOGGER.info('New twitter user %s added to list' % twitter_user.__unicode__())
+                else:
+                    if hashtag.twitter_users.filter(pk=twitter_user.pk).exists():
+                        settings.LOGGER.info('Twitter user %s already exists for hashtag %s' %
+                                             (twitter_user.__unicode__(), hashtag.__unicode__()))
+                    else:
+                        new_hashtag_users.append(
+                            TwitterUserHasHashtag(twitter_user_id=twitter_user.pk, hashtag=hashtag)
+                        )
+                        settings.LOGGER.info('New twitter user %s added for hashtag %s' %
+                                             (twitter_user.__unicode__(), hashtag.__unicode__()))
+
+            before_saving = datetime.datetime.now()
+            time.sleep(2)  # para que se note la diferencia por si guarda muy rapido los twitterusers
+            TwitterUser.objects.bulk_create(new_twitter_users)
+            # pillamos todos los ids de los nuevos twitter_user creados
+            new_twitter_users_ids = TwitterUser.objects\
+                .filter(date_saved__gt=before_saving)\
+                .values_list('id', flat=True)
+
+            for twitter_user_id in new_twitter_users_ids:
+                new_hashtag_users.append(
+                    TwitterUserHasHashtag(twitter_user_id=twitter_user_id, hashtag=hashtag)
+                )
+
+            TwitterUserHasHashtag.objects.bulk_create(new_hashtag_users)
+
+            # actualizamos el max_id para siguiente petición
+            last_tweet = results[-1]
+            hashtag.max_id = last_tweet.id
+
+            # comprobamos si supera el límite de antiguedad
+            if hashtag.older_limit_for_tweets and last_tweet.created_at < hashtag.older_limit_for_tweets:
+                settings.LOGGER.info('Older date limit reached for tweets by hashtag "%s"' % hashtag.__unicode__())
+                hashtag.is_extracted = True
+                break
+            # si supera el límite de usuarios
+            elif hashtag.max_user_count and hashtag.twitter_users.count() > hashtag.max_user_count:
+                settings.LOGGER.info('User count limit reached for tweets by hashtag "%s"' % hashtag.__unicode__())
+                hashtag.is_extracted = True
+                break
+
+            hashtag.save()
+
     def extract_followers_from_all_target_users(self):
         target_users_to_extract = TargetUser.objects.filter(projects__is_running=True).exclude(next_cursor=None)
         if target_users_to_extract.exists():
             target_user = target_users_to_extract.first()
             self.extract_followers(target_user, skip_page_on_existing=True)
+        else:
+            settings.LOGGER.info('All followers were already extracted from all target users for active projects')
+
+    def extract_twitter_users_from_all_hashtags(self):
+        hashtags_to_extract = Hashtag.objects.filter(projects__is_running=True, is_extracted=False)
+        if hashtags_to_extract.exists():
+            hashtag = hashtags_to_extract.first()
+            self.extract_hashtag_users(hashtag)
         else:
             settings.LOGGER.info('All followers were already extracted from all target users for active projects')
                 
@@ -389,7 +476,7 @@ class Extractor(models.Model):
             except Exception:
                 seconds_lapsed = (datetime.datetime.now() - self.last_request_date).seconds
                 
-            if seconds_lapsed > 15*60:
+            if seconds_lapsed > self.minutes_window * 60:
                 self.is_rate_limited = False
                 self.save()
                 return True
@@ -397,3 +484,37 @@ class Extractor(models.Model):
                 return False
         else:
             return True
+
+
+class Hashtag(models.Model):
+    q = models.CharField(max_length=140, null=False)
+    geocode = models.CharField(max_length=50, null=True, blank=True)
+    lang = models.CharField(max_length=2, null=True, blank=True)
+    MIXED = 1
+    RECENT = 2
+    POPULAR = 3
+    RESULT_TYPES = (
+        (MIXED, 'mixed'),
+        (RECENT, 'recent'),
+        (POPULAR, 'popular'),
+    )
+    result_type = models.PositiveIntegerField(null=False, choices=RESULT_TYPES, default=2)
+    max_id = models.BigIntegerField(null=True, blank=True)
+    older_limit_for_tweets = models.DateTimeField(null=True, blank=True)
+    max_user_count = models.IntegerField(null=True, blank=True)
+    is_extracted = models.BooleanField(default=False)
+
+    twitter_users = models.ManyToManyField(TwitterUser, through='TwitterUserHasHashtag',
+                                           related_name='hashtags', blank=True)
+
+    def __unicode__(self):
+        return self.q
+
+
+class TwitterUserHasHashtag(models.Model):
+    hashtag = models.ForeignKey(Hashtag)
+    twitter_user = models.ForeignKey(TwitterUser)
+    date_saved = models.DateTimeField(auto_now_add=True)
+
+    def __unicode__(self):
+        return '%s %s' % (self.twitter_user.username, self.hashtag.q)

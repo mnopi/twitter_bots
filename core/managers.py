@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import multiprocessing
 import random
 from django.db.models import Count, Q, Max
 import os
@@ -6,15 +7,21 @@ import time
 import threading
 import datetime
 
-from django.db import models
+from django.db import models, connection
 import pytz
 from project.exceptions import BotsWithTweetNotFoundException
 from scrapper.exceptions import BotDetectedAsSpammerException, NoMoreAvaiableProxiesForCreatingBots
 from scrapper.thread_pool import ThreadPool
 from twitter_bots import settings
-from multiprocessing import Lock
+from threading import Lock
 mutex = Lock()
 
+# def unwrap_self_send_tweet(*args):
+#     from models import TwitterBot
+#     return TwitterBot.objects.send_tweet(*args)
+
+# def f(task_num, lock):
+#     print task_num
 
 class TwitterBotManager(models.Manager):
     def  create_bot(self, **kwargs):
@@ -126,6 +133,8 @@ class TwitterBotManager(models.Manager):
 
     def send_tweet(self):
         """Escoge un robot cualquiera de los disponibles para enviar un tweet"""
+        # para lo del multiprocess
+        # connection.close()
         try:
             mutex.acquire()
             bot, tweet = self.get_one_bot_with_tweet_to_send()
@@ -137,9 +146,16 @@ class TwitterBotManager(models.Manager):
     def send_tweets(self):
         pool = ThreadPool(settings.MAX_THREADS_SENDING_TWEETS)
         for task_num in range(settings.TASKS_PER_EXECUTION):
-            settings.LOGGER.info('Adding task %i' % task_num)
             pool.add_task(self.send_tweet)
         pool.wait_completion()
+
+        # manager = multiprocessing.Manager()
+        # lock = manager.Lock()
+        # pool = multiprocessing.Pool(processes=settings.MAX_THREADS_SENDING_TWEETS)
+        # for i in xrange(settings.TASKS_PER_EXECUTION):
+        #     pool.apply_async(func=unwrap_self_send_tweet, args=(i,lock))
+        # pool.close()
+        # pool.join()
 
         # threads = []
         # for bwt in bots_with_tweet:

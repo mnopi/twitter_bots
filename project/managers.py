@@ -42,25 +42,48 @@ class ProjectManager(models.Manager):
 
 
 class ExtractorManager(models.Manager):
-    def get_avaiable_follower_extractors(self):
+    def display_extractor_mode(self, mode):
+        from .models import Extractor
+        if mode == Extractor.FOLLOWER_MODE:
+            return 'follower'
+        elif mode == Extractor.HASHTAG_MODE:
+            return 'hashtag'
+
+    def log_extractor_being_used(self, extractor):
+        settings.LOGGER.info('### Using extractor: %s behind proxy %s ###' %
+                             (extractor.twitter_bot.username,
+                              extractor.twitter_bot.proxy.__unicode__()))
+
+    def get_available_extractors(self, mode):
+
         available_extractors = [
-            extractor for extractor in self.all() if extractor.is_available()
+            extractor for extractor in self.filter(mode=mode) if extractor.is_available()
         ]
 
         if not available_extractors:
             last_used_extractor = self.latest('last_request_date')
-            settings.LOGGER.warning('No available follower extractors at this moment. Last used was %s at %s' %
-                                    (last_used_extractor.twitter_bot.username, last_used_extractor.last_request_date))
+            settings.LOGGER.warning('No available %s extractors at this moment. Last used was %s at %s' %
+                                    (self.display_extractor_mode(mode), last_used_extractor.twitter_bot.username,
+                                     last_used_extractor.last_request_date))
         return available_extractors
 
     def extract_followers(self):
-        for extractor in self.get_avaiable_follower_extractors():
+        from .models import Extractor
+        for extractor in self.get_available_extractors(Extractor.FOLLOWER_MODE):
             try:
-                settings.LOGGER.info('### Using extractor: %s @ %s - %s###' %
-                                     (extractor.twitter_bot.username,
-                                      extractor.twitter_bot.proxy.proxy,
-                                      extractor.twitter_bot.proxy.proxy_provider))
+                self.log_extractor_being_used(extractor)
                 extractor.extract_followers_from_all_target_users()
+            except RateLimitedException:
+                continue
+
+        time.sleep(random.randint(5, 15))
+
+    def extract_hashtags(self):
+        from .models import Extractor
+        for extractor in self.get_available_extractors(Extractor.HASHTAG_MODE):
+            try:
+                self.log_extractor_being_used(extractor)
+                extractor.extract_twitter_users_from_all_hashtags()
             except RateLimitedException:
                 continue
 

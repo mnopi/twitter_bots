@@ -74,8 +74,8 @@ class FatalError(Exception):
 
 class ProxyConnectionError(Exception):
     """Cuando no se puede conectar al proxy"""
-    def __init__(self, bot):
-        settings.LOGGER.error('Error connecting to proxy %s' % bot.proxy.__unicode__())
+    def __init__(self, scrapper):
+        settings.LOGGER.error('Error connecting to proxy %s' % scrapper.user.proxy.__unicode__())
         time.sleep(10)
 
 
@@ -102,4 +102,12 @@ class ProxyTimeoutError(Exception):
         else:
             scrapper.close_browser()
 
+        time.sleep(5)
+
+
+class ProxyUrlRequestError(Exception):
+    def __init__(self, scrapper, url):
+        settings.LOGGER.error('%s Couldn\'t get %s url for user %s behind proxy %s' %
+                                          (scrapper.browser_id, url, scrapper.user.username,
+                                           scrapper.user.proxy.__unicode__()))
         time.sleep(5)

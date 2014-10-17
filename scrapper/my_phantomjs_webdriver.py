@@ -51,7 +51,7 @@ class MyService(Service):
             if count == MAX_CONNECTION_RETRIES:
                  raise WebDriverException("Can not connect to GhostDriver")
 
-class WebDriver(RemoteWebDriver):
+class MyWebDriver(RemoteWebDriver):
     """
     Wrapper to communicate with PhantomJS through Ghostdriver.
 

@@ -50,7 +50,7 @@ TW_SET_BIO = True
 if not REGISTER_EMAIL:
     TW_CONFIRM_EMAIL = False
 
-MAX_THREADS_SENDING_TWEETS = 100  # máximo de hilos para enviar tweets
+MAX_THREADS_SENDING_TWEETS = 70  # máximo de hilos para enviar tweets
 MAX_THREADS_EXTRACTING_FOLLOWERS = 3
 MAX_THREADS_CREATING_BOTS = 20  # máximo de hilos para crear bots
 MAX_THREADS_COMPLETING_PENDANT_BOTS = 20  # máximo de hilos para restaurar creación de robots todavía a medias

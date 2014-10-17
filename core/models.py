@@ -346,11 +346,13 @@ class TwitterBot(models.Model):
                     )
                     tweet_to_send.save()
 
-                    # añadimos usuarios a mencionar
-                    users_avaiable_to_mention = unmentioned_by_bot.count() \
-                        if unmentioned_by_bot.count() < settings.MAX_MENTIONS_PER_TWEET \
-                        else settings.MAX_MENTIONS_PER_TWEET
-                    for unmentioned in unmentioned_by_bot.all()[:users_avaiable_to_mention]:
+                    # añadimos usuarios a mencionar, los primeros en añadirse serán los últimos que hayan tuiteado
+                    try:
+                        unmentioned_selected = unmentioned_by_bot.order_by('-last_tweet_date')[:settings.MAX_MENTIONS_PER_TWEET]
+                    except Exception as e:
+                        unmentioned_selected = unmentioned_by_bot.all()
+
+                    for unmentioned in unmentioned_selected:
                         if tweet_to_send.length() + len(unmentioned.username) + 2 <= 140:
                             tweet_to_send.mentioned_users.add(unmentioned)
                         else:
@@ -370,6 +372,9 @@ class TwitterBot(models.Model):
             tweet.sent_ok = True
             tweet.date_sent = datetime.datetime.now()
             tweet.save()
+        except Exception as e:
+            tweet.delete()
+            raise e
         finally:
             self.scrapper.close_browser()
 

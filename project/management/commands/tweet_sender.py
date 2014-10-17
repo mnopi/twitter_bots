@@ -1,3 +1,5 @@
+import multiprocessing
+import os
 from core.models import TwitterBot
 from project.models import Tweet
 from scrapper.exceptions import FatalError
@@ -10,7 +12,6 @@ __author__ = 'Michel'
 from django.core.management.base import BaseCommand, CommandError
 
 settings.set_logger('tweet_sender')
-
 
 class Command(BaseCommand):
     help = 'Send pending tweets'

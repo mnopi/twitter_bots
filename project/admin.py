@@ -1,3 +1,4 @@
+from daterange_filter.filter import DateRangeFilter, DateTimeRangeFilter
 from django.contrib import admin
 from project.models import *
 from django.contrib import messages
@@ -72,7 +73,12 @@ class TweetAdmin(admin.ModelAdmin):
     )
 
     search_fields = ('bot_used__username',)
-    list_filter = ('sending', 'sent_ok', 'date_sent', 'link__platform')
+    list_filter = (
+        'sending',
+        'sent_ok',
+        'date_sent',
+        'link__platform'
+    )
     # ordering = ('-date',)
     # list_display_links = ('username',)
 
@@ -99,6 +105,7 @@ class TwitterUserAdmin(admin.ModelAdmin):
 
     search_fields = (
         'username',
+        'hashtags__q',
     )
     list_filter = ('date_saved',)
 
@@ -118,6 +125,7 @@ class ExtractorAdmin(admin.ModelAdmin):
         'date_created',
         'last_request_date',
         'is_rate_limited',
+        'mode',
     )
 
 
@@ -130,6 +138,8 @@ admin.site.register(TwitterUser, TwitterUserAdmin)
 admin.site.register(Tweet, TweetAdmin)
 admin.site.register(Extractor, ExtractorAdmin)
 admin.site.register(Link)
+admin.site.register(Hashtag)
+admin.site.register(TwitterUserHasHashtag)
 
 
 

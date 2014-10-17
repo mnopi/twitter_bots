@@ -15,7 +15,7 @@ import socket
 import telnetlib
 from .delay import Delay
 from .exceptions import RequestAttemptsExceededException, ProxyConnectionError, ProxyTimeoutError, \
-    InternetConnectionError
+    InternetConnectionError, ProxyUrlRequestError
 from .logger import get_browser_instance_id
 import my_phantomjs_webdriver
 from utils import *
@@ -43,6 +43,7 @@ class Scrapper(object):
         self.screenshots_dir = screenshots_dir or ''
         self.screenshot_num = 1  # contador para capturas de pantalla
         self.current_mouse_position = {'x': 0, 'y': 0}
+        self.browser_id = get_browser_instance_id(self.user)
 
     def check_proxy_works_ok(self):
         """Mira si funciona correctamente el proxy que se supone que tenemos contratado"""
@@ -120,8 +121,9 @@ class Scrapper(object):
             # proxy
             if settings.USE_PROXY and self.user.proxy:
                 service_args = [
-                    '--proxy=%s:%s' % (proxy_ip, str(proxy_port)),
-                    '--cookies-file=%s' % os.path.join(settings.PHANTOMJS_COOKIES_DIR, '%s.txt' % str(self.user.id)),
+                    '--proxy=%s:%i' % (proxy_ip, proxy_port),
+                    '--cookies-file=%s' % os.path.join(settings.PHANTOMJS_COOKIES_DIR, '%i.txt' % self.user.id),
+                    '--ssl-protocol=any',
                     # '--local-storage-path=%s' % settings.PHANTOMJS_LOCALSTORAGES_PATH,
                     # '--local-storage-quota=1024',
                 ]
@@ -133,11 +135,17 @@ class Scrapper(object):
             dcap["phantomjs.page.settings.userAgent"] = (self.user.user_agent)
             dcap["phantomjs.page.customHeaders.Accept-Language"] = 'en-us'
 
-            self.browser = my_phantomjs_webdriver.WebDriver(
+            self.browser = my_phantomjs_webdriver.MyWebDriver(
                 settings.PHANTOMJS_BIN_PATH,
                 service_args=service_args,
                 desired_capabilities=dcap
             )
+
+            # self.browser = webdriver.PhantomJS(
+            #     settings.PHANTOMJS_BIN_PATH,
+            #     service_args=service_args,
+            #     desired_capabilities=dcap
+            # )
             settings.LOGGER.debug('%s phantomJS instance opened successfully' % get_browser_instance_id(self.user))
 
         # si ya hay navegador antes de abrirlo nos aseguramos que esté cerrado para no acumular una instancia más
@@ -385,34 +393,54 @@ class Scrapper(object):
             self.switch_to_frame(frame, timeout)
 
     def go_to(self, url, timeout=None, wait_page_loaded=False, ignore_timeout_error=False):
+
+        def proxy_works():
+            """Para ver que el proxy funciona comprobamos contra google"""
+            scr = Scrapper(self.user)
+            scr.open_browser()
+            prev_url = scr.browser.current_url
+            scr.browser.get('http://google.com')
+            return scr.browser.current_url != prev_url
+
+        def internet_connection_works():
+            """Para ver que la conexión a internet funciona lanzamos el phantom sin ir a través de proxy"""
+            browser = webdriver.PhantomJS(settings.PHANTOMJS_BIN_PATH)
+            prev_url = browser.current_url
+            browser.get('http://google.com')
+            return browser.current_url != prev_url
+
         try:
             if timeout:
                 self.browser.set_page_load_timeout(timeout)
+            prev_url = self.browser.current_url
             self.browser.get(url)
-            if 'about:blank' in self.browser.current_url:
-                raise Exception()
-            if wait_page_loaded:
-                self.wait_to_page_loaded()
-            self.check_user_agent_compatibility()
-            self._quit_focus_from_address_bar()
-            settings.LOGGER.debug('%s go_to: %s' % (get_browser_instance_id(self.user), url))
-            self.take_screenshot('go_to')
+            # self.browser.get('http://localhost:8001/admin/')
+            is_new_url = url != prev_url
+            if is_new_url:
+                if self.browser.current_url != prev_url:
+                    # si ha cambiado current_url es que se tomó bien la nueva
+                    if wait_page_loaded:
+                        self.wait_to_page_loaded()
+                    self.check_user_agent_compatibility()
+                    self._quit_focus_from_address_bar()
+                    settings.LOGGER.debug('%s go_to: %s' % (self.browser_id, url))
+                    self.take_screenshot('go_to')
+                else:
+                    if proxy_works():
+                        # si el proxy funciona es que el fallo es específico de pedir esa url en concreto
+                        raise ProxyUrlRequestError(self, url)
+                    else:
+                        if internet_connection_works():
+                            # si el proxy no funciona y sí la conexión a internet, es culpa del proxy
+                            raise ProxyConnectionError(self)
+                        else:
+                            raise InternetConnectionError()
         except Exception, e:
-            if self.browser.page_source == '<html><head></head><body></body></html>':
-                # en caso de fallo de conexión probamos sin proxy
-                browser = my_phantomjs_webdriver.WebDriver(settings.PHANTOMJS_BIN_PATH)
-                browser.get('http://google.com')
-                if browser.page_source == '<html><head></head><body></body></html>':
-                    raise InternetConnectionError()
-                else:
-                    # si va bien sin proxy entonces el problema es del proxy
-                    raise ProxyConnectionError(self.user)
-            elif type(e) is TimeoutException:
-                if ignore_timeout_error:
-                    settings.LOGGER.warning('%s Timeout loading url %s, ignoring TimeoutException..' %
-                                   (get_browser_instance_id(self.user), url))
-                else:
-                    raise ProxyTimeoutError(self)
+            if type(e) is TimeoutException and ignore_timeout_error:
+                settings.LOGGER.warning('%s Timeout loading url %s, ignoring TimeoutException..' %
+                                        (get_browser_instance_id(self.user), url))
+            else:
+                raise e
         finally:
             if timeout:
                 self.browser.set_page_load_timeout(settings.PAGE_LOAD_TIMEOUT)
