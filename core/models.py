@@ -327,38 +327,35 @@ class TwitterBot(models.Model):
         iterando por las plataformas de un proyecto de momento no hay prioridad
         y la primera será la primera que se le añada
         """
-        from project.models import Project, TwitterUser, Tweet
+        from project.models import Project, Tweet
 
         for project in Project.objects.filter(is_running=True):
-            for platform in project.get_platforms():
-                project_users = TwitterUser.objects.filter(follower__target_user__projects=project)
-                project_unmentioned_users = project_users.filter(mentions=None, source=platform)
+            # saco alguno que no fue mencionado por el bot
+            unmentioned_by_bot = project.get_unmentioned_users()\
+                .exclude(mentions__bot_used=self)
+            if unmentioned_by_bot.exists():
+                tweet_to_send = Tweet(
+                    project=project,
+                    tweet_msg=project.tweet_msgs.order_by('?')[0],
+                    link=project.links.get(is_active=True),
+                    bot_used=self,
+                    sending=True,
+                )
+                tweet_to_send.save()
 
-                # saco alguno que no fue mencionado por el bot
-                unmentioned_by_bot = project_unmentioned_users.exclude(mentions__bot_used=self)
-                if unmentioned_by_bot.exists():
-                    tweet_to_send = Tweet(
-                        project=project,
-                        tweet_msg=project.tweet_msgs.order_by('?')[0],
-                        link=project.links.filter(platform=platform).order_by('?')[0],
-                        bot_used=self,
-                        sending=True,
-                    )
-                    tweet_to_send.save()
+                # añadimos usuarios a mencionar, los primeros en añadirse serán los últimos que hayan tuiteado
+                try:
+                    unmentioned_selected = unmentioned_by_bot.order_by('-last_tweet_date')[:settings.MAX_MENTIONS_PER_TWEET]
+                except Exception as e:
+                    unmentioned_selected = unmentioned_by_bot.all()
 
-                    # añadimos usuarios a mencionar, los primeros en añadirse serán los últimos que hayan tuiteado
-                    try:
-                        unmentioned_selected = unmentioned_by_bot.order_by('-last_tweet_date')[:settings.MAX_MENTIONS_PER_TWEET]
-                    except Exception as e:
-                        unmentioned_selected = unmentioned_by_bot.all()
+                for unmentioned in unmentioned_selected:
+                    if tweet_to_send.length() + len(unmentioned.username) + 2 <= 140:
+                        tweet_to_send.mentioned_users.add(unmentioned)
+                    else:
+                        break
 
-                    for unmentioned in unmentioned_selected:
-                        if tweet_to_send.length() + len(unmentioned.username) + 2 <= 140:
-                            tweet_to_send.mentioned_users.add(unmentioned)
-                        else:
-                            break
-
-                    return tweet_to_send
+                return tweet_to_send
 
         return None
 

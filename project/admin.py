@@ -32,9 +32,9 @@ class TargetUserAdmin(admin.ModelAdmin):
 class ProjectAdmin(admin.ModelAdmin):
     list_display = (
         'name',
-        # 'followers_spammed',
-        'get_followers_count',
+        'display_sent_tweets_android',
     )
+
     search_fields = ('name',)
     list_display_links = ('name',)
 
@@ -107,7 +107,11 @@ class TwitterUserAdmin(admin.ModelAdmin):
         'username',
         'hashtags__q',
     )
-    list_filter = ('date_saved',)
+    list_filter = (
+        'date_saved',
+        'target_users__projects',
+        'source',
+    )
 
 
 class ExtractorAdmin(admin.ModelAdmin):
@@ -129,6 +133,19 @@ class ExtractorAdmin(admin.ModelAdmin):
     )
 
 
+class LinkAdmin(admin.ModelAdmin):
+    list_display = (
+        'url',
+        'project',
+        'platform',
+        'is_active',
+    )
+
+    list_filter = (
+        'project',
+    )
+
+
 # Register your models here.
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(TweetMsg)
@@ -137,9 +154,10 @@ admin.site.register(Follower, FollowerAdmin)
 admin.site.register(TwitterUser, TwitterUserAdmin)
 admin.site.register(Tweet, TweetAdmin)
 admin.site.register(Extractor, ExtractorAdmin)
-admin.site.register(Link)
+admin.site.register(Link, LinkAdmin)
 admin.site.register(Hashtag)
 admin.site.register(TwitterUserHasHashtag)
+admin.site.register(TweetImg)
 
 
 

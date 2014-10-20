@@ -89,6 +89,8 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 
+MEDIA_ROOT = os.path.join(PROJECT_ROOT, 'media')
+
 AUTH_USER_MODEL = "core.User"
 
 

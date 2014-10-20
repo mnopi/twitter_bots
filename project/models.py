@@ -3,7 +3,7 @@
 
 import datetime
 from django.db import models
-from django.db.models import Count
+from django.db.models import Count, Q
 import pytz
 import simplejson
 import tweepy
@@ -16,10 +16,12 @@ from twitter_bots import settings
 
 class Project(models.Model):
     name = models.CharField(max_length=100, null=False, blank=True)
-    target_users = models.ManyToManyField('TargetUser', related_name='projects', blank=True)
     hashtags = models.ManyToManyField('Hashtag', related_name='projects', blank=True)
     is_running = models.BooleanField(default=True)
     has_tracked_clicks = models.BooleanField(default=False)
+
+    # RELATIONSHIPS
+    target_users = models.ManyToManyField('TargetUser', related_name='projects', blank=True)
 
     objects = ProjectManager()
 
@@ -32,14 +34,47 @@ class Project(models.Model):
         return Tweet.objects.filter(project=self, sent_ok=False, sending=False)
 
     def get_followers(self, platform=None):
+        """Saca los usuarios que son followers a partir de un proyecto"""
         total_followers = Follower.objects.filter(target_user__projects=self)
         if platform:
             return total_followers.filter(twitter_user__source=platform)
         else:
             return total_followers
 
-    def get_followers_count(self):
-        return self.get_followers().count()
+    def get_hashtagers(self, platform=None):
+        """Saca los usuarios que son followers a partir de un proyecto"""
+        total_hashtagers = TwitterUserHasHashtag.objects.filter(hashtag__projects=self)
+        if platform:
+            return total_hashtagers.filter(twitter_user__source=platform)
+        else:
+            return total_hashtagers
+
+    def get_total_users(self, platform=None):
+        # total_followers = self.get_followers()
+        # total_hashtagers = self.get_hashtagers()
+        # return total_followers + total_hashtagers
+        total_users = TwitterUser.objects.filter(
+            Q(target_users__projects=self) |
+            Q(hashtags__projects=self)
+        )
+        if platform:
+            return total_users.filter(source=platform)
+        else:
+            return total_users
+
+    def get_mentioned_users(self, platform=None):
+        return self.get_total_users(platform=platform).exclude(mentions=None).filter(mentions__project=self)
+
+    def get_unmentioned_users(self, platform=None):
+        mentioned_pks = self.get_mentioned_users(platform=platform).values_list('id', flat=True)
+        return self.get_total_users(platform=platform).exclude(pk__in=mentioned_pks)
+
+    def display_sent_tweets_android(self):
+        """ Saca [usuarios_mencionados] / [usuarios_totales]"""
+        return '%i / %i' % (
+            self.get_mentioned_users(platform=TwitterUser.ANDROID).count(),
+            self.get_total_users(platform=TwitterUser.ANDROID).count()
+        )
 
     def get_followers_to_mention(self, platform=None):
         project_followers = self.get_followers(platform=platform)
@@ -69,6 +104,10 @@ class TargetUser(models.Model):
     # cuando el cursor sea null es que se han extraido todos sus followers
     next_cursor = models.BigIntegerField(null=True, default=0)
     followers_count = models.PositiveIntegerField(null=True, default=0)
+
+    # REL
+    twitter_users = models.ManyToManyField('TwitterUser', through='Follower',
+                                           related_name='target_users', blank=True)
 
     objects = TargetUserManager()
 
@@ -143,15 +182,17 @@ class TwitterUser(models.Model):
 
 
 class Tweet(models.Model):
-    tweet_msg = models.ForeignKey(TweetMsg, null=False)
-    link = models.ForeignKey('Link', null=True, blank=True, related_name='tweet')
     date_created = models.DateTimeField(auto_now_add=True)
     date_sent = models.DateTimeField(null=True, blank=True)
-    project = models.ForeignKey(Project, related_name="tweets")
-    mentioned_users = models.ManyToManyField(TwitterUser, related_name='mentions', null=True, blank=True)
     sending = models.BooleanField(default=False)
     sent_ok = models.BooleanField(default=False)
+
+    # RELATIONSHIPS
+    tweet_msg = models.ForeignKey(TweetMsg, null=False)
+    link = models.ForeignKey('Link', null=True, blank=True, related_name='tweet')
     bot_used = models.ForeignKey(TwitterBot, related_name='tweets', null=True)
+    mentioned_users = models.ManyToManyField(TwitterUser, related_name='mentions', null=True, blank=True)
+    project = models.ForeignKey(Project, related_name="tweets")
 
     objects = TweetManager()
 
@@ -196,7 +237,8 @@ class Tweet(models.Model):
 class Link(models.Model):
     url = models.URLField(null=False)
     project = models.ForeignKey(Project, null=False, related_name='links')
-    platform = models.IntegerField(null=False, choices=TwitterUser.SOURCES, default=0)
+    platform = models.IntegerField(null=True, blank=True, choices=TwitterUser.SOURCES, default=0)
+    is_active = models.BooleanField(default=True)
 
     def __unicode__(self):
         return '%s @ %s' % (self.project.name, self.get_platform_display())
@@ -518,3 +560,19 @@ class TwitterUserHasHashtag(models.Model):
 
     def __unicode__(self):
         return '%s %s' % (self.twitter_user.username, self.hashtag.q)
+
+
+class TweetImg(models.Model):
+    # def get_img_path(self, filename):
+    #     if self.pk:
+    #         fileName, fileExtension = os.path.splitext(filename)
+    #         path = '%s/photos/cat_%s/photo_%s.jpg' % \
+    #         (self.country.upper(), self.category.id, self.id)
+    #     return prepend_env_folder(path)
+
+    img = models.ImageField(upload_to='images', blank=True, null=True)
+    is_using = models.BooleanField(default=True)
+    project = models.ForeignKey(Project, null=False, related_name='tweet_imgs')
+
+    def __unicode__(self):
+        return '%s @ %s' % (self.img.path, self.project.name)
