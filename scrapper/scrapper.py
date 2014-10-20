@@ -43,7 +43,8 @@ class Scrapper(object):
         self.screenshots_dir = screenshots_dir or ''
         self.screenshot_num = 1  # contador para capturas de pantalla
         self.current_mouse_position = {'x': 0, 'y': 0}
-        self.browser_id = get_browser_instance_id(self.user)
+        if self.user.pk:
+            self.browser_id = get_browser_instance_id(self.user)
 
     def check_proxy_works_ok(self):
         """Mira si funciona correctamente el proxy que se supone que tenemos contratado"""

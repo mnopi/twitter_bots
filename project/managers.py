@@ -49,9 +49,10 @@ class ExtractorManager(models.Manager):
         elif mode == Extractor.HASHTAG_MODE:
             return 'hashtag'
 
-    def log_extractor_being_used(self, extractor):
-        settings.LOGGER.info('### Using extractor: %s behind proxy %s ###' %
-                             (extractor.twitter_bot.username,
+    def log_extractor_being_used(self, extractor, mode):
+        settings.LOGGER.info('### Using %s extractor: %s behind proxy %s ###' %
+                             (self.display_extractor_mode(mode),
+                              extractor.twitter_bot.username,
                               extractor.twitter_bot.proxy.__unicode__()))
 
     def get_available_extractors(self, mode):
@@ -71,7 +72,7 @@ class ExtractorManager(models.Manager):
         from .models import Extractor
         for extractor in self.get_available_extractors(Extractor.FOLLOWER_MODE):
             try:
-                self.log_extractor_being_used(extractor)
+                self.log_extractor_being_used(extractor, mode=Extractor.FOLLOWER_MODE)
                 extractor.extract_followers_from_all_target_users()
             except RateLimitedException:
                 continue
@@ -82,7 +83,7 @@ class ExtractorManager(models.Manager):
         from .models import Extractor
         for extractor in self.get_available_extractors(Extractor.HASHTAG_MODE):
             try:
-                self.log_extractor_being_used(extractor)
+                self.log_extractor_being_used(extractor, mode=Extractor.HASHTAG_MODE)
                 extractor.extract_twitter_users_from_all_hashtags()
             except RateLimitedException:
                 continue

@@ -26,6 +26,7 @@ mutex = Lock()
 class TwitterBotManager(models.Manager):
     def  create_bot(self, **kwargs):
         try:
+            connection.close()
             mutex.acquire()
             bot = self.create(**kwargs)
             bot.populate()

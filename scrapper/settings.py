@@ -52,8 +52,8 @@ if not REGISTER_EMAIL:
 
 MAX_THREADS_SENDING_TWEETS = 70  # máximo de hilos para enviar tweets
 MAX_THREADS_EXTRACTING_FOLLOWERS = 3
-MAX_THREADS_CREATING_BOTS = 20  # máximo de hilos para crear bots
-MAX_THREADS_COMPLETING_PENDANT_BOTS = 20  # máximo de hilos para restaurar creación de robots todavía a medias
+MAX_THREADS_CREATING_BOTS = 50  # máximo de hilos para crear bots
+MAX_THREADS_COMPLETING_PENDANT_BOTS = 50  # máximo de hilos para restaurar creación de robots todavía a medias
 USE_PROXY = True
 
 BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha de nacimiento del bot

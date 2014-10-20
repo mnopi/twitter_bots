@@ -168,6 +168,8 @@ TIME_BETWEEN_TWEETS = (2, 7)
 MAX_MENTIONS_PER_TWEET = 2
 TASKS_PER_EXECUTION = 1000
 
+MAX_PAGE_BREAKS_EXTRACTING_FOLLOWERS = 3
+
 
 def set_logger(logger_name):
     # import copy
