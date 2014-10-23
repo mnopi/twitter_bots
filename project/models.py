@@ -8,8 +8,9 @@ import pytz
 import simplejson
 import tweepy
 import time
+from core.managers import mutex
 from core.models import TwitterBot
-from project.exceptions import RateLimitedException
+from project.exceptions import RateLimitedException, AllFollowersExtracted
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager
 from twitter_bots import settings
 
@@ -105,6 +106,11 @@ class TargetUser(models.Model):
     next_cursor = models.BigIntegerField(null=True, default=0)
     followers_count = models.PositiveIntegerField(null=True, default=0)
 
+    # fecha en la que se dieron los últimos pagebreaks
+    last_pagebreaks_date = models.DateTimeField(null=True, blank=True)
+
+    is_active = models.BooleanField(default=True)
+
     # REL
     twitter_users = models.ManyToManyField('TwitterUser', through='Follower',
                                            related_name='target_users', blank=True)
@@ -169,7 +175,7 @@ class TwitterUser(models.Model):
     # TIME
     created_date = models.DateTimeField(null=False)
     time_zone = models.CharField(max_length=50, null=True)  # te da la zona horaria por la ciudad, x. ej 'Madrid'
-    last_tweet_date = models.DateTimeField(null=True)
+    last_tweet_date = models.DateTimeField(db_index=True, null=True)
 
     language = models.CharField(max_length=2, null=False, default=DEFAULT_LANG)
     followers_count = models.PositiveIntegerField(null=True)
@@ -232,6 +238,32 @@ class Tweet(models.Model):
 
     def is_available(self):
         return not self.sending and not self.sent_ok
+
+    def send(self):
+        try:
+            settings.LOGGER.info('Bot %s sending tweet %i: >> %s' %
+                                 (self.bot_used.__unicode__(), self.pk, self.compose()))
+            self.bot_used.scrapper.set_screenshots_dir(str(self.pk))
+            self.bot_used.scrapper.open_browser()
+            self.bot_used.scrapper.login()
+            self.bot_used.scrapper.send_tweet(self)
+            self.sent_ok = True
+            self.date_sent = datetime.datetime.now()
+            self.save()
+        except Exception as e:
+            settings.LOGGER.exception('Error sending tweet (id: %i, bot: %s - %s)' %
+                                      (self.pk, self.bot_used.username, self.bot_used.real_name))
+            raise e
+        finally:
+            # si el tweet sigue en BD se desmarca como enviando
+            if Tweet.objects.filter(pk=self.pk).exists():
+                self.sending = False
+                self.save()
+            self.bot_used.scrapper.close_browser()
+
+    def has_bot_sending_another(self):
+        """Comprueba si el bot asignado para el tweet ya está enviando otro"""
+        return Tweet.objects.filter(sending=True, bot_used=self.bot_used).exists()
 
 
 class Link(models.Model):
@@ -423,6 +455,7 @@ class Extractor(models.Model):
                 if num_page_breaks > settings.MAX_PAGE_BREAKS_EXTRACTING_FOLLOWERS:
                     # dejamos de extraer ese target user
                     target_user.next_cursor = None
+                    target_user.last_pagebreaks_date = datetime.datetime.now()
                     target_user.save()
                     settings.LOGGER.info('Exceeded %i page breaks limit extracting followers from %s' %
                                          (settings.MAX_PAGE_BREAKS_EXTRACTING_FOLLOWERS, target_user.username))
@@ -529,12 +562,12 @@ class Extractor(models.Model):
             hashtag.save()
 
     def extract_followers_from_all_target_users(self):
-        target_users_to_extract = TargetUser.objects.filter(projects__is_running=True).exclude(next_cursor=None)
+        target_users_to_extract = TargetUser.objects.get_available_to_extract()
         if target_users_to_extract.exists():
-            target_user = target_users_to_extract.first()
-            self.extract_followers(target_user, skip_page_on_existing=True)
+            for target_user in target_users_to_extract:
+                self.extract_followers(target_user, skip_page_on_existing=True)
         else:
-            settings.LOGGER.info('All followers were already extracted from all target users for active projects')
+            raise AllFollowersExtracted()
 
     def extract_twitter_users_from_all_hashtags(self):
         hashtags_to_extract = Hashtag.objects.filter(projects__is_running=True, is_extracted=False)
@@ -581,7 +614,7 @@ class Hashtag(models.Model):
     max_user_count = models.IntegerField(null=True, blank=True)
     is_extracted = models.BooleanField(default=False)
 
-    twitter_users = models.ManyToManyField(TwitterUser, through='TwitterUserHasHashtag',
+    twitter_users = models.ManyToManyField('TwitterUser', through='TwitterUserHasHashtag',
                                            related_name='hashtags', blank=True)
 
     def __unicode__(self):
@@ -589,8 +622,8 @@ class Hashtag(models.Model):
 
 
 class TwitterUserHasHashtag(models.Model):
-    hashtag = models.ForeignKey(Hashtag)
-    twitter_user = models.ForeignKey(TwitterUser)
+    hashtag = models.ForeignKey(Hashtag, related_name='hashtag_users', null=False)
+    twitter_user = models.ForeignKey(TwitterUser, related_name='hashtag_users', null=False)
     date_saved = models.DateTimeField(auto_now_add=True)
 
     def __unicode__(self):

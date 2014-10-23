@@ -38,7 +38,7 @@ TEST_MODE = False
 FORCE_FIREFOX = False
 ###############
 FAST_MODE = False  # para saltarse los delays en testeo
-TAKE_SCREENSHOTS = False
+TAKE_SCREENSHOTS = True
 
 
 REGISTER_EMAIL = True  # para activar o no el registro del email
@@ -54,6 +54,11 @@ MAX_THREADS_SENDING_TWEETS = 70  # máximo de hilos para enviar tweets
 MAX_THREADS_EXTRACTING_FOLLOWERS = 3
 MAX_THREADS_CREATING_BOTS = 50  # máximo de hilos para crear bots
 MAX_THREADS_COMPLETING_PENDANT_BOTS = 50  # máximo de hilos para restaurar creación de robots todavía a medias
+PENDING_TWEETS_QUEUE_SIZE = MAX_THREADS_SENDING_TWEETS * 10  # tamaño máximo de la cola para enviar tweets
+
+TIME_WAITING_FREE_QUEUE = 5  # cada x segundos se comprueba si hay espacio en la cola para crear nuevos tweets
+TIME_WAITING_AVAIABLE_BOT_TO_TWEET = 5  # cada x segundos el enviador de tweets comprueba que haya bots disponibles para enviarlos
+
 USE_PROXY = True
 
 BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha de nacimiento del bot

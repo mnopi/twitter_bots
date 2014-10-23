@@ -379,7 +379,7 @@ class Scrapper(object):
             return get_random()
 
     def wait_to_page_loaded(self):
-        wait_condition(lambda: self.browser.execute_script("return document.readyState;") == 'complete')
+        wait_condition(lambda: self.browser.execute_script("return document.readyState;") == 'complete', timeout=200)
         self.take_screenshot('page_loaded')
 
     def switch_to_frame(self, frame, timeout=20):

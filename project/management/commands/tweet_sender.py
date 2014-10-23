@@ -8,26 +8,27 @@ import time
 
 __author__ = 'Michel'
 
+MODULE_NAME = __name__.split('.')[-1]
 
 from django.core.management.base import BaseCommand, CommandError
 
-settings.set_logger('tweet_sender')
+settings.set_logger(MODULE_NAME)
 
 class Command(BaseCommand):
     help = 'Send pending tweets'
 
     def handle(self, *args, **options):
-        settings.LOGGER.info('-- INITIALIZED TWEET SENDER --')
+        settings.LOGGER.info('-- INITIALIZED %s --' % MODULE_NAME)
+
+        Tweet.objects.put_sending_to_not_sending()
 
         try:
-            Tweet.objects.clean_not_sent_ok()
-
             if args and '1' in args:
-                TwitterBot.objects.send_tweet()
+                TwitterBot.objects.send_tweet_from_pending_queue()
             else:
-                TwitterBot.objects.send_tweets()
+                TwitterBot.objects.send_pending_tweets()
         except Exception:
             raise FatalError()
 
-        settings.LOGGER.info('-- FINISHED TWEET SENDER --')
+        settings.LOGGER.info('-- FINISHED %s --' % MODULE_NAME)
 

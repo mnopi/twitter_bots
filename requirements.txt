@@ -2,6 +2,9 @@ Django==1.6.5
 
 # para mysql en mac hay que meter la carpeta /bie en el PATH:
 # export PATH=$PATH:/usr/local/mysql/bin
+#
+# http://stackoverflow.com/questions/4559699/python-mysqldb-and-library-not-loaded-libmysqlclient-16-dylib
+# sudo ln -s /usr/local/mysql/lib/libmysqlclient.18.dylib /usr/lib/libmysqlclient.18.dylib
 MySQL-python==1.2.5
 
 Pillow==2.5.1

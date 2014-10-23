@@ -106,10 +106,13 @@ class TwitterBot(models.Model):
         return not self.has_to_set_tw_avatar() and not self.has_to_set_tw_bio()
 
     def mark_as_suspended(self):
+        """Se marca como suspendido y se eliminan todos los tweets en la cola pendientes de enviar por ese robot"""
+        from project.models import Tweet
         self.is_suspended = True
         self.date_suspended = datetime.datetime.now()
         self.save()
-        settings.LOGGER.warning('User %s has marked as suspended on twitter' % self.username)
+        Tweet.objects.filter(sent_ok=False, bot_used=self).delete()
+        settings.LOGGER.warning('User %s has marked as suspended on twitter. Tweet to send queue cleaned for him' % self.username)
 
     def unmark_as_suspended(self):
         self.is_suspended = False
@@ -318,46 +321,51 @@ class TwitterBot(models.Model):
         else:
             return False
 
-    def make_tweet_to_send(self):
-        """
-        entre los proyectos marcados como activos, solo escogemos los usuarios de
-        las plataformas disponibles para el proyecto. Por ejemplo, si hay
-        twitterusers de ios y no tenemos enlaces de ios, que no se envie a estos
-
-        iterando por las plataformas de un proyecto de momento no hay prioridad
-        y la primera será la primera que se le añada
-        """
+    def make_tweet_to_send(self, retry_counter=0):
+        """Crea un tweet pendiente de enviar"""
         from project.models import Project, Tweet
 
-        for project in Project.objects.filter(is_running=True):
-            # saco alguno que no fue mencionado por el bot
-            unmentioned_by_bot = project.get_unmentioned_users()\
-                .exclude(mentions__bot_used=self)
-            if unmentioned_by_bot.exists():
-                tweet_to_send = Tweet(
-                    project=project,
-                    tweet_msg=project.tweet_msgs.order_by('?')[0],
-                    link=project.links.get(is_active=True),
-                    bot_used=self,
-                    sending=True,
-                )
-                tweet_to_send.save()
+        max_queue_length = TwitterBot.objects.get_all_twitteable_bots().count() * 2
+        # free_slot_in_queue = Tweet.objects.get_queue_to_send().count() < settings.MAX_PENDING_TWEETS
+        free_slot_in_queue = Tweet.objects.get_queue_to_send().count() < max_queue_length
 
-                # añadimos usuarios a mencionar, los primeros en añadirse serán los últimos que hayan tuiteado
-                try:
-                    unmentioned_selected = unmentioned_by_bot.order_by('-last_tweet_date')[:settings.MAX_MENTIONS_PER_TWEET]
-                except Exception as e:
-                    unmentioned_selected = unmentioned_by_bot.all()
+        if free_slot_in_queue:
+            for project in Project.objects.filter(is_running=True):
+                # saco alguno que no fue mencionado por el bot
+                unmentioned_by_bot = project.get_unmentioned_users()\
+                    .exclude(mentions__bot_used=self)
+                if unmentioned_by_bot.exists():
+                    tweet_to_send = Tweet(
+                        project=project,
+                        tweet_msg=project.tweet_msgs.order_by('?')[0],
+                        link=project.links.get(is_active=True),
+                        bot_used=self,
+                    )
+                    tweet_to_send.save()
 
-                for unmentioned in unmentioned_selected:
-                    if tweet_to_send.length() + len(unmentioned.username) + 2 <= 140:
-                        tweet_to_send.mentioned_users.add(unmentioned)
-                    else:
-                        break
+                    # añadimos usuarios a mencionar, los primeros en añadirse serán los últimos que hayan tuiteado
+                    try:
+                        unmentioned_selected = unmentioned_by_bot.order_by('-last_tweet_date')[:settings.MAX_MENTIONS_PER_TWEET]
+                    except Exception as e:
+                        unmentioned_selected = unmentioned_by_bot.all()
 
-                return tweet_to_send
+                    for unmentioned in unmentioned_selected:
+                        if tweet_to_send.length() + len(unmentioned.username) + 2 <= 140:
+                            tweet_to_send.mentioned_users.add(unmentioned)
+                        else:
+                            break
 
-        return None
+                    settings.LOGGER.info('Queued (project: %s, bot: %s) >> %s' %
+                                         (project.__unicode__(), self.__unicode__(), tweet_to_send.compose()))
+                    break
+                else:
+                    settings.LOGGER.warning('Bot %s has not more users to mention for project %s' %
+                                            (self.username, project.name))
+        else:
+            settings.LOGGER.info('Reached max queue size of %i tweets pending to send. Waiting %i seconds to retry (%i)..' %
+                                 (settings.PENDING_TWEETS_QUEUE_SIZE, settings.TIME_WAITING_FREE_QUEUE, retry_counter))
+            time.sleep(settings.TIME_WAITING_FREE_QUEUE)
+            self.make_tweet_to_send(retry_counter=retry_counter + 1)
 
     def send_tweet(self, tweet):
         try:

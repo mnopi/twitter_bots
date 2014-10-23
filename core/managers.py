@@ -9,7 +9,7 @@ import datetime
 
 from django.db import models, connection
 import pytz
-from project.exceptions import BotsWithTweetNotFoundException
+from project.exceptions import TwitteableBotsNotFound
 from scrapper.exceptions import BotDetectedAsSpammerException, NoMoreAvaiableProxiesForCreatingBots
 from scrapper.thread_pool import ThreadPool
 from twitter_bots import settings
@@ -90,7 +90,7 @@ class TwitterBotManager(models.Manager):
             if tweet_to_send:
                 return bot, tweet_to_send
 
-        raise BotsWithTweetNotFoundException()
+        raise TwitteableBotsNotFound()
 
     def get_all_active_bots(self):
         """Escoge todos los bots que se puedan usar, incluyendo completos e incompletos,
@@ -118,36 +118,38 @@ class TwitterBotManager(models.Manager):
 
     def get_all_twitteable_bots(self):
         """
-        Entre los completamente creados coge:
-            - los que no tengan asociados tweets que se estén enviando
-            - los que no hayan tuiteado por última vez a partir del intervalo aleatorio TIME_BETWEEN_TWEETS
-            - los que no sean extractores, para evitar que twitter detecte actividad múltiple desde misma cuenta
+        Entre los completamente creados coge los que no sean extractores, para evitar que twitter detecte
+        actividad múltiple desde misma cuenta
         """
-        now_utc = datetime.datetime.now().replace(tzinfo=pytz.utc)
-        random_seconds = random.randint(60*settings.TIME_BETWEEN_TWEETS[0], 60*settings.TIME_BETWEEN_TWEETS[1])  # entre 2 y 7 minutos por tweet
-        date_sent_limit = now_utc - datetime.timedelta(seconds=random_seconds)
+        return self.get_completed_bots().filter(extractor=None)
 
-        return self.get_completed_bots()\
-            .exclude(tweets__sending=True)\
-            .exclude(tweets__date_sent__gt=date_sent_limit)\
-            .filter(extractor=None)
-
-    def send_tweet(self):
-        """Escoge un robot cualquiera de los disponibles para enviar un tweet"""
-        # para lo del multiprocess
-        # connection.close()
+    def send_tweet_from_pending_queue(self):
+        """Escoge un tweet pendiente de enviar cuyo robot no esté enviando actualmente"""
+        # mutex.acquire()
+        # print '%s executing' % get_thread_name()
+        # mutex.release()
+        # raise Exception()
+        from project.models import Tweet
         try:
-            mutex.acquire()
-            bot, tweet = self.get_one_bot_with_tweet_to_send()
-        finally:
-            mutex.release()
+            connection.close()
+            try:
+                mutex.acquire()
 
-        bot.send_tweet(tweet)
+                tweet = Tweet.objects.get_tweet_ready_to_send()
+                tweet.sending = True
+                tweet.save()
+            finally:
+                mutex.release()
 
-    def send_tweets(self):
+            tweet.send()
+        except Exception as e:
+            raise e
+
+    def send_pending_tweets(self):
         pool = ThreadPool(settings.MAX_THREADS_SENDING_TWEETS)
-        for task_num in range(settings.TASKS_PER_EXECUTION):
-            pool.add_task(self.send_tweet)
+
+        for task_num in range(settings.PENDING_TWEETS_QUEUE_SIZE):
+            pool.add_task(self.send_tweet_from_pending_queue)
         pool.wait_completion()
 
         # manager = multiprocessing.Manager()

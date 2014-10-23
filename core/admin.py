@@ -57,8 +57,8 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'real_name',
         'username',
         'email',
-        'real_name',
         'proxy__proxy',
+        'proxy__proxy_provider',
     )
     list_filter = (
         ValidBotListFilter,
@@ -213,7 +213,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
             try:
                 tweet = bot.make_tweet_to_send()
                 if tweet:
-                    bot.send_tweet(tweet)
+                    bot.send_tweet_from_pending_queue(tweet)
                 self.message_user(request, "%s sent tweet ok" % bot.username)
             except Exception:
                 self.message_user(request, "Error sending tweet from bot %s" % bot.username, level=messages.ERROR)
@@ -222,13 +222,13 @@ class TwitterBotAdmin(admin.ModelAdmin):
     send_tweet_from_selected_bot.short_description = "Send tweet from selected bot"
 
     def send_tweet_from_pendings(self, request, queryset):
-        TwitterBot.objects.send_tweet()
+        TwitterBot.objects.send_tweet_from_pending_queue()
         self.message_user(request, "Tweet sent sucessfully")
     send_tweet_from_pendings.short_description = "Send pending tweet"
 
     def send_pending_tweets(self, request, queryset):
         try:
-            TwitterBot.objects.send_tweets()
+            TwitterBot.objects.send_pending_tweets()
             self.message_user(request, "All pending tweets sent sucessfully")
         except Exception:
             msg = "There were errors sending pending tweets"

@@ -2,8 +2,13 @@
 
 import time
 import random
+import datetime
 from django.db.models import Count
-from project.exceptions import RateLimitedException
+import pytz
+from core.models import TwitterBot
+from project.exceptions import RateLimitedException, AllFollowersExtracted, TwitteableBotsNotFound, AllBotsInUse, \
+    NoTweetsOnQueue
+from scrapper.utils import get_thread_name
 from twitter_bots import settings
 from django.db import models
 
@@ -12,6 +17,9 @@ class TargetUserManager(models.Manager):
     def create(self, **kwargs):
         target_user_created = super(TargetUserManager, self).create(**kwargs)
         target_user_created.complete_creation()
+
+    def get_available_to_extract(self):
+        return self.filter(is_active=True, projects__is_running=True).exclude(next_cursor=None)
 
 
 class TweetManager(models.Manager):
@@ -25,11 +33,50 @@ class TweetManager(models.Manager):
         self.filter(sent_ok=False).delete()
         settings.LOGGER.info('Deleted previous sending tweets')
 
-    def create_tweet(self, platform=None):
-        "Crea un tweet para un proyecto aleatorio entre los marcados como running"
-        from .models import Project
-        project = Project.objects.get_pending_to_process().order_by('?')[0]
-        project.create_tweet()
+    def put_sending_to_not_sending(self):
+        self.filter(sending=True).update(sending=False)
+        settings.LOGGER.info('All previous sending tweets were set to not sending')
+
+    def get_queue_to_send(self):
+        return self.filter(sending=False, sent_ok=False)
+
+    def get_tweet_ready_to_send(self):
+        """Saca de la cola los tweets que se puedan enviar
+            -   los que su robot no esté actualmente enviando tweet
+            -   los que su robot haya tuiteado por última hace x minutos
+
+        Se queda esperando a que
+        """
+        try:
+            now_utc = datetime.datetime.now().replace(tzinfo=pytz.utc)
+            random_seconds = random.randint(60*settings.TIME_BETWEEN_TWEETS[0], 60*settings.TIME_BETWEEN_TWEETS[1])  # entre 2 y 7 minutos por tweet
+            min_datetime_to_tweet = now_utc - datetime.timedelta(seconds=random_seconds)
+
+            pending_tweets = self.get_queue_to_send()
+
+            if pending_tweets:
+                for tweet in pending_tweets:
+                    if not tweet.has_bot_sending_another():
+                        last_tweet_sent = self.filter(bot_used=tweet.bot_used).latest('date_sent')
+                        if not last_tweet_sent or not last_tweet_sent.date_sent or \
+                            last_tweet_sent.date_sent <= min_datetime_to_tweet:
+                            return tweet
+
+                raise AllBotsInUse
+            else:
+                raise NoTweetsOnQueue
+        except Exception as e:
+            settings.LOGGER.exception('%s Error getting tweet available to send' % get_thread_name())
+            raise e
+
+    def create_tweets_to_send(self):
+        twitteable_bots = TwitterBot.objects.get_all_twitteable_bots().all()
+
+        if twitteable_bots:
+            for bot in twitteable_bots:
+                bot.make_tweet_to_send()
+        else:
+            raise TwitteableBotsNotFound
 
 
 class ProjectManager(models.Manager):
@@ -74,6 +121,8 @@ class ExtractorManager(models.Manager):
             try:
                 self.log_extractor_being_used(extractor, mode=Extractor.FOLLOWER_MODE)
                 extractor.extract_followers_from_all_target_users()
+            except AllFollowersExtracted:
+                break
             except RateLimitedException:
                 continue
 
