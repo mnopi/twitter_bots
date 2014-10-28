@@ -169,3 +169,30 @@ class QuoteGenerator(object):
 
 def get_thread_name():
     return '###%s### - ' % threading.current_thread().name
+
+
+def compare_datetimes(d1, d2):
+    # limpiamos ambas fechas a naive por si están en UTC, etc
+    d1 = d1.replace(tzinfo=None)
+    d2 = d2.replace(tzinfo=None)
+    if d1 > d2:
+        return 1
+    elif d1 == d2:
+        return 0
+    elif d1 < d2:
+        return -1
+
+
+def is_in_datetime_ago_interval(date, datetime_ago):
+    """
+    :param date: fecha a comprobar que sea igual o más nueva que datetime_ago
+    :param datetime_ago: fecha más vieja para el rango
+    :return: True si la fecha está dentro del rango, es decir, si no es menor que la más vieja
+    """
+    return not compare_datetimes(date, datetime_ago) == -1
+
+
+def is_in_days_ago_interval(date, days_ago):
+    now = datetime.datetime.utcnow()
+    oldest_date = now - datetime.timedelta(days=days_ago)
+    return is_in_datetime_ago_interval(date, oldest_date)

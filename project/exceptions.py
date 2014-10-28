@@ -20,6 +20,12 @@ class AllFollowersExtracted(Exception):
         time.sleep(20)
 
 
+class AllHashtagsExtracted(Exception):
+    def __init__(self):
+        settings.LOGGER.warning('All hashtags were extracted from all active hashtags in all active projects')
+        time.sleep(20)
+
+
 class TwitteableBotsNotFound(Exception):
     def __init__(self):
         settings.LOGGER.warning('%s Bots not found to mention any user' % get_thread_name())

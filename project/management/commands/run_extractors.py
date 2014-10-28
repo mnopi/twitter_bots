@@ -21,10 +21,11 @@ class Command(BaseCommand):
         settings.LOGGER.info('-- INITIALIZED run_extractors --')
 
         try:
-            threads = [
-                threading.Thread(target=Extractor.objects.extract_followers),
-                threading.Thread(target=Extractor.objects.extract_hashtags),
-            ]
+            threads = []
+            if settings.EXTRACT_FOLLOWERS:
+                threads.append(threading.Thread(target=Extractor.objects.extract_followers))
+            if settings.EXTRACT_HASHTAGS:
+                threads.append(threading.Thread(target=Extractor.objects.extract_hashtags))
             for th in threads:
                 th.start()
 

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import os
 
+PROJECT_ROOT = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+
 MNOPI_PROXY = "54.197.231.98:8000"
 
 TOR_CTRL_PORT = 9051
@@ -31,6 +33,13 @@ COMPATIBLE_EMAIL_ACCOUNTS = [
 ]
 
 
+#
+# SCRAPPER SETTINGS
+USE_PROXY = True
+PAGE_LOAD_TIMEOUT = 300  # segundos que se espera a la respuesta al pedir una URL
+RANDOM_OFFSETS_ON_EL_CLICK = False  # activar offset al hacer click con el ratón sobre un elemento dado
+TYPING_SPEED = (20, 40)  # en ms, el tiempo que pasa entre que se presiona/levanta una tecla
+WEBDRIVER = 'PH'
 ### TOR MODE && TEST MODE !!
 ###############
 TOR_MODE = False
@@ -40,49 +49,67 @@ FORCE_FIREFOX = False
 FAST_MODE = False  # para saltarse los delays en testeo
 TAKE_SCREENSHOTS = True
 
+#
+# EXTRACTORS
+## followers
+EXTRACT_FOLLOWERS = True
+MAX_DAYS_SINCE_REGISTERED_ON_TWITTER_WITHOUT_TWEETS = 50  # máximo de días desde que el usuario se registró y todavía no envió ningún tweet
+MAX_DAYS_SINCE_LAST_TWEET = 90  # máximo de días desde que el usuario twiteó por última vez
+MAX_PAGE_BREAKS_EXTRACTING_FOLLOWERS = 3  # a los x pagebreaks marca el target_user como extraído y pasa al siguiente
+## hashtags
+EXTRACT_HASHTAGS = False
+MAX_DAYS_FOR_OLDER_TWEET_IN_HASHTAGS = 5
+MAX_USER_COUNT_FOR_HASHTAGS = 5000
 
+#
+# TWEET SENDER
+MAX_THREADS_SENDING_TWEETS = 70  # máximo de hilos para enviar tweets
+PENDING_TWEETS_QUEUE_SIZE = MAX_THREADS_SENDING_TWEETS * 10  # tamaño máximo de la cola para enviar tweets
+TIME_WAITING_FREE_QUEUE = 5  # cada x segundos se comprueba si hay espacio en la cola para crear nuevos tweets
+TIME_WAITING_AVAIABLE_BOT_TO_TWEET = 5  # cada x segundos el enviador de tweets comprueba que haya bots disponibles para enviarlos
+MAX_TWT_BOTS_PER_PROXY_FOR_LOGIN = 12  # máximo de robots que se pueden loguear a la vez desde una misma ip
+TIME_BETWEEN_TWEETS = (2, 7)  # el bot twitea cada x segundos escogidos aleatoriamente en el intervalo de minutos dado
+MAX_MENTIONS_PER_TWEET = 1
+
+#
+# BOT CREATOR
+MAX_THREADS_CREATING_BOTS = 50  # máximo de hilos para crear bots
+MAX_TWT_BOTS_PER_PROXY_FOR_REGISTRATIONS = 6  # máximo de robots que pueden haber creados a la vez desde misma ip
+MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY = 5  # mínimo de días que tienen que pasar para registrar 2 robots desde misma ip
+BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha de nacimiento del bot
+EMAIL_ACCOUNT_TYPE = 'hotmail.com'
 REGISTER_EMAIL = True  # para activar o no el registro del email
 TW_CONFIRM_EMAIL = True  # para activar o no el leer el email de confirmación de twitter
 TW_SET_AVATAR = True
 TW_SET_BIO = True
-
 # si no activamos registro de email evidentemente no haremos la confirmación
 if not REGISTER_EMAIL:
     TW_CONFIRM_EMAIL = False
 
-MAX_THREADS_SENDING_TWEETS = 70  # máximo de hilos para enviar tweets
-MAX_THREADS_EXTRACTING_FOLLOWERS = 3
-MAX_THREADS_CREATING_BOTS = 50  # máximo de hilos para crear bots
+#
+# BOT CREATION FINISHER
 MAX_THREADS_COMPLETING_PENDANT_BOTS = 4  # máximo de hilos para restaurar creación de robots todavía a medias
-PENDING_TWEETS_QUEUE_SIZE = MAX_THREADS_SENDING_TWEETS * 10  # tamaño máximo de la cola para enviar tweets
 
-TIME_WAITING_FREE_QUEUE = 5  # cada x segundos se comprueba si hay espacio en la cola para crear nuevos tweets
-TIME_WAITING_AVAIABLE_BOT_TO_TWEET = 5  # cada x segundos el enviador de tweets comprueba que haya bots disponibles para enviarlos
 
-USE_PROXY = True
+#
+# PATHS
+WEBDRIVERS_PATH = os.path.join(PROJECT_ROOT, 'scrapper', 'webdrivers')
 
-BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha de nacimiento del bot
+PHANTOMJS_PATH = os.path.join(WEBDRIVERS_PATH, 'phantomjs')
+PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_mac_bin')
 
-#driver = webdriver.PhantomJS(CHROMEDRIVER_PATH)
-#driver = webdriver.Chrome(CHROMEDRIVER_PATH)
+SCREENSHOTS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'screenshots')
+AVATARS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'avatars')
+PHANTOMJS_COOKIES_DIR = os.path.join(PHANTOMJS_PATH, 'cookies')
+PROXIES_DIR = os.path.join(PROJECT_ROOT, 'core', 'proxies')
+# by default in /Users/<User>/Library/Application Support/Ofi Labs/PhantomJS
+# PHANTOMJS_LOCALSTORAGES_PATH = os.path.join(PHANTOMJS_PATH, 'localstorages')
 
-MAX_TWT_BOTS_PER_PROXY_FOR_REGISTRATIONS = 6  # máximo de robots que pueden haber creados a la vez desde misma ip
-MAX_TWT_BOTS_PER_PROXY_FOR_LOGIN = 12  # máximo de robots que se pueden loguear a la vez desde una misma ip
-
-# mínimo de días que tienen que pasar para que un bot se registre después de el anterior usando el mismo proxy
-MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY = 5
-
-PAGE_LOAD_TIMEOUT = 300
-EMAIL_ACCOUNT_TYPE = 'hotmail.com'
-
-RANDOM_OFFSETS_ON_EL_CLICK = False  # activar offset al hacer click con el ratón sobre un elemento dado
-TYPING_SPEED = (20, 40)  # en ms, el tiempo que pasa entre que se presiona/levanta una tecla
 
 # FI (firefox)
 # CH (chrome)
 # PH (phantomjs)
 # WEBDRIVER = 'FI'
-WEBDRIVER = 'PH'
 
 if TOR_MODE:
     FAST_MODE = True

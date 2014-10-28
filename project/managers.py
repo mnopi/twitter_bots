@@ -5,6 +5,7 @@ import random
 import datetime
 from django.db.models import Count
 import pytz
+from tweepy import TweepError
 from core.models import TwitterBot
 from project.exceptions import RateLimitedException, AllFollowersExtracted, TwitteableBotsNotFound, AllBotsInUse, \
     NoTweetsOnQueue
@@ -121,6 +122,12 @@ class ExtractorManager(models.Manager):
             try:
                 self.log_extractor_being_used(extractor, mode=Extractor.FOLLOWER_MODE)
                 extractor.extract_followers_from_all_target_users()
+            except TweepError as e:
+                if 'Cannot connect to proxy' in e.reason:
+                    settings.LOGGER.exception('')
+                    continue
+                else:
+                    raise e
             except AllFollowersExtracted:
                 break
             except RateLimitedException:
@@ -134,6 +141,12 @@ class ExtractorManager(models.Manager):
             try:
                 self.log_extractor_being_used(extractor, mode=Extractor.HASHTAG_MODE)
                 extractor.extract_twitter_users_from_all_hashtags()
+            except TweepError as e:
+                if 'Cannot connect to proxy' in e.reason:
+                    settings.LOGGER.exception('')
+                    continue
+                else:
+                    raise e
             except RateLimitedException:
                 continue
 

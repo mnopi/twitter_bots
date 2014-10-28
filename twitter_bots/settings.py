@@ -59,13 +59,13 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
         "NAME": "twitter_bots",
-        "USER": "root",
-        "PASSWORD": "",
-        #"HOST": "192.168.1.115",
+        "USER": "mnopi",
+        "PASSWORD": "1aragon1",
+        "HOST": "192.168.1.115",
+        # "HOST": "88.26.212.82",
         # "PASSWORD": "",
-         "HOST": "localhost",
+        #  "HOST": "localhost",
         "PORT": "3306",
-
     }
 }
 
@@ -145,32 +145,6 @@ PROXY_PROVIDERS_ACCOUNTS = {
 
 from scrapper.settings import *
 
-WEBDRIVERS_PATH = os.path.join(PROJECT_ROOT, 'scrapper', 'webdrivers')
-
-# phantomjs
-PHANTOMJS_PATH = os.path.join(WEBDRIVERS_PATH, 'phantomjs')
-PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_mac_bin')
-
-SCREENSHOTS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'screenshots')
-AVATARS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'avatars')
-PHANTOMJS_COOKIES_DIR = os.path.join(PHANTOMJS_PATH, 'cookies')
-PROXIES_DIR = os.path.join(PROJECT_ROOT, 'core', 'proxies')
-LOGS_DIR = os.path.join(PROJECT_ROOT, 'logs')
-SUPERVISOR_LOGS_DIR = os.path.join(LOGS_DIR, 'supervisor')
-
-
-# by default in /Users/<User>/Library/Application Support/Ofi Labs/PhantomJS
-# PHANTOMJS_LOCALSTORAGES_PATH = os.path.join(PHANTOMJS_PATH, 'localstorages')
-
-# intervalo de twiteo para cada bot en minutos
-# TIME_BETWEEN_TWEETS = (1000, 2000)
-TIME_BETWEEN_TWEETS = (2, 7)
-MAX_MENTIONS_PER_TWEET = 2
-TASKS_PER_EXECUTION = 200
-
-MAX_PAGE_BREAKS_EXTRACTING_FOLLOWERS = 3
-
-
 def set_logger(logger_name):
     # import copy
     # custom_logger = copy.deepcopy(LOGGING)
@@ -184,3 +158,5 @@ def set_logger(logger_name):
     logging.config.dictConfig(LOGGING)
     LOGGER = logging.getLogger(logger_name)
 
+LOGS_DIR = os.path.join(PROJECT_ROOT, 'logs')
+SUPERVISOR_LOGS_DIR = os.path.join(LOGS_DIR, 'supervisor')
