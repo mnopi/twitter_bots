@@ -67,8 +67,11 @@ class TweetManager(models.Manager):
             else:
                 raise NoTweetsOnQueue
         except Exception as e:
-            settings.LOGGER.exception('%s Error getting tweet available to send' % get_thread_name())
-            raise e
+            if type(e) is AllBotsInUse or type(e) is NoTweetsOnQueue:
+                self.get_tweet_ready_to_send()
+            else:
+                settings.LOGGER.exception('%s Error getting tweet available to send' % get_thread_name())
+                raise e
 
     def create_tweets_to_send(self):
         twitteable_bots = TwitterBot.objects.get_all_twitteable_bots().all()

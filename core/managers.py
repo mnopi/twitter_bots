@@ -9,7 +9,7 @@ import datetime
 
 from django.db import models, connection
 import pytz
-from project.exceptions import TwitteableBotsNotFound
+from project.exceptions import TwitteableBotsNotFound, AllBotsInUse, NoTweetsOnQueue
 from scrapper.exceptions import BotDetectedAsSpammerException, NoMoreAvaiableProxiesForCreatingBots
 from scrapper.thread_pool import ThreadPool
 from twitter_bots import settings
@@ -138,16 +138,18 @@ class TwitterBotManager(models.Manager):
         from project.models import Tweet
         try:
             connection.close()
+            tweet_to_send = None
             try:
                 mutex.acquire()
 
-                tweet = Tweet.objects.get_tweet_ready_to_send()
-                tweet.sending = True
-                tweet.save()
+                tweet_to_send = Tweet.objects.get_tweet_ready_to_send()
+                tweet_to_send.sending = True
+                tweet_to_send.save()
             finally:
                 mutex.release()
 
-            tweet.send()
+            if tweet_to_send:
+                tweet_to_send.send()
         except Exception as e:
             raise e
 

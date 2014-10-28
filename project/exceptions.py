@@ -34,9 +34,13 @@ class TwitteableBotsNotFound(Exception):
 
 class AllBotsInUse(Exception):
     def __init__(self):
-        settings.LOGGER.warning('%s All bots in use' % get_thread_name())
+        settings.LOGGER.warning('%s All bots in use. Retrying in %i seconds' %
+                                (get_thread_name(), settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET))
+        time.sleep(settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET)
 
 
 class NoTweetsOnQueue(Exception):
     def __init__(self):
-        settings.LOGGER.warning('%s No tweets on queue' % get_thread_name())
+        settings.LOGGER.warning('%s No tweets on queue. Retrying in %s seconds' %
+                                (get_thread_name(), settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET))
+        time.sleep(settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET)
