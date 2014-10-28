@@ -64,8 +64,8 @@ MAX_USER_COUNT_FOR_HASHTAGS = 5000
 #
 # TWEET SENDER
 MAX_THREADS_SENDING_TWEETS = 70  # máximo de hilos para enviar tweets
-PENDING_TWEETS_QUEUE_SIZE = MAX_THREADS_SENDING_TWEETS * 10  # tamaño máximo de la cola para enviar tweets
-TIME_WAITING_FREE_QUEUE = 5  # cada x segundos se comprueba si hay espacio en la cola para crear nuevos tweets
+TOTAL_TASKS_SENDING_TWEETS = MAX_THREADS_SENDING_TWEETS * 10  # número total de tareas para las hebras por cada vez que se ejecuta el proceso de enviar tweets
+TIME_WAITING_FREE_QUEUE = 20  # cada x segundos se comprueba si hay espacio en la cola para crear nuevos tweets
 TIME_WAITING_AVAIABLE_BOT_TO_TWEET = 5  # cada x segundos el enviador de tweets comprueba que haya bots disponibles para enviarlos
 MAX_TWT_BOTS_PER_PROXY_FOR_LOGIN = 12  # máximo de robots que se pueden loguear a la vez desde una misma ip
 TIME_BETWEEN_TWEETS = (2, 7)  # el bot twitea cada x segundos escogidos aleatoriamente en el intervalo de minutos dado

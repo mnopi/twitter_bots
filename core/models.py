@@ -326,9 +326,10 @@ class TwitterBot(models.Model):
         """Crea un tweet con mención pendiente de enviar"""
         from project.models import Project, Tweet
 
-        max_queue_length = TwitterBot.objects.get_all_twitteable_bots().count() * 2
-        free_slot_in_queue = Tweet.objects.get_queue_to_send().count() < max_queue_length
+        # tamaño de la cola donde se meten los tweets pendientes de enviar
+        tweets_to_send_queue_length = TwitterBot.objects.get_all_twitteable_bots().count() * 2
 
+        free_slot_in_queue = Tweet.objects.get_queued_to_send().count() < tweets_to_send_queue_length
         if free_slot_in_queue:
             for project in Project.objects.filter(is_running=True):
                 # saco alguno que no fue mencionado por el bot
@@ -363,7 +364,7 @@ class TwitterBot(models.Model):
                                             (self.username, project.name))
         else:
             settings.LOGGER.info('Reached max queue size of %i tweets pending to send. Waiting %i seconds to retry (%i)..' %
-                                 (settings.PENDING_TWEETS_QUEUE_SIZE, settings.TIME_WAITING_FREE_QUEUE, retry_counter))
+                                 (tweets_to_send_queue_length, settings.TIME_WAITING_FREE_QUEUE, retry_counter))
             time.sleep(settings.TIME_WAITING_FREE_QUEUE)
             self.make_mention_tweet_to_send(retry_counter=retry_counter + 1)
 

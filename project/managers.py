@@ -38,7 +38,7 @@ class TweetManager(models.Manager):
         self.filter(sending=True).update(sending=False)
         settings.LOGGER.info('All previous sending tweets were set to not sending')
 
-    def get_queue_to_send(self):
+    def get_queued_to_send(self):
         return self.filter(sending=False, sent_ok=False)
 
     def get_tweet_ready_to_send(self):
@@ -53,7 +53,7 @@ class TweetManager(models.Manager):
             random_seconds = random.randint(60*settings.TIME_BETWEEN_TWEETS[0], 60*settings.TIME_BETWEEN_TWEETS[1])  # entre 2 y 7 minutos por tweet
             min_datetime_to_tweet = now_utc - datetime.timedelta(seconds=random_seconds)
 
-            pending_tweets = self.get_queue_to_send()
+            pending_tweets = self.get_queued_to_send()
 
             if pending_tweets:
                 for tweet in pending_tweets:
