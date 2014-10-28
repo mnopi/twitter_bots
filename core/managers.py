@@ -154,7 +154,7 @@ class TwitterBotManager(models.Manager):
     def send_pending_tweets(self):
         pool = ThreadPool(settings.MAX_THREADS_SENDING_TWEETS)
 
-        for task_num in range(settings.PENDING_TWEETS_QUEUE_SIZE):
+        for task_num in range(settings.TOTAL_TASKS_SENDING_TWEETS):
             pool.add_task(self.send_tweet_from_pending_queue)
         pool.wait_completion()
 
