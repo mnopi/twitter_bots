@@ -14,14 +14,14 @@ DEATHBYCAPTCHA_USER = 'deathbychucknorris'
 DEATHBYCAPTCHA_PASSWORD = 'eS9WsRzFv8'
 
 URLS = {
-    'twitter_reg': 'https://twitter.com/signup',
-    'twitter_login': 'https://twitter.com',
+    'twitter_reg': 'https://twitter.com/signup/',
+    'twitter_login': 'https://twitter.com/',
     'hushmail_reg': 'https://www.hushmail.com/signup/',
     'hushmail_login': 'https://www.hushmail.com/preview/hushmail/',
-    'gmail_reg': 'https://accounts.google.com/SignUp',
+    'gmail_reg': 'https://accounts.google.com/SignUp/',
     'gmail_login': 'https://www.hushmail.com/preview/hushmail/',
     'hotmail_reg': 'https://signup.live.com/',
-    'hotmail_login': 'https://outlook.com',
+    'hotmail_login': 'https://outlook.com/',
 }
 
 COMPATIBLE_EMAIL_ACCOUNTS = [
@@ -53,7 +53,7 @@ if not REGISTER_EMAIL:
 MAX_THREADS_SENDING_TWEETS = 70  # máximo de hilos para enviar tweets
 MAX_THREADS_EXTRACTING_FOLLOWERS = 3
 MAX_THREADS_CREATING_BOTS = 50  # máximo de hilos para crear bots
-MAX_THREADS_COMPLETING_PENDANT_BOTS = 50  # máximo de hilos para restaurar creación de robots todavía a medias
+MAX_THREADS_COMPLETING_PENDANT_BOTS = 4  # máximo de hilos para restaurar creación de robots todavía a medias
 PENDING_TWEETS_QUEUE_SIZE = MAX_THREADS_SENDING_TWEETS * 10  # tamaño máximo de la cola para enviar tweets
 
 TIME_WAITING_FREE_QUEUE = 5  # cada x segundos se comprueba si hay espacio en la cola para crear nuevos tweets

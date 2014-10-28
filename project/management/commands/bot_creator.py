@@ -18,7 +18,10 @@ class Command(BaseCommand):
             if args and '1' in args:
                 TwitterBot.objects.create_bot()
             else:
-                TwitterBot.objects.create_bots()
+                if args:
+                    TwitterBot.objects.create_bots(num_bots=int(args[0]))
+                else:
+                    TwitterBot.objects.create_bots()
         except Exception:
             raise FatalError()
 

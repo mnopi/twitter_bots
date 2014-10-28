@@ -74,7 +74,7 @@ class TweetManager(models.Manager):
 
         if twitteable_bots:
             for bot in twitteable_bots:
-                bot.make_tweet_to_send()
+                bot.make_mention_tweet_to_send()
         else:
             raise TwitteableBotsNotFound
 

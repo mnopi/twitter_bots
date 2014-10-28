@@ -1,4 +1,3 @@
-from daterange_filter.filter import DateRangeFilter, DateTimeRangeFilter
 from django.contrib import admin
 from project.models import *
 from django.contrib import messages

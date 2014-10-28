@@ -2,6 +2,7 @@
 import threading
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+import feedparser
 import pytz
 from scrapper.exceptions import TwitterEmailNotFound
 from scrapper.logger import get_browser_instance_id
@@ -88,7 +89,7 @@ class TwitterBot(models.Model):
         return not self.twitter_confirmed_email_ok
 
     def has_to_complete_tw_profile(self):
-        return not self.is_suspended and not self.has_tw_profile_completed()
+        return not self.has_tw_profile_completed()
 
     def has_to_set_tw_avatar(self):
         return not self.twitter_avatar_completed and settings.TW_SET_AVATAR
@@ -118,7 +119,7 @@ class TwitterBot(models.Model):
         self.is_suspended = False
         self.date_suspended = None
         self.save()
-        settings.LOGGER.warning('User %s has lift suspension on his twitter account' % self.username)
+        settings.LOGGER.info('User %s has lift suspension on his twitter account' % self.username)
 
     def mark_as_not_twitter_registered_ok(self):
         self.twitter_registered_ok = False
@@ -321,12 +322,11 @@ class TwitterBot(models.Model):
         else:
             return False
 
-    def make_tweet_to_send(self, retry_counter=0):
-        """Crea un tweet pendiente de enviar"""
+    def make_mention_tweet_to_send(self, retry_counter=0):
+        """Crea un tweet con mención pendiente de enviar"""
         from project.models import Project, Tweet
 
         max_queue_length = TwitterBot.objects.get_all_twitteable_bots().count() * 2
-        # free_slot_in_queue = Tweet.objects.get_queue_to_send().count() < settings.MAX_PENDING_TWEETS
         free_slot_in_queue = Tweet.objects.get_queue_to_send().count() < max_queue_length
 
         if free_slot_in_queue:
@@ -365,7 +365,29 @@ class TwitterBot(models.Model):
             settings.LOGGER.info('Reached max queue size of %i tweets pending to send. Waiting %i seconds to retry (%i)..' %
                                  (settings.PENDING_TWEETS_QUEUE_SIZE, settings.TIME_WAITING_FREE_QUEUE, retry_counter))
             time.sleep(settings.TIME_WAITING_FREE_QUEUE)
-            self.make_tweet_to_send(retry_counter=retry_counter + 1)
+            self.make_mention_tweet_to_send(retry_counter=retry_counter + 1)
+
+    def make_feed_tweet_to_send(self):
+        "Crea un tweet a partir de algún feed pendiente de enviar"
+        from project.models import Project, Tweet, TweetMsg, Link
+
+        feed = feedparser.parse('http://feeds.feedburner.com/cuantogato?format=xml')
+        entry = random.choice(feed['entries'])
+
+        project = Project.objects.first()
+        tweet_msg = TweetMsg.objects.create(text=entry['title'])
+        link = Link.objects.create(url=entry['feedburner_origlink'])
+
+        tweet_to_send = Tweet.objects.create(
+            project=project,
+            tweet_msg=tweet_msg,
+            link=link,
+            bot_used=self,
+        )
+
+        settings.LOGGER.info('Queued (project: %s, bot: %s) >> %s' %
+                             (project.__unicode__(), self.__unicode__(), tweet_to_send.compose()))
+
 
     def send_tweet(self, tweet):
         try:

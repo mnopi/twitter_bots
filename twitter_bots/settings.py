@@ -59,8 +59,8 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
         "NAME": "twitter_bots",
-        "USER": "mnopi",
-        "PASSWORD": "1aragon1",
+        "USER": "root",
+        "PASSWORD": "",
         #"HOST": "192.168.1.115",
         # "PASSWORD": "",
          "HOST": "localhost",
@@ -149,7 +149,7 @@ WEBDRIVERS_PATH = os.path.join(PROJECT_ROOT, 'scrapper', 'webdrivers')
 
 # phantomjs
 PHANTOMJS_PATH = os.path.join(WEBDRIVERS_PATH, 'phantomjs')
-PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_linux_bin')
+PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_mac_bin')
 
 SCREENSHOTS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'screenshots')
 AVATARS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'avatars')

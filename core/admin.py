@@ -85,6 +85,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'create_bot_from_fixed_ip',
         'send_pending_tweets',
         'send_pending_tweet_from_selected_bot',
+        'make_feed_tweet_to_send_for_selected_bot',
     ]
 
     def open_browser_instance(self, request, queryset):
@@ -211,7 +212,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
         if queryset.count() == 1:
             bot = queryset[0]
             try:
-                tweet = bot.make_tweet_to_send()
+                tweet = bot.make_mention_tweet_to_send()
                 if tweet:
                     bot.send_tweet_from_pending_queue(tweet)
                 self.message_user(request, "%s sent tweet ok" % bot.username)
@@ -235,6 +236,19 @@ class TwitterBotAdmin(admin.ModelAdmin):
             settings.LOGGER.exception(msg)
             self.message_user(request, msg, level=messages.ERROR)
     send_pending_tweets.short_description = "Send all pending tweets"
+
+    def make_feed_tweet_to_send_for_selected_bot(self, request, queryset):
+        if queryset.count() == 1:
+            bot = queryset[0]
+            try:
+                bot.make_feed_tweet_to_send()
+                self.message_user(request, "feed tweet creted ok")
+            except Exception as e:
+                self.message_user(request, "Error creating feed tweet", level=messages.ERROR)
+                raise e
+        else:
+            self.message_user(request, "Only select one user for this action", level=messages.WARNING)
+    make_feed_tweet_to_send_for_selected_bot.short_description = "Make feed tweet for selected bot"
 
 
 class ProxyAdmin(admin.ModelAdmin):

@@ -94,10 +94,11 @@ class Project(models.Model):
 
 class TweetMsg(models.Model):
     text = models.CharField(max_length=101, null=False, blank=False)
-    project = models.ForeignKey(Project, related_name='tweet_msgs')
+    # proyecto nulo es mensaje de un feed por ejemplo
+    project = models.ForeignKey(Project, null=True, blank=True, related_name='tweet_msgs')
 
     def __unicode__(self):
-        return '%s @ %s' % (self.text, self.project.name)
+        return '%s @ %s' % (self.text, self.project.name) if self.project else self.text
 
 
 class TargetUser(models.Model):
@@ -198,7 +199,7 @@ class Tweet(models.Model):
     link = models.ForeignKey('Link', null=True, blank=True, related_name='tweet')
     bot_used = models.ForeignKey(TwitterBot, related_name='tweets', null=True)
     mentioned_users = models.ManyToManyField(TwitterUser, related_name='mentions', null=True, blank=True)
-    project = models.ForeignKey(Project, related_name="tweets")
+    project = models.ForeignKey(Project, null=True, blank=True, related_name="tweets")
 
     objects = TweetManager()
 
@@ -268,12 +269,13 @@ class Tweet(models.Model):
 
 class Link(models.Model):
     url = models.URLField(null=False)
-    project = models.ForeignKey(Project, null=False, related_name='links')
+    # si project es null es que es un link de algún feed
+    project = models.ForeignKey(Project, null=True, blank=True, related_name='links')
     platform = models.IntegerField(null=True, blank=True, choices=TwitterUser.SOURCES, default=0)
     is_active = models.BooleanField(default=True)
 
     def __unicode__(self):
-        return '%s @ %s' % (self.project.name, self.get_platform_display())
+        return '%s @ %s' % (self.project.name, self.get_platform_display()) if self.project else self.url
 
 
 class Extractor(models.Model):

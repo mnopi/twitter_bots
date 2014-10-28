@@ -35,7 +35,7 @@ class TwitterBotManager(models.Manager):
 
         bot.complete_creation()
 
-    def create_bots(self):
+    def create_bots(self, num_bots=None):
         self.clean_unregistered_bots()
         self.put_previous_being_created_to_false()
 
@@ -45,7 +45,8 @@ class TwitterBotManager(models.Manager):
         settings.LOGGER.info('Found %i avaiable proxies to create bots at this moment' % len(proxies))
 
         pool = ThreadPool(settings.MAX_THREADS_CREATING_BOTS)
-        for task_num in range(len(proxies)):
+        num_bots = num_bots or len(proxies)
+        for task_num in range(num_bots):
             settings.LOGGER.info('Adding task %i' % task_num)
             pool.add_task(self.create_bot)
         pool.wait_completion()
@@ -73,12 +74,13 @@ class TwitterBotManager(models.Manager):
 
     def get_uncompleted_bots(self):
         """Devuelve todos los robots pendientes de terminar registros, perfil, etc"""
-        return self.get_all_active_bots().filter(
+        return self.get_all_active_bots(take_suspended=True).filter(
             Q(twitter_registered_ok=False) |
             Q(twitter_confirmed_email_ok=False) |
             Q(twitter_avatar_completed=False) |
-            Q(twitter_bio_completed=False)
-        )
+            Q(twitter_bio_completed=False) |
+            Q(is_suspended=True)
+        ).order_by('-date')
 
     def get_one_bot_with_tweet_to_send(self):
         """
@@ -86,18 +88,17 @@ class TwitterBotManager(models.Manager):
         construir el tweet con ningún bot entonces se lanza excepción
         """
         for bot in self.get_all_twitteable_bots().all():
-            tweet_to_send = bot.make_tweet_to_send()
+            tweet_to_send = bot.make_mention_tweet_to_send()
             if tweet_to_send:
                 return bot, tweet_to_send
 
         raise TwitteableBotsNotFound()
 
-    def get_all_active_bots(self):
+    def get_all_active_bots(self, take_suspended=False):
         """Escoge todos los bots que se puedan usar, incluyendo completos e incompletos,
         pero que al menos tengan el correo registrado, con proxy ok y que no estén siendo creados"""
-        return self.filter(
+        bots = self.filter(
                 webdriver='PH',
-                is_suspended=False,
                 is_suspended_email=False,
                 email_registered_ok=True,
             )\
@@ -106,6 +107,11 @@ class TwitterBotManager(models.Manager):
             .exclude(proxy__is_unavailable_for_use=True)\
             .exclude(proxy__is_phone_required=True)\
             .exclude(is_being_created=True)
+
+        if not take_suspended:
+            bots = bots.filter(is_suspended=False)
+
+        return bots
 
     def get_completed_bots(self):
         """De los bots que toma devuelve sólo aquellos que estén completamente creados"""

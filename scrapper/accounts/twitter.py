@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from scrapper.captcha_resolvers import DeathByCaptchaResolver
 from selenium.common.exceptions import MoveTargetOutOfBoundsException
 
 from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
@@ -127,6 +128,36 @@ class TwitterScrapper(Scrapper):
             self.take_screenshot('login_failure', force_take=True)
             raise e
 
+    def lift_suspension(self):
+        # intentamos levantar suspensión
+        def submit_unsuspension(attempt):
+            if attempt == 5:
+                raise Exception('Exceeded 5 attemps to lift suspension for bot %s' % self.user.username)
+            else:
+                cr.resolve_captcha(
+                    self.get_css_element('#recaptcha_challenge_image'),
+                    self.get_css_element('#recaptcha_response_field')
+                )
+                self.click('#suspended_help_submit')
+                self.delay.seconds(5)
+
+                if self.check_visibility('form.t1-form .error-occurred'):
+                    cr.report_wrong_captcha()
+                    submit_unsuspension(attempt+1)
+
+        try:
+            self.user.mark_as_suspended()
+            self.click(self.get_css_element('#account-suspended a'))
+            self.wait_to_page_loaded()
+            cr = DeathByCaptchaResolver(self)
+            self.click('#checkbox_discontinue')
+            self.click('#checkbox_permanent')
+            submit_unsuspension(attempt=0)
+            self.user.unmark_as_suspended()
+        except Exception as e:
+            settings.LOGGER.exception('')
+            raise TwitterAccountSuspended(self.user)
+
     def check_account_suspended(self):
         """Una vez logueado miramos si fue suspendida la cuenta"""
         bot_is_suspended = lambda: self.get_css_element('#account-suspended') and \
@@ -137,7 +168,7 @@ class TwitterScrapper(Scrapper):
                 self.delay.seconds(4)
                 raise TwitterEmailNotConfirmed(self.user)
             else:
-                raise TwitterAccountSuspended(self.user)
+                self.lift_suspension()
         elif self.check_visibility('.resend-confirmation-email-link'):
             self.click('.resend-confirmation-email-link')
             self.delay.seconds(4)
