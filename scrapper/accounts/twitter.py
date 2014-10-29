@@ -2,10 +2,9 @@
 from scrapper.captcha_resolvers import DeathByCaptchaResolver
 from selenium.common.exceptions import MoveTargetOutOfBoundsException
 
-from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
-from scrapper.exceptions import TwitterEmailNotFound, BotDetectedAsSpammerException, BotMustVerifyPhone, \
-    TwitterBotDontExistsOnTwitterException, FailureSendingTweetException, TwitterEmailNotConfirmed, \
-    TwitterAccountSuspended
+from scrapper.scrapper import Scrapper
+from scrapper.exceptions import BotMustVerifyPhone, TwitterBotDontExistsOnTwitterException, \
+    FailureSendingTweetException, TwitterEmailNotConfirmed, TwitterAccountDead
 from scrapper.utils import *
 from twitter_bots import settings
 
@@ -156,7 +155,7 @@ class TwitterScrapper(Scrapper):
             self.user.unmark_as_suspended()
         except Exception as e:
             settings.LOGGER.exception('')
-            raise TwitterAccountSuspended(self.user)
+            raise TwitterAccountDead(self.user)
 
     def check_account_suspended(self):
         """Una vez logueado miramos si fue suspendida la cuenta"""
@@ -176,39 +175,6 @@ class TwitterScrapper(Scrapper):
         else:
             self.user.is_suspended = False
             self.user.save()
-
-        # if self.check_visibility('#account-suspended'):
-        #     conf_email_link = get_element(lambda: self.browser.find_element_by_partial_link_text('confirm your email'))
-        #     if conf_email_link:
-        #         # si la cuanta está suspendida por no haber comprobado el email
-        #         self.click(conf_email_link)
-        #         self.user.mark_as_suspended()
-        #     else:
-        #         # intentamos levantar suspensión
-        #         cr = DeathByCaptchaResolver(self)
-        #
-        #         def submit_unsuspension():
-        #             cr.resolve_captcha(
-        #                 self.get_css_element('#recaptcha_challenge_image'),
-        #                 self.get_css_element('#recaptcha_response_field')
-        #             )
-        #             self.click('#suspended_help_submit')
-        #             self.delay.seconds(5)
-        #
-        #             if self.check_visibility('form.t1-form .error-occurred'):
-        #                 cr.report_wrong_captcha()
-        #                 submit_unsuspension()
-        #
-        #         self.user.mark_as_suspended()
-        #         self.click(self.get_css_element('#account-suspended a'))
-        #         self.click('#checkbox_discontinue')
-        #         self.click('#checkbox_permanent')
-        #         submit_unsuspension()
-        # elif self.check_visibility('button.resend-confirmation-email-link'):
-        #         self.click('button.resend-confirmation-email-link')
-        #         self.delay.seconds(2)
-        #         self.user.twitter_confirmed_email_ok = False
-        #         self.user.save()
 
     def check_account_exists(self):
         "Mira si tras intentar loguearse el usuario existe o no en twitter"

@@ -39,6 +39,7 @@ class TwitterBot(models.Model):
     }
     gender = models.IntegerField(max_length=1, choices=GENDERS, default=0)
 
+    is_dead = models.BooleanField(default=False)
     is_suspended = models.BooleanField(default=False)
     is_suspended_email = models.BooleanField(default=False)
     is_being_created = models.BooleanField(default=True)
@@ -98,7 +99,8 @@ class TwitterBot(models.Model):
         return not self.twitter_bio_completed and settings.TW_SET_BIO
 
     def has_to_complete_creation(self):
-        return not self.email_registered_ok or \
+        return self.is_suspended or\
+               not self.email_registered_ok or \
                not self.twitter_registered_ok or \
                not self.twitter_confirmed_email_ok or \
                not self.has_tw_profile_completed()
@@ -226,6 +228,11 @@ class TwitterBot(models.Model):
                 if self.has_to_complete_tw_profile():
                     self.twitter_scr.set_screenshots_dir('4_tw_profile_completion')
                     self.twitter_scr.set_profile()
+
+                # 5_lift_suspension
+                if self.is_suspended:
+                    self.twitter_scr.set_screenshots_dir('5_tw_lift_suspension')
+                    self.twitter_scr.login()
             except Exception as ex:
                 settings.LOGGER.exception('Error completing creation for bot %s' % self.username)
                 raise ex

@@ -22,6 +22,13 @@ class TwitterAccountSuspended(Exception):
         settings.LOGGER.warning('Bot %s has his twitter account suspended' % bot.username)
 
 
+class TwitterAccountDead(Exception):
+    def __init__(self, bot):
+        bot.is_dead = True
+        bot.save()
+        settings.LOGGER.warning(':(:(:( Bot %s has his twitter account dead' % bot.username)
+
+
 class EmailAccountSuspended(Exception):
     def __init__(self, bot):
         bot.is_suspended_email = True

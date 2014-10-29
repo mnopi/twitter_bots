@@ -40,6 +40,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
     list_display = (
         'username',
         'is_being_created',
+        'is_dead',
         'is_suspended',
         'is_suspended_email',
         # 'is_manually_registered',
@@ -64,6 +65,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
         ValidBotListFilter,
         'webdriver',
         'date',
+        'is_dead',
         'is_suspended',
         'is_suspended_email',
         'proxy__proxy_provider',
