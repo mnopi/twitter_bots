@@ -94,6 +94,7 @@ MEDIA_ROOT = os.path.join(PROJECT_ROOT, 'media')
 AUTH_USER_MODEL = "core.User"
 
 
+LOGS_DIR = os.path.join(PROJECT_ROOT, 'logs')
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -110,7 +111,7 @@ LOGGING = {
         'file': {
             'level': 'DEBUG',
             'class': 'logging.handlers.RotatingFileHandler',
-            'filename': 'mysite.log',
+            'filename': os.path.join(LOGS_DIR, 'mysite.log'),
             'formatter': 'verbose',
             'maxBytes': 1024 * 1024 * 5,  # 5 MB,
         },
@@ -149,7 +150,7 @@ def set_logger(logger_name):
     # import copy
     # custom_logger = copy.deepcopy(LOGGING)
     global LOGGING, LOGGER
-    LOGGING['handlers']['file']['filename'] = '%s.log' % logger_name
+    LOGGING['handlers']['file']['filename'] = os.path.join(LOGS_DIR, '%s.log' % logger_name)
     LOGGING['loggers'][logger_name] = LOGGING['loggers']['twitter_bots']
     del LOGGING['loggers']['twitter_bots']
 
@@ -158,5 +159,4 @@ def set_logger(logger_name):
     logging.config.dictConfig(LOGGING)
     LOGGER = logging.getLogger(logger_name)
 
-LOGS_DIR = os.path.join(PROJECT_ROOT, 'logs')
 SUPERVISOR_LOGS_DIR = os.path.join(LOGS_DIR, 'supervisor')
