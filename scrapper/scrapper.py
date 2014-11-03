@@ -3,7 +3,7 @@
 import sys
 import urllib
 from selenium.common.exceptions import NoSuchFrameException, TimeoutException
-from selenium.webdriver import ActionChains, DesiredCapabilities
+from selenium.webdriver import ActionChains, DesiredCapabilities, Proxy
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -161,18 +161,15 @@ class Scrapper(object):
         # seteamos el correspondiente proxy en el caso de usar proxy
         if settings.USE_PROXY:
             if self.user.proxy:
-                if self.user.proxy.proxy == 'tor':
-                    renew_tor_ip()
-                    proxy_ip = '127.0.0.1'
-                    proxy_port = settings.TOR_PORT
-                else:
-                    proxy_ip = self.user.proxy.proxy.split(':')[0]
-                    proxy_port = int(self.user.proxy.proxy.split(':')[1])
+                # comprobamos si el proxy aún sigue en los txts, si no se le asigna uno de los nuevos
+                if not self.user.proxy.is_in_proxies_txts:
+                    self.user.assign_proxy()
             else:
                 # si no tiene proxy se le asigna siempre uno
                 self.user.assign_proxy()
-                proxy_ip = self.user.proxy.split(':')[0]
-                proxy_port = int(self.user.proxy.split(':')[1])
+
+            proxy_ip = self.user.proxy.proxy.split(':')[0]
+            proxy_port = int(self.user.proxy.proxy.split(':')[1])
 
         #
         # elegimos tipo de navegador

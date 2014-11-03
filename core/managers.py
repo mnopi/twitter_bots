@@ -10,7 +10,8 @@ import datetime
 from django.db import models, connection
 import pytz
 from project.exceptions import TwitteableBotsNotFound, AllBotsInUse, NoTweetsOnQueue
-from scrapper.exceptions import BotDetectedAsSpammerException, NoMoreAvaiableProxiesForCreatingBots
+from scrapper.exceptions import BotDetectedAsSpammerException, NoMoreAvailableProxiesForRegistration, \
+    NoMoreAvailableProxiesForUsage
 from scrapper.thread_pool import ThreadPool
 from twitter_bots import settings
 from threading import Lock
@@ -131,10 +132,6 @@ class TwitterBotManager(models.Manager):
 
     def send_tweet_from_pending_queue(self):
         """Escoge un tweet pendiente de enviar cuyo robot no esté enviando actualmente"""
-        # mutex.acquire()
-        # print '%s executing' % get_thread_name()
-        # mutex.release()
-        # raise Exception()
         from project.models import Tweet
         try:
             connection.close()
@@ -208,14 +205,15 @@ class ProxyManager(models.Manager):
                         txt_proxies.append((proxy, proxy_provider))
                         filename_has_proxies = True
                 if not filename_has_proxies:
-                    raise Exception('file %s has not proxies inside' % os.path.join(dirpath, filename))
+                    settings.LOGGER.warning('file %s has not proxies inside' % os.path.join(dirpath, filename))
+                    # raise Exception('file %s has not proxies inside' % os.path.join(dirpath, filename))
         return txt_proxies
 
     def sync_proxies(self):
         "Sincroniza BD y los proxies disponibles en los txt"
 
-        def clean_old_proxies():
-            """Quita de BD aquellos proxies que ya no estén en los .txt, ya que cada mes
+        def check_not_in_proxies_txts():
+            """En BD se desmarca aquellos proxies que ya no estén en los .txt, ya que cada mes
             se renuevan los .txt con los nuevos"""
 
             def is_on_txt(db_proxy):
@@ -224,15 +222,23 @@ class ProxyManager(models.Manager):
                         return True
                 return False
 
-            settings.LOGGER.info('Cleaning old proxies..')
-            old_count = 0
+            settings.LOGGER.info('Checking proxies in txts..')
+            not_in_txts_proxies_count = 0  # cuenta el número de proxies que no aparecen en los txts
             db_proxies = self.all()
             for db_proxy in db_proxies:
-                if not is_on_txt(db_proxy):
-                    db_proxy.delete()
-                    old_count += 1
-                    settings.LOGGER.info('Deleted old proxy %s @ %s' % (db_proxy.proxy, db_proxy.proxy_provider))
-            settings.LOGGER.info('%i old proxies removed ok from database' % old_count)
+                if is_on_txt(db_proxy):
+                    db_proxy.is_in_proxies_txts = True
+                    db_proxy.date_not_in_proxies_txts = None
+                    db_proxy.save()
+                elif db_proxy.is_in_proxies_txts:
+                    # si no está en los txt y estaba marcado como que estaba lo cambiamos
+                    db_proxy.is_in_proxies_txts = False
+                    db_proxy.date_not_in_proxies_txts = datetime.datetime.utcnow()
+                    db_proxy.save()
+                    not_in_txts_proxies_count += 1
+                    settings.LOGGER.info('Proxy %s @ %s marked as not appeared in proxies txts' % (db_proxy.proxy, db_proxy.proxy_provider))
+
+            settings.LOGGER.info('%i proxies marked as not appeared in proxies txts' % not_in_txts_proxies_count)
 
         def add_new_proxies():
             settings.LOGGER.info('Adding new proxies to database..')
@@ -245,57 +251,95 @@ class ProxyManager(models.Manager):
             settings.LOGGER.info('%i new proxies added ok into database' % new_count)
 
         txt_proxies = self.get_txt_proxies()
-        clean_old_proxies()
+        check_not_in_proxies_txts()
         add_new_proxies()
 
-    def get_valid_proxies(self):
-        """Devuelve los proxies válidos para poder crear nuevos bots"""
-        return self.filter(
-            is_unavailable_for_registration=False,
+    def get_available_proxies_for_usage(self):
+        """Devuelve proxies disponibles para iniciar sesión con bot y tuitear etc"""
+
+        # base de proxies aptos usar robots ya registrados
+        proxies_base = self.filter(
+            is_in_proxies_txts=True,
             is_unavailable_for_use=False,
-            is_phone_required=False,
         )
-
-    def get_available_proxies_for_login(self):
-        """
-        Para devolver proxies disponibles para iniciar sesión con bot y tuitear etc:
-            - proxies que tengan menos de x bots asignados para logueo
-            -
-        """
-        pass
-
-    def get_available_proxies_for_registration(self):
-        """Devuelve proxies disponibles para registrar un bot"""
-
-        # proxies válidos que tengan un número de bots inferior al límite y con ningún bot suspendido
-        proxies_with_available_space = self.get_valid_proxies()\
-            .annotate(num_bots=Count('twitter_bots'))\
-            .filter(num_bots__lt=settings.MAX_TWT_BOTS_PER_PROXY_FOR_REGISTRATIONS)
 
         ids = []
 
         # proxies sin bots
         ids.extend([
-            result['id'] for result in proxies_with_available_space.filter(twitter_bots=None).values('id')
+            result['id'] for result in proxies_base.filter(
+                twitter_bots_registered=None,
+                twitter_bots_using=None,
+            ).values('id')
         ])
 
-        # proxies con bots, aquellos que:
-        #   - bot más reciente sea igual o más antiguo que la fecha de registro más antigua permitida
-        #   - no tengan ni un bot como suspendido
-        oldest_allowed_registation_date = datetime.datetime.now().replace(tzinfo=pytz.utc) - \
-                                       datetime.timedelta(days=settings.MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY)
+        # proxies con bots
         ids.extend([
             result['id'] for result in
-                proxies_with_available_space\
-                .annotate(latest_bot_date=Max('twitter_bots__date'))\
-                .filter(latest_bot_date__lte=oldest_allowed_registation_date)\
-                .filter(twitter_bots__is_suspended=False)\
+                proxies_base\
+
+                # no tengan ningún robot muerto
+                .filter(twitter_bots_registered__is_dead=False, twitter_bots_using__is_dead=False)\
+
+                # tengan un número de bots para uso inferior al límite
+                .annotate(num_bots=Count('twitter_bots_using'))\
+                .filter(num_bots__lt=settings.MAX_TWT_BOTS_PER_PROXY_FOR_USAGE)\
+
                 .values('id')
         ])
 
         available_proxies = self.filter(id__in=ids)
 
         if not available_proxies:
-            raise NoMoreAvaiableProxiesForCreatingBots()
+            raise NoMoreAvailableProxiesForUsage()
+
+        return available_proxies
+
+    def get_available_proxies_for_registration(self):
+        """Devuelve proxies disponibles para registrar un bot"""
+
+        # base de proxies aptos para el registro
+        proxies_base = self.filter(
+            is_in_proxies_txts=True,
+            is_unavailable_for_registration=False,
+            is_unavailable_for_use=False,
+            is_phone_required=False,
+        )
+
+        ids = []
+
+        # proxies sin bots
+        ids.extend([
+            result['id'] for result in proxies_base.filter(
+                twitter_bots_registered=None,
+                twitter_bots_using=None,
+            ).values('id')
+        ])
+
+        # proxies con bots
+        min_allowed_registation_date_ago = datetime.datetime.now().replace(tzinfo=pytz.utc) - \
+                                       datetime.timedelta(days=settings.MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY)
+        ids.extend([
+            result['id'] for result in
+                proxies_base\
+
+                # no tengan ningún robot muerto
+                .filter(twitter_bots_registered__is_dead=False, twitter_bots_using__is_dead=False)\
+
+                # tengan un número de bots inferior al límite
+                .annotate(num_bots=Count('twitter_bots_registered'))\
+                .filter(num_bots__lt=settings.MAX_TWT_BOTS_PER_PROXY_FOR_REGISTRATIONS)\
+
+                # bot más recientemente creado sea igual o más antiguo que la fecha mínima dado el intervalo
+                .annotate(latest_bot_date=Max('twitter_bots_registered__date'))\
+                .filter(latest_bot_date__lte=min_allowed_registation_date_ago)\
+
+                .values('id')
+        ])
+
+        available_proxies = self.filter(id__in=ids)
+
+        if not available_proxies:
+            raise NoMoreAvailableProxiesForRegistration()
 
         return available_proxies

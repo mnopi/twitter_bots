@@ -65,8 +65,8 @@ class TwitterBot(models.Model):
     random_mouse_paths = models.BooleanField(default=False)
 
     # RELATIONSHIPS
-    # si elimino
-    proxy = models.ForeignKey('Proxy', null=True, blank=True, related_name='twitter_bots', on_delete=models.DO_NOTHING)
+    proxy_for_registration = models.ForeignKey('Proxy', null=True, blank=True, related_name='twitter_bots_registered', on_delete=models.DO_NOTHING)
+    proxy = models.ForeignKey('Proxy', null=True, blank=True, related_name='twitter_bots_using', on_delete=models.DO_NOTHING)
 
     objects = TwitterBotManager()
 
@@ -142,14 +142,12 @@ class TwitterBot(models.Model):
         """Mira si el proxy que el bot tiene asignado funciona correctamente"""
         Scrapper(self).check_proxy_works_ok()
 
-    def assign_proxy(self, proxy=None, proxy_provider=None):
-        """Le asigna un proxy disponible"""
-        if settings.TOR_MODE:
-            self.proxy = Proxy.objects.get_or_create(proxy='tor', proxy_provider='tor')
-        elif proxy and proxy_provider:
-            self.proxy = Proxy.objects.get(proxy=proxy, proxy_provider=proxy_provider)
-        else:
+    def assign_proxy(self):
+        """Le asigna un proxy disponible según tenga cuentas ya creadas o no"""
+        if self.has_no_accounts():
             self.proxy = Proxy.objects.get_available_proxies_for_registration().order_by('?')[0]
+        else:
+            self.proxy = Proxy.objects.get_available_proxies_for_usage().order_by('?')[0]
         self.save()
 
     def get_email_scrapper(self):
@@ -419,6 +417,10 @@ class Proxy(models.Model):
     proxy_provider = models.CharField(max_length=50, null=False, blank=True)
     date_added = models.DateTimeField(auto_now_add=True)
 
+    is_in_proxies_txts = models.BooleanField(default=True)
+    date_not_in_proxies_txts = models.DateTimeField(null=True, blank=True)
+
+    # esto dice si está disponible para registrarse con hotmail/outlook
     is_unavailable_for_registration = models.BooleanField(default=False)
     date_unavailable_for_registration = models.DateTimeField(null=True, blank=True)
 

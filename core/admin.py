@@ -1,12 +1,7 @@
-import datetime
-from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from django.http import HttpResponseRedirect
-from django.shortcuts import render_to_response
-from core.forms import MyUserChangeForm, TwitterBotForm
+from core.forms import MyUserChangeForm
 from core.models import User, TwitterBot, Proxy
-from project.models import Tweet
 from scrapper.scrapper import Scrapper
 from django.contrib import messages
 from scrapper.accounts.twitter import TwitterScrapper
@@ -50,6 +45,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'twitter_avatar_completed',
         'twitter_bio_completed',
         'date',
+        'proxy_for_registration',
         'proxy',
         # 'user_agent',
         'webdriver',
@@ -210,20 +206,6 @@ class TwitterBotAdmin(admin.ModelAdmin):
             self.message_user(request, msg, level=messages.ERROR)
     create_bot_from_fixed_ip.short_description = "Create 1 bot [from fixed ip]"
 
-    def send_tweet_from_selected_bot(self, request, queryset):
-        if queryset.count() == 1:
-            bot = queryset[0]
-            try:
-                tweet = bot.make_mention_tweet_to_send()
-                if tweet:
-                    bot.send_tweet_from_pending_queue(tweet)
-                self.message_user(request, "%s sent tweet ok" % bot.username)
-            except Exception:
-                self.message_user(request, "Error sending tweet from bot %s" % bot.username, level=messages.ERROR)
-        else:
-            self.message_user(request, "Only select one user for this action", level=messages.WARNING)
-    send_tweet_from_selected_bot.short_description = "Send tweet from selected bot"
-
     def send_tweet_from_pendings(self, request, queryset):
         TwitterBot.objects.send_tweet_from_pending_queue()
         self.message_user(request, "Tweet sent sucessfully")
@@ -257,7 +239,9 @@ class ProxyAdmin(admin.ModelAdmin):
     list_display = (
         'proxy',
         'proxy_provider',
-        'num_bots',
+        'is_in_proxies_txts',
+        'num_bots_registered',
+        'num_bots_using',
         'is_unavailable_for_registration',
         'date_unavailable_for_registration',
         'is_unavailable_for_use',
@@ -271,6 +255,9 @@ class ProxyAdmin(admin.ModelAdmin):
     )
     list_filter = (
         'proxy_provider',
+        'is_in_proxies_txts',
+        'date_not_in_proxies_txts',
+
         'is_unavailable_for_registration',
         'date_unavailable_for_registration',
         'is_unavailable_for_use',
@@ -279,8 +266,11 @@ class ProxyAdmin(admin.ModelAdmin):
         'date_phone_required',
     )
 
-    def num_bots(self, obj):
-        return obj.twitter_bots.count()
+    def num_bots_registered(self, obj):
+        return obj.twitter_bots_registered.count()
+
+    def num_bots_using(self, obj):
+        return obj.twitter_bots_using.count()
 
 
 admin.site.register(User, MyUserAdmin)

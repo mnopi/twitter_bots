@@ -8,7 +8,11 @@ set_logger('sync_proxies')
 from django.core.management.base import BaseCommand, CommandError
 
 class Command(BaseCommand):
-    help = 'Creates bots'
+    help = """
+        Sincroniza la lista de proxies actuales en los proxies/*.txt con nuestra tabla proxy en BD.
+
+        IMPORTANTE: ejecutar esto cada vez que se cambien los .txt !!
+        """
 
     def handle(self, *args, **options):
         Proxy.objects.sync_proxies()
