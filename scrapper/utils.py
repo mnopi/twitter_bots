@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import threading
+from django.utils.timezone import utc
 import os
 from fake_useragent import UserAgent
 import random
@@ -11,7 +12,6 @@ import requests
 from requests.packages.urllib3 import Timeout
 import shutil
 import simplejson
-from twitter_bots import settings
 
 
 def generate_random_string(size=None, with_special_chars=False, only_lowercase=False):
@@ -62,10 +62,10 @@ def generate_random_username(full_name=None, gender=None):
 def wait_condition(cond, timeout=80, err_msg="Timeout waiting condition"):
     """Se espera hasta un máximo 'timeout' a que ocurra la condición 'cond', que puede tratarse
     de un valor booleano o bien una función a ejecutar cada vez que queramos comprobar su estado"""
-    wait_start = datetime.datetime.now()
+    wait_start = utc_now()
     while not cond():
         time.sleep(0.5)
-        diff = datetime.datetime.now() - wait_start
+        diff = utc_now() - wait_start
         if diff.seconds >= timeout:
             raise Exception(err_msg)
 
@@ -109,6 +109,8 @@ def random_date(start_year, end_year):
 def generate_random_desktop_user_agent():
     """Pillamos lista de navegadores desde la w3schools, si falla tiramos de user_agents.json
     sólo usamos ff o chrome"""
+    from twitter_bots import settings
+
     def is_desktop_ua(ua):
         return not 'iphone' in ua.lower() and not 'ipad' in ua.lower() and not 'mobile' in ua.lower()
 
@@ -139,6 +141,8 @@ def generate_random_desktop_user_agent():
 
 
 def try_except(fn, ex_msg):
+    from twitter_bots import settings
+
     def wrapped(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
@@ -171,28 +175,45 @@ def get_thread_name():
     return '###%s### - ' % threading.current_thread().name
 
 
+def naive_to_utc(datetime):
+    return datetime.replace(tzinfo=utc)
+
+
+def utc_now():
+    return naive_to_utc(datetime.datetime.utcnow())
+
+
 def compare_datetimes(d1, d2):
     # limpiamos ambas fechas a naive por si están en UTC, etc
     d1 = d1.replace(tzinfo=None)
     d2 = d2.replace(tzinfo=None)
     if d1 > d2:
+        # si d1 es más nueva que d2
         return 1
     elif d1 == d2:
         return 0
     elif d1 < d2:
+        # si d1 es más antigua que d2
         return -1
 
 
-def is_in_datetime_ago_interval(date, datetime_ago):
-    """
-    :param date: fecha a comprobar que sea igual o más nueva que datetime_ago
-    :param datetime_ago: fecha más vieja para el rango
-    :return: True si la fecha está dentro del rango, es decir, si no es menor que la más vieja
-    """
-    return not compare_datetimes(date, datetime_ago) == -1
+def is_older(d1, d2):
+    """Nos dice si la fecha d1 es más vieja que d2"""
+    return compare_datetimes(d1, d2) == -1
 
 
-def is_in_days_ago_interval(date, days_ago):
-    now = datetime.datetime.utcnow()
-    oldest_date = now - datetime.timedelta(days=days_ago)
-    return is_in_datetime_ago_interval(date, oldest_date)
+def is_newer(d1, d2):
+    """Nos dice si la fecha d1 es más nueva que d2"""
+    return compare_datetimes(d1, d2) == 1
+
+
+def is_gte_than_days_ago(given_datetime, days_ago):
+    "Nos dice si la fecha dada es igual o más nueva que la de este momento hace days_ago"
+    datetime_days_ago = utc_now() - datetime.timedelta(days=days_ago)
+    return not is_older(given_datetime, datetime_days_ago)
+
+
+def is_lte_than_seconds_ago(given_datetime, seconds_ago):
+    "Nos dice si la fecha dada es más antigua o igual que la de este momento hace seconds_ago"
+    datetime_seconds_ago = utc_now() - datetime.timedelta(seconds=seconds_ago)
+    return not is_newer(given_datetime, datetime_seconds_ago)

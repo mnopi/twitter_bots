@@ -9,7 +9,7 @@ from tweepy import TweepError
 from core.models import TwitterBot
 from project.exceptions import RateLimitedException, AllFollowersExtracted, TwitteableBotsNotFound, AllBotsInUse, \
     NoTweetsOnQueue
-from scrapper.utils import get_thread_name
+from scrapper.utils import get_thread_name, utc_now, is_lte_than_seconds_ago
 from twitter_bots import settings
 from django.db import models
 
@@ -49,19 +49,20 @@ class TweetManager(models.Manager):
         Se queda esperando a que
         """
         try:
-            now_utc = datetime.datetime.now().replace(tzinfo=pytz.utc)
-            random_seconds = random.randint(60*settings.TIME_BETWEEN_TWEETS[0], 60*settings.TIME_BETWEEN_TWEETS[1])  # entre 2 y 7 minutos por tweet
-            min_datetime_to_tweet = now_utc - datetime.timedelta(seconds=random_seconds)
-
             pending_tweets = self.get_queued_to_send()
 
             if pending_tweets:
                 for tweet in pending_tweets:
                     if not tweet.has_bot_sending_another():
                         last_tweet_sent = self.filter(bot_used=tweet.bot_used).latest('date_sent')
-                        if not last_tweet_sent or not last_tweet_sent.date_sent or \
-                            last_tweet_sent.date_sent <= min_datetime_to_tweet:
+                        if not last_tweet_sent or not last_tweet_sent.date_sent:
                             return tweet
+                        else:
+                            # si el bot ya envió algún tweet se comprueba que el último se haya enviado
+                            # antes o igual a la fecha de ahora menos el tiempo aleatorio entre tweets por bot
+                            random_seconds_ago = random.randint(60*settings.TIME_BETWEEN_TWEETS[0], 60*settings.TIME_BETWEEN_TWEETS[1])
+                            if is_lte_than_seconds_ago(last_tweet_sent.date_sent, random_seconds_ago):
+                                return tweet
 
                 raise AllBotsInUse
             else:
@@ -154,3 +155,8 @@ class ExtractorManager(models.Manager):
                 continue
 
         time.sleep(random.randint(5, 15))
+
+
+class ProxiesGroupManager(models.Manager):
+    pass
+

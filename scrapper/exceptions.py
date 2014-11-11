@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import time
-import datetime
-from twitter_bots import settings
+import twitter_bots.settings as settings
+from utils import utc_now
 
 
 class TwitterEmailNotFound(Exception):
@@ -25,6 +25,7 @@ class TwitterAccountSuspended(Exception):
 class TwitterAccountDead(Exception):
     def __init__(self, bot):
         bot.is_dead = True
+        bot.date_death = utc_now()
         bot.save()
         settings.LOGGER.warning(':(:(:( Bot %s has his twitter account dead' % bot.username)
 
@@ -51,7 +52,7 @@ class FailureSendingTweetException(Exception):
 class BotMustVerifyPhone(Exception):
     def __init__(self, bot):
         bot.proxy.is_phone_required = True
-        bot.proxy.date_phone_required = datetime.datetime.utcnow()
+        bot.proxy.date_phone_required = utc_now()
         bot.proxy.save()
         settings.LOGGER.warning('Bot %s must do mobile phone verification' % bot.username)
 

@@ -380,12 +380,12 @@ class Scrapper(object):
         self.take_screenshot('page_loaded')
 
     def switch_to_frame(self, frame, timeout=20):
-        wait_start = datetime.datetime.now()
+        wait_start = utc_now()
         try:
             self.browser.switch_to.frame(frame)
         except NoSuchFrameException:
             time.sleep(0.5)
-            diff = datetime.datetime.now() - wait_start
+            diff = utc_now() - wait_start
             if diff.seconds >= timeout:
                 raise Exception('Waiting iframe %s timeout' % frame)
             self.switch_to_frame(frame, timeout)

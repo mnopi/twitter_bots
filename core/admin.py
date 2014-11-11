@@ -1,7 +1,11 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from django.http import HttpResponseRedirect
+from django.shortcuts import render_to_response
+from django.template import RequestContext
 from core.forms import MyUserChangeForm
 from core.models import User, TwitterBot, Proxy
+from project.models import ProxiesGroup
 from scrapper.scrapper import Scrapper
 from django.contrib import messages
 from scrapper.accounts.twitter import TwitterScrapper
@@ -239,6 +243,7 @@ class ProxyAdmin(admin.ModelAdmin):
     list_display = (
         'proxy',
         'proxy_provider',
+        'proxies_group',
         'is_in_proxies_txts',
         'num_bots_registered',
         'num_bots_using',
@@ -249,15 +254,58 @@ class ProxyAdmin(admin.ModelAdmin):
         'is_phone_required',
         'date_phone_required',
     )
+    def num_bots_registered(self, obj):
+        return obj.twitter_bots_registered.count()
+
+    def num_bots_using(self, obj):
+        return obj.twitter_bots_using.count()
 
     search_fields = (
         'proxy',
     )
+
+    # FILTERS
+
+    class HasBotsListFilter(admin.SimpleListFilter):
+        title = 'Has bots'
+        parameter_name = 'has_bots'
+
+        def lookups(self, request, model_admin):
+            return (
+                ('bots_registered', 'with bots registered',),
+                ('no_bots_registered', 'without bots registered',),
+
+                ('bots_using', 'with bots using'),
+                ('no_bots_using', 'without bots using'),
+
+                ('at_least_one_bot', 'with at least one bot'),
+                ('no_bots', 'without bots'),
+            )
+
+        def queryset(self, request, queryset):
+            if self.value() == 'bots_registered':
+                return Proxy.objects.with_bots_registered(queryset)
+            if self.value() == 'no_bots_registered':
+                return Proxy.objects.without_bots_registered()
+
+            if self.value() == 'bots_using':
+                return Proxy.objects.with_bots_using()
+            if self.value() == 'no_bots_using':
+                return Proxy.objects.without_bots_using()
+
+            if self.value() == 'at_least_one_bot':
+                return Proxy.objects.with_bots()
+            if self.value() == 'no_bots':
+                return Proxy.objects.without_bots()
+
+
     list_filter = (
+        HasBotsListFilter,
+        'proxies_group',
         'proxy_provider',
         'is_in_proxies_txts',
-        'date_not_in_proxies_txts',
 
+        'date_not_in_proxies_txts',
         'is_unavailable_for_registration',
         'date_unavailable_for_registration',
         'is_unavailable_for_use',
@@ -266,11 +314,43 @@ class ProxyAdmin(admin.ModelAdmin):
         'date_phone_required',
     )
 
-    def num_bots_registered(self, obj):
-        return obj.twitter_bots_registered.count()
+    actions = [
+        'assign_proxies_group',
+    ]
 
-    def num_bots_using(self, obj):
-        return obj.twitter_bots_using.count()
+    def assign_proxies_group(self, request, queryset):
+        # http://www.jpichon.net/blog/2010/08/django-admin-actions-and-intermediate-pages/
+        # http://sysmagazine.com/posts/140409/
+        from django import forms
+        class AssignProxiesForm(forms.Form):
+            _selected_action = forms.CharField(widget=forms.MultipleHiddenInput)
+            action = forms.CharField(widget=forms.HiddenInput)
+            proxies_group = forms.ModelChoiceField(queryset=ProxiesGroup.objects.all(), required=False)
+
+        if 'apply' in request.POST:
+            form = AssignProxiesForm(request.POST)
+
+            if form.is_valid():
+                proxies_group = form.cleaned_data['proxies_group']
+
+                count = 0
+                for proxy in queryset:
+                    proxy.proxies_group = proxies_group
+                    proxy.save()
+                    count += 1
+
+                self.message_user(request, 'Successfully assigned proxies_group "%s" to %d proxies' % (proxies_group, count))
+                return HttpResponseRedirect(request.get_full_path())
+        else:
+            ctx = {
+                'proxies_group_form': AssignProxiesForm(
+                    initial={
+                        '_selected_action': [obj.pk for obj in queryset],
+                        'action': request.POST.get('action'),
+                    }
+                )
+            }
+            return render_to_response('core/assign_proxies_group.html', context_instance=RequestContext(request, ctx))
 
 
 admin.site.register(User, MyUserAdmin)

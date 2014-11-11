@@ -33,15 +33,22 @@ class TargetUserAdmin(admin.ModelAdmin):
     extract_followers.short_description = "Extract all followers"
 
 
+class ProjectProxiesGroupInline(admin.TabularInline):
+        model = ProxiesGroup.projects.through
+
+
 class ProjectAdmin(admin.ModelAdmin):
     list_display = (
         'name',
-        'display_sent_tweets_android',
+        # 'display_sent_tweets_android',
     )
 
     search_fields = ('name',)
     list_display_links = ('name',)
 
+    inlines = [
+        ProjectProxiesGroupInline,
+    ]
 
 class TweetAdmin(admin.ModelAdmin):
     list_display = (
@@ -137,6 +144,39 @@ class LinkAdmin(admin.ModelAdmin):
         SubLinkInline]
 
 
+class ProxiesGroupAdmin(admin.ModelAdmin):
+    list_display = (
+        'name',
+        'total_bots_count',
+        'bots_registered_count',
+        'bots_using_count',
+        'max_tw_bots_per_proxy_for_registration',
+        'max_tw_bots_per_proxy_for_usage',
+        'time_between_tweets',
+        'max_num_mentions_per_tweet',
+    )
+
+    def total_bots_count(self, obj):
+        return TwitterBot.objects.total_from_proxies_group(obj).count()
+
+    def bots_registered_count(self, obj):
+        return TwitterBot.objects.registered_by_proxies_group(obj).count()
+
+    def bots_using_count(self, obj):
+        return TwitterBot.objects.using_on_proxies_group(obj).count()
+
+    exclude = ('projects',)
+
+    search_fields = (
+        'name',
+        'projects__name',
+    )
+
+    inlines = [
+        ProjectProxiesGroupInline,
+    ]
+
+
 # Register your models here.
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(TweetMsg)
@@ -149,6 +189,7 @@ admin.site.register(Link, LinkAdmin)
 admin.site.register(Hashtag)
 admin.site.register(TwitterUserHasHashtag)
 admin.site.register(TweetImg)
+admin.site.register(ProxiesGroup, ProxiesGroupAdmin)
 
 
 

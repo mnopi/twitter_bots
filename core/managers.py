@@ -13,6 +13,7 @@ from project.exceptions import TwitteableBotsNotFound, AllBotsInUse, NoTweetsOnQ
 from scrapper.exceptions import BotDetectedAsSpammerException, NoMoreAvailableProxiesForRegistration, \
     NoMoreAvailableProxiesForUsage
 from scrapper.thread_pool import ThreadPool
+from scrapper.utils import utc_now
 from twitter_bots import settings
 from threading import Lock
 mutex = Lock()
@@ -188,6 +189,16 @@ class TwitterBotManager(models.Manager):
             settings.LOGGER.info('There is no more pendant bots to complete')
             time.sleep(60)
 
+    def total_from_proxies_group(self, proxies_group):
+        # puede ser que un mismo bot esté registrado y usando el mismo proxy, así que quitamos twitterbots duplicados
+        return (self.using_on_proxies_group(proxies_group) | self.registered_by_proxies_group(proxies_group)).distinct()
+
+    def registered_by_proxies_group(self, proxies_group):
+        return self.filter(proxy_for_registration__proxies_group=proxies_group)
+
+    def using_on_proxies_group(self, proxies_group):
+        return self.filter(proxy__proxies_group=proxies_group)
+
 
 class ProxyManager(models.Manager):
     def get_txt_proxies(self):
@@ -233,7 +244,7 @@ class ProxyManager(models.Manager):
                 elif db_proxy.is_in_proxies_txts:
                     # si no está en los txt y estaba marcado como que estaba lo cambiamos
                     db_proxy.is_in_proxies_txts = False
-                    db_proxy.date_not_in_proxies_txts = datetime.datetime.utcnow()
+                    db_proxy.date_not_in_proxies_txts = utc_now()
                     db_proxy.save()
                     not_in_txts_proxies_count += 1
                     settings.LOGGER.info('Proxy %s @ %s marked as not appeared in proxies txts' % (db_proxy.proxy, db_proxy.proxy_provider))
@@ -263,37 +274,27 @@ class ProxyManager(models.Manager):
             is_unavailable_for_use=False,
         )
 
-        ids = []
+        available_proxies_for_usage_ids = []
 
-        # proxies sin bots
-        ids.extend([
-            result['id'] for result in proxies_base.filter(
-                twitter_bots_registered=None,
-                twitter_bots_using=None,
-            ).values('id')
-        ])
+        # cogemos todos los proxies sin bots
+        proxies_without_bots = proxies_base.filter(twitter_bots_registered=None, twitter_bots_using=None)
+        available_proxies_for_usage_ids.extend([result['id'] for result in proxies_without_bots.values('id')])
 
-        # proxies con bots
-        ids.extend([
-            result['id'] for result in
-                proxies_base\
+        # de los proxies con bots, cogemos los que cumplan todas estas características:
+        #   - que no tengan ningún robot muerto
+        proxies_with_bots = proxies_base.filter(twitter_bots_registered__is_dead=False, twitter_bots_using__is_dead=False)
+        #   - que tengan un número de bots para uso inferior al límite para el uso (usage)
+        proxies_with_bots = proxies_with_bots\
+            .annotate(num_bots=Count('twitter_bots_using'))\
+            .filter(num_bots__lt=settings.MAX_TWT_BOTS_PER_PROXY_FOR_USAGE)
+        available_proxies_for_usage_ids.extend([result['id'] for result in proxies_with_bots.values('id')])
 
-                # no tengan ningún robot muerto
-                .filter(twitter_bots_registered__is_dead=False, twitter_bots_using__is_dead=False)\
+        available_proxies_for_usage = self.filter(id__in=available_proxies_for_usage_ids)
 
-                # tengan un número de bots para uso inferior al límite
-                .annotate(num_bots=Count('twitter_bots_using'))\
-                .filter(num_bots__lt=settings.MAX_TWT_BOTS_PER_PROXY_FOR_USAGE)\
-
-                .values('id')
-        ])
-
-        available_proxies = self.filter(id__in=ids)
-
-        if not available_proxies:
+        if not available_proxies_for_usage:
             raise NoMoreAvailableProxiesForUsage()
 
-        return available_proxies
+        return available_proxies_for_usage
 
     def get_available_proxies_for_registration(self):
         """Devuelve proxies disponibles para registrar un bot"""
@@ -306,40 +307,57 @@ class ProxyManager(models.Manager):
             is_phone_required=False,
         )
 
-        ids = []
+        available_proxies_for_reg_ids = []
 
-        # proxies sin bots
-        ids.extend([
-            result['id'] for result in proxies_base.filter(
-                twitter_bots_registered=None,
-                twitter_bots_using=None,
-            ).values('id')
-        ])
+        # cogemos todos los proxies sin bots
+        proxies_without_bots = proxies_base.filter(twitter_bots_registered=None, twitter_bots_using=None)
+        available_proxies_for_reg_ids.extend([result['id'] for result in proxies_without_bots.values('id')])
 
-        # proxies con bots
-        min_allowed_registation_date_ago = datetime.datetime.now().replace(tzinfo=pytz.utc) - \
-                                       datetime.timedelta(days=settings.MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY)
-        ids.extend([
-            result['id'] for result in
-                proxies_base\
+        # de los proxies con bots cogemos los que cumplan todas estas características:
+        #   - que no tengan ningún robot muerto
+        proxies_with_bots = proxies_base\
+            .filter(twitter_bots_registered__is_dead=False, twitter_bots_using__is_dead=False)
+        #   - que tengan asignado una cantidad de bots para usage inferior al límite para el registro
+        proxies_with_bots = proxies_with_bots\
+            .annotate(num_bots=Count('twitter_bots_registered'))\
+            .filter(num_bots__lt=settings.MAX_TWT_BOTS_PER_PROXY_FOR_REGISTRATIONS)
+        #   - que el bot más recientemente creado sea igual o más antiguo que la fecha de ahora menos los días dados
+        datetime_days_ago = utc_now() - datetime.timedelta(days=settings.MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY)
+        proxies_with_bots = proxies_with_bots\
+            .annotate(latest_bot_date=Max('twitter_bots_registered__date'))\
+            .filter(latest_bot_date__lte=datetime_days_ago)
+        available_proxies_for_reg_ids.extend([result['id'] for result in proxies_with_bots.values('id')])
 
-                # no tengan ningún robot muerto
-                .filter(twitter_bots_registered__is_dead=False, twitter_bots_using__is_dead=False)\
+        available_proxies_for_reg = self.filter(id__in=available_proxies_for_reg_ids)
 
-                # tengan un número de bots inferior al límite
-                .annotate(num_bots=Count('twitter_bots_registered'))\
-                .filter(num_bots__lt=settings.MAX_TWT_BOTS_PER_PROXY_FOR_REGISTRATIONS)\
-
-                # bot más recientemente creado sea igual o más antiguo que la fecha mínima dado el intervalo
-                .annotate(latest_bot_date=Max('twitter_bots_registered__date'))\
-                .filter(latest_bot_date__lte=min_allowed_registation_date_ago)\
-
-                .values('id')
-        ])
-
-        available_proxies = self.filter(id__in=ids)
-
-        if not available_proxies:
+        if not available_proxies_for_reg:
             raise NoMoreAvailableProxiesForRegistration()
 
-        return available_proxies
+        return available_proxies_for_reg
+
+    def with_bots_registered(self, queryset=None):
+        # opcionalmente podemos pasarle una queryset para encadenar filtros, por ejemplo para usar
+        # esto con filtros personalizados en el admin de django
+        obj = queryset or self
+        return obj.filter(twitter_bots_registered__isnull=False).distinct()
+
+    def without_bots_registered(self, queryset=None):
+        obj = queryset or self
+        return obj.filter(twitter_bots_registered__isnull=True).distinct()
+
+    def with_bots_using(self, queryset=None):
+        obj = queryset or self
+        return obj.filter(twitter_bots_using__isnull=False).distinct()
+
+    def without_bots_using(self, queryset=None):
+        obj = queryset or self
+        return obj.filter(twitter_bots_using__isnull=True).distinct()
+
+    def with_bots(self, queryset=None):
+        """Devuelve todos aquellos proxies que estén o hayan sido usados por al menos un robot"""
+        obj = queryset or self
+        return obj.with_bots_registered() | obj.with_bots_using()
+
+    def without_bots(self, queryset=None):
+        obj = queryset or self
+        return obj.without_bots_registered() & obj.without_bots_using()

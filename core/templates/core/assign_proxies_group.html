@@ -1,0 +1,12 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+
+<p>Select proxies group to assign to selected bots:</p>
+<form action="" method="post">
+    {% csrf_token %}
+    {{ proxies_group_form }}
+    <input type="submit" name="apply" value="Assign" />
+</form>
+
+{% endblock %}

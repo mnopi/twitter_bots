@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
-import threading
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 import feedparser
-import pytz
 from scrapper.exceptions import TwitterEmailNotFound
 from scrapper.logger import get_browser_instance_id
 from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from scrapper.accounts.twitter import TwitterScrapper
 from core.managers import TwitterBotManager, ProxyManager
+from twitter_bots import settings
 from scrapper.utils import *
 
 
@@ -23,8 +22,6 @@ class TwitterBot(models.Model):
     password_email = models.CharField(max_length=20, null=False, blank=True)
     username = models.CharField(max_length=50, null=False, blank=True)
     date = models.DateTimeField(auto_now_add=True)
-    date_suspended_email = models.DateTimeField(null=True, blank=True)
-    date_suspended_twitter = models.DateTimeField(null=True, blank=True)
     birth_date = models.DateField(null=True, blank=True)
     # LOCATIONS = {
     #     (0, 'USA'),
@@ -40,8 +37,11 @@ class TwitterBot(models.Model):
     gender = models.IntegerField(max_length=1, choices=GENDERS, default=0)
 
     is_dead = models.BooleanField(default=False)
+    date_death = models.DateTimeField(null=True, blank=True)
     is_suspended = models.BooleanField(default=False)
+    date_suspended_twitter = models.DateTimeField(null=True, blank=True)
     is_suspended_email = models.BooleanField(default=False)
+    date_suspended_email = models.DateTimeField(null=True, blank=True)
     is_being_created = models.BooleanField(default=True)
     is_manually_registered = models.BooleanField(default=False)
     has_fast_mode = models.BooleanField(default=False)
@@ -112,7 +112,7 @@ class TwitterBot(models.Model):
         """Se marca como suspendido y se eliminan todos los tweets en la cola pendientes de enviar por ese robot"""
         from project.models import Tweet
         self.is_suspended = True
-        self.date_suspended = datetime.datetime.now()
+        self.date_suspended = utc_now()
         self.save()
         Tweet.objects.filter(sent_ok=False, bot_used=self).delete()
         settings.LOGGER.warning('User %s has marked as suspended on twitter. Tweet to send queue cleaned for him' % self.username)
@@ -161,7 +161,7 @@ class TwitterBot(models.Model):
 
     def complete_creation(self):
         if self.has_to_complete_creation():
-            t1 = datetime.datetime.utcnow()
+            t1 = utc_now()
             settings.LOGGER.info('Completing creation for bot %s behind proxy %s @ %s' %
                                  (self.username, self.proxy.proxy, self.proxy.proxy_provider))
 
@@ -246,7 +246,7 @@ class TwitterBot(models.Model):
                     settings.LOGGER.exception('Error closing browsers instances for bot %s' % self.username)
                     raise ex
 
-            t2 = datetime.datetime.utcnow()
+            t2 = utc_now()
             diff_secs = (t2 - t1).seconds
             settings.LOGGER.info('Bot "%s" completed sucessfully in %s seconds' % (self.username, diff_secs))
 
@@ -305,9 +305,8 @@ class TwitterBot(models.Model):
         bot_tweets = self.get_sent_ok_tweets()
         if bot_tweets:
             last_tweet = bot_tweets.latest('date_sent')
-            now_utc = datetime.datetime.now().replace(tzinfo=pytz.utc)
             random_seconds = random.randint(60*settings.TIME_BETWEEN_TWEETS[0], 60*settings.TIME_BETWEEN_TWEETS[1])  # entre 2 y 7 minutos por tweet
-            return (now_utc - last_tweet.date_sent).seconds >= random_seconds
+            return (utc_now() - last_tweet.date_sent).seconds >= random_seconds
         else:
             # si el bot no tuiteo nunca evidentemente el tiempo no tiene nada que ver
             return True
@@ -403,7 +402,7 @@ class TwitterBot(models.Model):
             self.scrapper.send_tweet(tweet)
             tweet.sending = False
             tweet.sent_ok = True
-            tweet.date_sent = datetime.datetime.now()
+            tweet.date_sent = utc_now()
             tweet.save()
         except Exception as e:
             tweet.delete()
@@ -430,6 +429,10 @@ class Proxy(models.Model):
     is_phone_required = models.BooleanField(default=False)
     date_phone_required = models.DateTimeField(null=True, blank=True)
 
+    # RELATIONSHIPS
+    from project.models import ProxiesGroup
+    proxies_group = models.ForeignKey(ProxiesGroup, related_name='proxies', null=True, blank=True)
+
     objects = ProxyManager()
 
     class Meta:
@@ -437,3 +440,6 @@ class Proxy(models.Model):
 
     def __unicode__(self):
         return '%s @ %s' % (self.proxy, self.proxy_provider)
+
+    def get_bots_using(self):
+        return self.__class__.objects.filter(twitter_bots_using__isnull=False)

@@ -11,8 +11,8 @@ import time
 from core.managers import mutex
 from core.models import TwitterBot
 from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted
-from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager
-from scrapper.utils import compare_datetimes, is_in_datetime_ago_interval, is_in_days_ago_interval
+from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager
+from scrapper.utils import is_gte_than_days_ago, utc_now
 from twitter_bots import settings
 
 
@@ -192,11 +192,10 @@ class TwitterUser(models.Model):
         try:
             if self.last_tweet_date:
                 # si ha tuiteado vemos lo viejo que es el último tweet
-                return is_in_days_ago_interval(self.last_tweet_date, settings.MAX_DAYS_SINCE_LAST_TWEET)
+                return is_gte_than_days_ago(self.last_tweet_date, settings.MAX_DAYS_SINCE_LAST_TWEET)
             else:
                 # si no ha tuiteado nunca, entonces vemos lo nuevo que es
-                return is_in_days_ago_interval(self.created_date,
-                                               settings.MAX_DAYS_SINCE_REGISTERED_ON_TWITTER_WITHOUT_TWEETS)
+                return is_gte_than_days_ago(self.created_date, settings.MAX_DAYS_SINCE_REGISTERED_ON_TWITTER_WITHOUT_TWEETS)
         except Exception as e:
             raise e
 
@@ -262,7 +261,7 @@ class Tweet(models.Model):
             self.bot_used.scrapper.login()
             self.bot_used.scrapper.send_tweet(self)
             self.sent_ok = True
-            self.date_sent = datetime.datetime.now()
+            self.date_sent = utc_now()
             self.save()
         except Exception as e:
             settings.LOGGER.exception('Error sending tweet (id: %i, bot: %s - %s)' %
@@ -285,7 +284,6 @@ class Link(models.Model):
     # si project es null es que es un link de algún feed
     project = models.ForeignKey(Project, null=True, blank=True, related_name='links')
     is_active = models.BooleanField(default=True)
-
 
     def __unicode__(self):
         return '%s @ %s' % (self.project.name, self.url) if self.project else self.url
@@ -436,7 +434,7 @@ class Extractor(models.Model):
             for page in cursor.pages():
                 mutex.acquire()
 
-                self.last_request_date = datetime.datetime.now()
+                self.last_request_date = utc_now()
                 self.save()
                 settings.LOGGER.info("""Retrieved @%s\'s follower page with cursor %i
                     \n\tNext cursor: %i
@@ -456,16 +454,14 @@ class Extractor(models.Model):
                             settings.LOGGER.info('New twitter user %s added to list' % twitter_user.__unicode__())
                         else:
                             settings.LOGGER.info('Twitter user %s inactive. LTD: %s, CD: %s' %
-                                                 (twitter_user.__unicode__(), twitter_user.last_tweet_date,
-                                                  twitter_user.created_date))
+                                                 (twitter_user.__unicode__(), twitter_user.last_tweet_date, twitter_user.created_date))
                     else:
                         follower = Follower(twitter_user=twitter_user, target_user=target_user)
                         follower_already_exists = Follower.objects.select_related('twitter_user', 'target_user').filter(
                             twitter_user=twitter_user, target_user=target_user).exists()
                         if follower_already_exists:
                             if skip_page_on_existing:
-                                settings.LOGGER.info(
-                                    'Follower %s already exists, skipping page..' % follower.__unicode__())
+                                settings.LOGGER.info('Follower %s already exists, skipping page..' % follower.__unicode__())
                                 num_page_breaks += 1
                                 break
                             else:
@@ -474,12 +470,12 @@ class Extractor(models.Model):
                             new_followers.append(follower)
                             settings.LOGGER.info('New follower %s added to list' % follower.__unicode__())
 
-                before_saving = datetime.datetime.now()
+                before_saving = utc_now()
                 time.sleep(2)  # para que se note la diferencia por si guarda muy rapido los twitterusers
                 TwitterUser.objects.bulk_create(new_twitter_users)
                 # pillamos todos los ids de los nuevos twitter_user creados
-                new_twitter_users_ids = TwitterUser.objects \
-                    .filter(date_saved__gt=before_saving) \
+                new_twitter_users_ids = TwitterUser.objects\
+                    .filter(date_saved__gt=before_saving)\
                     .values_list('id', flat=True)
 
                 mutex.release()
@@ -493,7 +489,7 @@ class Extractor(models.Model):
                 if num_page_breaks > settings.MAX_PAGE_BREAKS_EXTRACTING_FOLLOWERS:
                     # dejamos de extraer ese target user
                     target_user.next_cursor = None
-                    target_user.last_pagebreaks_date = datetime.datetime.now()
+                    target_user.last_pagebreaks_date = utc_now()
                     target_user.save()
                     settings.LOGGER.info('Exceeded %i page breaks limit extracting followers from %s' %
                                          (settings.MAX_PAGE_BREAKS_EXTRACTING_FOLLOWERS, target_user.username))
@@ -532,7 +528,7 @@ class Extractor(models.Model):
 
             mutex.acquire()
 
-            self.last_request_date = datetime.datetime.now()
+            self.last_request_date = utc_now()
             self.save()
             settings.LOGGER.info('Retrieved 100 tweets for hashtag "%s" (max_id=%s)' %
                                  (hashtag.q, str(hashtag.max_id)))
@@ -565,12 +561,12 @@ class Extractor(models.Model):
                             settings.LOGGER.info('New twitter user %s added for hashtag %s' %
                                                  (twitter_user.__unicode__(), hashtag.__unicode__()))
 
-            before_saving = datetime.datetime.now()
+            before_saving = utc_now()
             time.sleep(2)  # para que se note la diferencia por si guarda muy rapido los twitterusers
             TwitterUser.objects.bulk_create(new_twitter_users)
             # pillamos todos los ids de los nuevos twitter_user creados
-            new_twitter_users_ids = TwitterUser.objects \
-                .filter(date_saved__gt=before_saving) \
+            new_twitter_users_ids = TwitterUser.objects\
+                .filter(date_saved__gt=before_saving)\
                 .values_list('id', flat=True)
 
             mutex.release()
@@ -619,11 +615,7 @@ class Extractor(models.Model):
         """Si fue marcadado como rate limited se mira si pasaron más de 15 minutos.
         En ese caso se desmarca y se devielve True"""
         if self.is_rate_limited:
-            try:
-                seconds_lapsed = (datetime.datetime.now().replace(tzinfo=pytz.UTC) - self.last_request_date).seconds
-            except Exception:
-                seconds_lapsed = (datetime.datetime.now() - self.last_request_date).seconds
-
+            seconds_lapsed = (utc_now() - self.last_request_date).seconds
             if seconds_lapsed > self.minutes_window * 60:
                 self.is_rate_limited = False
                 self.save()
@@ -670,10 +662,10 @@ class TwitterUserHasHashtag(models.Model):
 
 class TweetImg(models.Model):
     # def get_img_path(self, filename):
-    # if self.pk:
-    # fileName, fileExtension = os.path.splitext(filename)
-    # path = '%s/photos/cat_%s/photo_%s.jpg' % \
-    # (self.country.upper(), self.category.id, self.id)
+    #     if self.pk:
+    #         fileName, fileExtension = os.path.splitext(filename)
+    #         path = '%s/photos/cat_%s/photo_%s.jpg' % \
+    #         (self.country.upper(), self.category.id, self.id)
     #     return prepend_env_folder(path)
 
     img = models.ImageField(upload_to='images', blank=True, null=True)
@@ -682,3 +674,19 @@ class TweetImg(models.Model):
 
     def __unicode__(self):
         return '%s @ %s' % (self.img.path, self.project.name)
+
+
+class ProxiesGroup(models.Model):
+    name = models.CharField(max_length=100, null=False, blank=False)
+    max_tw_bots_per_proxy_for_registration = models.PositiveIntegerField(null=False, blank=False)
+    max_tw_bots_per_proxy_for_usage = models.PositiveIntegerField(null=False, blank=False)
+    time_between_tweets = models.CharField(max_length=10, null=False, blank=False)  # '2-5' -> entre 2 y 5 minutos
+    max_num_mentions_per_tweet = models.PositiveIntegerField(null=False, blank=False)
+
+    # RELATIONSHIPS
+    projects = models.ManyToManyField(Project, related_name='proxies_groups', null=True, blank=True)
+
+    objects = ProxiesGroupManager()
+
+    def __unicode__(self):
+        return self.name
