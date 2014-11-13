@@ -41,7 +41,7 @@ INSTALLED_APPS = (
 MIDDLEWARE_CLASSES = (
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-    #'django.middleware.csrf.CsrfViewMiddleware',
+    # 'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -60,12 +60,12 @@ DATABASES = {
         "ENGINE": "django.db.backends.mysql",
         # "NAME": "twitter_bots
         "NAME": "twitter_bots_dev",
-        "USER": "mnopi",
+        "USER": "root",
         "PASSWORD": "1aragon1",
-        "HOST": "192.168.1.115",
+        "HOST": "localhost",
         # "HOST": "88.26.212.82",
         # "PASSWORD": "",
-        #  "HOST": "localhost",
+        # "HOST": "localhost",
         "PORT": "3306",
     }
 }
@@ -93,7 +93,6 @@ STATIC_URL = '/static/'
 MEDIA_ROOT = os.path.join(PROJECT_ROOT, 'media')
 
 AUTH_USER_MODEL = "core.User"
-
 
 LOGS_DIR = os.path.join(PROJECT_ROOT, 'logs')
 LOGGING = {
@@ -135,10 +134,9 @@ LOGGING = {
     }
 }
 
-
 import logging
-LOGGER = logging.getLogger('twitter_bots')
 
+LOGGER = logging.getLogger('twitter_bots')
 
 PROXY_PROVIDERS_ACCOUNTS = {
     'squidproxies': '31026:EB5x7cE9',
@@ -146,6 +144,7 @@ PROXY_PROVIDERS_ACCOUNTS = {
 }
 
 from scrapper.settings import *
+
 
 def set_logger(logger_name):
     # import copy
@@ -157,7 +156,16 @@ def set_logger(logger_name):
 
     import logging
     import logging.config
+
     logging.config.dictConfig(LOGGING)
     LOGGER = logging.getLogger(logger_name)
 
+
 SUPERVISOR_LOGS_DIR = os.path.join(LOGS_DIR, 'supervisor')
+
+SPANISH = 'es'
+ENGLISH = 'en'
+LANGUAGES = {
+    (SPANISH, 'Spanish'),
+    (ENGLISH, 'English'),
+}

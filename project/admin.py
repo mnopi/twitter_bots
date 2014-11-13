@@ -60,7 +60,7 @@ class TweetAdmin(admin.ModelAdmin):
         'sending',
         'sent_ok',
         'date_sent',
-        'link__platform'
+       # 'link__platform'
     )
     # ordering = ('-date',)
     # list_display_links = ('username',)
@@ -117,18 +117,24 @@ class ExtractorAdmin(admin.ModelAdmin):
         'mode',
     )
 
+class SubLinkInline(admin.TabularInline):
+    model = Sublink
+
 
 class LinkAdmin(admin.ModelAdmin):
     list_display = (
         'url',
         'project',
-        'platform',
+        #'platform',
         'is_active',
     )
 
     list_filter = (
         'project',
     )
+
+    inlines = [
+        SubLinkInline]
 
 
 # Register your models here.

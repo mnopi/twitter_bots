@@ -195,7 +195,8 @@ class TwitterUser(models.Model):
                 return is_in_days_ago_interval(self.last_tweet_date, settings.MAX_DAYS_SINCE_LAST_TWEET)
             else:
                 # si no ha tuiteado nunca, entonces vemos lo nuevo que es
-                return is_in_days_ago_interval(self.created_date, settings.MAX_DAYS_SINCE_REGISTERED_ON_TWITTER_WITHOUT_TWEETS)
+                return is_in_days_ago_interval(self.created_date,
+                                               settings.MAX_DAYS_SINCE_REGISTERED_ON_TWITTER_WITHOUT_TWEETS)
         except Exception as e:
             raise e
 
@@ -283,18 +284,35 @@ class Link(models.Model):
     url = models.URLField(null=False)
     # si project es null es que es un link de algún feed
     project = models.ForeignKey(Project, null=True, blank=True, related_name='links')
-    platform = models.IntegerField(null=True, blank=True, choices=TwitterUser.SOURCES, default=0)
     is_active = models.BooleanField(default=True)
 
+
     def __unicode__(self):
-        return '%s @ %s' % (self.project.name, self.get_platform_display()) if self.project else self.url
+        return '%s @ %s' % (self.project.name, self.url) if self.project else self.url
+
+
+class Sublink(models.Model):
+    IOS = 0
+    ANDROID = 1
+    DESKTOP = 2
+    PLATFORMS = (
+        (IOS, 'Ios'),
+        (ANDROID, 'Android'),
+        (DESKTOP, 'Escritorio')
+    )
+    url = models.URLField(null=False)
+    parent_link = models.ForeignKey(Link, related_name='sublinks')
+    platform = models.IntegerField(null=True, blank=True, choices=PLATFORMS, default=0)
+    language = models.CharField(max_length=2,
+                                choices=settings.LANGUAGES,
+                                default=settings.ENGLISH)
 
 
 class Extractor(models.Model):
-    #     consumer_key = "ESjshGwY13JIl3SLF4dLiQVDB"
-    #     consumer_secret = "QFD2w79cXOXoGOf1TDbcSxPEhVJWtjGhMHrFTkTiouwreg9nJ3"
-    #     access_token = "2532144721-eto2YywaV7KF0gmrHLhYSWiZ8X22xt8KuTItV83"
-    #     access_token_secret = "R6zdO3qVsLP0RuyTN25nCqfxvtCyUydOVzFn8NCzJezuG"
+    # consumer_key = "ESjshGwY13JIl3SLF4dLiQVDB"
+    # consumer_secret = "QFD2w79cXOXoGOf1TDbcSxPEhVJWtjGhMHrFTkTiouwreg9nJ3"
+    # access_token = "2532144721-eto2YywaV7KF0gmrHLhYSWiZ8X22xt8KuTItV83"
+    # access_token_secret = "R6zdO3qVsLP0RuyTN25nCqfxvtCyUydOVzFn8NCzJezuG"
     BASE_URL = 'https://api.twitter.com/1.1/'
 
     consumer_key = models.CharField(null=False, max_length=200)
@@ -361,7 +379,7 @@ class Extractor(models.Model):
         tw_user = self.api.get_user(screen_name=target_user.username)
         target_user.followers_count = tw_user.followers_count
         target_user.save()
-        
+
     def create_twitter_user_obj(self, tw_user_from_api):
         "tw_follower es el objeto devuelto por tweepy tras consultar la API"
         twitter_user = TwitterUser.objects.filter(twitter_id=tw_user_from_api.id)
@@ -438,14 +456,16 @@ class Extractor(models.Model):
                             settings.LOGGER.info('New twitter user %s added to list' % twitter_user.__unicode__())
                         else:
                             settings.LOGGER.info('Twitter user %s inactive. LTD: %s, CD: %s' %
-                                                 (twitter_user.__unicode__(), twitter_user.last_tweet_date, twitter_user.created_date))
+                                                 (twitter_user.__unicode__(), twitter_user.last_tweet_date,
+                                                  twitter_user.created_date))
                     else:
                         follower = Follower(twitter_user=twitter_user, target_user=target_user)
                         follower_already_exists = Follower.objects.select_related('twitter_user', 'target_user').filter(
                             twitter_user=twitter_user, target_user=target_user).exists()
                         if follower_already_exists:
                             if skip_page_on_existing:
-                                settings.LOGGER.info('Follower %s already exists, skipping page..' % follower.__unicode__())
+                                settings.LOGGER.info(
+                                    'Follower %s already exists, skipping page..' % follower.__unicode__())
                                 num_page_breaks += 1
                                 break
                             else:
@@ -458,8 +478,8 @@ class Extractor(models.Model):
                 time.sleep(2)  # para que se note la diferencia por si guarda muy rapido los twitterusers
                 TwitterUser.objects.bulk_create(new_twitter_users)
                 # pillamos todos los ids de los nuevos twitter_user creados
-                new_twitter_users_ids = TwitterUser.objects\
-                    .filter(date_saved__gt=before_saving)\
+                new_twitter_users_ids = TwitterUser.objects \
+                    .filter(date_saved__gt=before_saving) \
                     .values_list('id', flat=True)
 
                 mutex.release()
@@ -549,8 +569,8 @@ class Extractor(models.Model):
             time.sleep(2)  # para que se note la diferencia por si guarda muy rapido los twitterusers
             TwitterUser.objects.bulk_create(new_twitter_users)
             # pillamos todos los ids de los nuevos twitter_user creados
-            new_twitter_users_ids = TwitterUser.objects\
-                .filter(date_saved__gt=before_saving)\
+            new_twitter_users_ids = TwitterUser.objects \
+                .filter(date_saved__gt=before_saving) \
                 .values_list('id', flat=True)
 
             mutex.release()
@@ -603,7 +623,7 @@ class Extractor(models.Model):
                 seconds_lapsed = (datetime.datetime.now().replace(tzinfo=pytz.UTC) - self.last_request_date).seconds
             except Exception:
                 seconds_lapsed = (datetime.datetime.now() - self.last_request_date).seconds
-                
+
             if seconds_lapsed > self.minutes_window * 60:
                 self.is_rate_limited = False
                 self.save()
@@ -650,10 +670,10 @@ class TwitterUserHasHashtag(models.Model):
 
 class TweetImg(models.Model):
     # def get_img_path(self, filename):
-    #     if self.pk:
-    #         fileName, fileExtension = os.path.splitext(filename)
-    #         path = '%s/photos/cat_%s/photo_%s.jpg' % \
-    #         (self.country.upper(), self.category.id, self.id)
+    # if self.pk:
+    # fileName, fileExtension = os.path.splitext(filename)
+    # path = '%s/photos/cat_%s/photo_%s.jpg' % \
+    # (self.country.upper(), self.category.id, self.id)
     #     return prepend_env_folder(path)
 
     img = models.ImageField(upload_to='images', blank=True, null=True)
