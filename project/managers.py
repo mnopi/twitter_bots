@@ -2,14 +2,12 @@
 
 import time
 import random
-import datetime
-from django.db.models import Count
-import pytz
 from tweepy import TweepError
-from core.models import TwitterBot
-from project.exceptions import RateLimitedException, AllFollowersExtracted, TwitteableBotsNotFound, AllBotsInUse, \
+from core.managers import MyManager
+from project.exceptions import RateLimitedException, AllFollowersExtracted, AllBotsInUse, \
     NoTweetsOnQueue
-from scrapper.utils import get_thread_name, utc_now, is_lte_than_seconds_ago
+from project.querysets import ProjectQuerySet, TwitterUserQuerySet, TweetQuerySet
+from scrapper.utils import get_thread_name, is_lte_than_seconds_ago
 from twitter_bots import settings
 from django.db import models
 
@@ -19,15 +17,10 @@ class TargetUserManager(models.Manager):
         target_user_created = super(TargetUserManager, self).create(**kwargs)
         target_user_created.complete_creation()
 
-    def get_available_to_extract(self):
-        return self.filter(is_active=True, projects__is_running=True).exclude(next_cursor=None)
-
 
 class TweetManager(models.Manager):
-    def get_sent_ok(self):
-        return self.filter(sent_ok=True)
-
     def all_sent_ok(self):
+        "Devuelve si en BD todos los tweets están marcados como enviados"
         return self.get_sent_ok().count() == self.all().count()
 
     def clean_not_sent_ok(self):
@@ -37,9 +30,6 @@ class TweetManager(models.Manager):
     def put_sending_to_not_sending(self):
         self.filter(sending=True).update(sending=False)
         settings.LOGGER.info('All previous sending tweets were set to not sending')
-
-    def get_queued_to_send(self):
-        return self.filter(sending=False, sent_ok=False)
 
     def get_tweet_ready_to_send(self):
         """Saca de la cola los tweets que se puedan enviar
@@ -75,22 +65,77 @@ class TweetManager(models.Manager):
                 raise e
 
     def create_tweets_to_send(self):
-        twitteable_bots = TwitterBot.objects.get_all_twitteable_bots().all()
+        """Crea los tweets a encolar para cada bot disponible"""
+        from project.models import Project
+        from core.models import TwitterBot
 
-        if twitteable_bots:
-            for bot in twitteable_bots:
-                bot.make_mention_tweet_to_send()
+        if Project.objects.running().exists():
+            bots = TwitterBot.objects.twitteable().using_in_running_projects().without_tweet_to_send_queue_full()
+            if bots.exists():
+                for bot in bots:
+                    bot.make_mention_tweet_to_send()
+            else:
+                bots = TwitterBot.objects.twitteable().using_in_running_projects()
+                if bots:
+                    settings.LOGGER.info('Tweet to send queue full for all twitteable bots at this moment. Waiting %d seconds..'
+                                         % settings.TIME_WAITING_FREE_QUEUE)
+                    time.sleep(settings.TIME_WAITING_FREE_QUEUE)
+                else:
+                    settings.LOGGER.error('No twitteable bots available for running projects. Waiting %d seconds..'
+                                          % settings.TIME_WAITING_NEW_TWITTEABLE_BOTS)
         else:
-            raise TwitteableBotsNotFound
+            settings.LOGGER.warning('No projects running at this moment')
+
+
+        #
+        #
+        #
+        # # entre los proyectos en ejecución y ordenados de menor a mayor número de tweets pendientes de enviar..
+        # active_projects = Project.objects.running().order_by__queued_tweets()
+        # if active_projects.exists():
+        #     for project in active_projects:
+        #         project_twitteable_bots = project.get_twitteable_bots()
+        #         if project_twitteable_bots.exists():
+        #             for bot in project_twitteable_bots:
+        #                 bot.make_mention_tweet_to_send()
+        #         else:
+        #             settings.LOGGER.warning('Project %s has no twitteable bots now' % project.__unicode__())
+        # else:
+        #     settings.LOGGER.error('No active projects at this moment')
+        #     raise Exception()
+
+    #
+    # proxy queryset methods
+    #
+
+    def get_queryset(self):
+        return TweetQuerySet(self.model, using=self._db)
+
+    def sent_ok(self):
+        return self.get_queryset().sent_ok()
+
+    def queued_to_send(self):
+        return self.get_queryset().queued_to_send()
 
 
 class ProjectManager(models.Manager):
-    def get_pending_to_process(self):
-        "Devuelve todos los proyectos activos que tengan followers por mencionar"
-        return self\
-            .filter(running=True)\
-            .annotate(unmentioned_users_count=Count('target_users__followers__twitter_user__mentions'))\
-            .filter(unmentioned_users_count__gt=0)
+    #
+    # PROXY QS
+    #
+    def get_queryset(self):
+        return ProjectQuerySet(self.model, using=self._db)
+
+    def running(self):
+        return self.get_query_set().running()
+
+    def with_bot(self, bot):
+        return self.get_queryset().with_bot(bot)
+
+    def with_unmentioned_users(self):
+        return self.get_query_set().with_unmentioned_users()
+
+    def order_by__queued_tweets(self, direction=''):
+        return self.get_query_set().order_by__queued_tweets(direction)
 
 
 class ExtractorManager(models.Manager):
@@ -106,19 +151,6 @@ class ExtractorManager(models.Manager):
                              (self.display_extractor_mode(mode),
                               extractor.twitter_bot.username,
                               extractor.twitter_bot.proxy.__unicode__()))
-
-    def get_available_extractors(self, mode):
-
-        available_extractors = [
-            extractor for extractor in self.filter(mode=mode) if extractor.is_available()
-        ]
-
-        if not available_extractors:
-            last_used_extractor = self.latest('last_request_date')
-            settings.LOGGER.warning('No available %s extractors at this moment. Last used was %s at %s' %
-                                    (self.display_extractor_mode(mode), last_used_extractor.twitter_bot.username,
-                                     last_used_extractor.last_request_date))
-        return available_extractors
 
     def extract_followers(self):
         from .models import Extractor
@@ -157,6 +189,72 @@ class ExtractorManager(models.Manager):
         time.sleep(random.randint(5, 15))
 
 
-class ProxiesGroupManager(models.Manager):
+class ProxiesGroupManager(MyManager):
     pass
 
+
+class TwitterUserManager(MyManager):
+    def get_unmentioned_on_project(self, project, limit=None):
+    #     """Saca usuarios totales para el proyecto menos los que fueron mencionados"""
+    #     mentioned_pks = self.mentioned_on_project(project).values_list('id', flat=True)
+    #     return self.for_project(project).exclude(pk__in=mentioned_pks).distinct()
+        return self.raw_as_qs("""
+            SELECT total_project_users.id
+            FROM
+                (
+                    (
+                        select project_twitteruser.id, project_twitteruser.last_tweet_date
+                        from project_twitteruser
+                        LEFT OUTER JOIN project_follower ON (project_twitteruser.id = project_follower.twitter_user_id)
+                        LEFT OUTER JOIN project_targetuser ON (project_follower.target_user_id = project_targetuser.id)
+                        LEFT OUTER JOIN project_project_target_users ON (project_targetuser.id = project_project_target_users.targetuser_id)
+                        WHERE project_project_target_users.project_id = %(project_pk)d
+                    )
+                    union
+                    (
+                        select project_twitteruser.id, project_twitteruser.last_tweet_date
+                        from project_twitteruser
+                        LEFT OUTER JOIN project_twitteruserhashashtag ON (project_twitteruser.id = project_twitteruserhashashtag.twitter_user_id)
+                        LEFT OUTER JOIN project_hashtag ON (project_twitteruserhashashtag.hashtag_id = project_hashtag.id)
+                        LEFT OUTER JOIN project_project_hashtags ON (project_hashtag.id = project_project_hashtags.hashtag_id)
+                        WHERE project_project_hashtags.project_id = %(project_pk)d
+                    )
+                ) total_project_users
+            LEFT OUTER JOIN project_tweet_mentioned_users ON (total_project_users.id = project_tweet_mentioned_users.twitteruser_id)
+            WHERE project_tweet_mentioned_users.tweet_id IS NULL
+            ORDER BY total_project_users.last_tweet_date DESC
+            %(limit)s
+            """ %
+            {
+                'project_pk': project.pk,
+                'limit': 'LIMIT %d' % limit if limit else ''
+            }
+        )
+
+    # PROXY QUERYSET
+    def get_queryset(self):
+        return TwitterUserQuerySet(self.model, using=self._db)
+
+    def for_project(self, project):
+        return self.get_queryset().for_project(project)
+
+    def mentioned(self):
+        return self.get_queryset().mentioned()
+
+    def unmentioned(self):
+        return self.get_queryset().unmentioned()
+
+    def mentioned_on_project(self, project):
+        return self.get_queryset().mentioned_on_project(project)
+
+    def unmentioned_on_project(self, project):
+        return self.get_queryset().unmentioned_on_project(project)
+
+    def mentioned_by_bot(self, bot):
+        return self.get_queryset().mentioned_by_bot(bot)
+
+    def unmentioned_by_bot(self, bot):
+        return self.get_queryset().unmentioned_by_bot(bot)
+
+    def mentioned_by_bot_on_project(self, *args):
+        return self.get_queryset().mentioned_by_bot_on_project(*args)

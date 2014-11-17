@@ -1,23 +1,51 @@
 # -*- coding: utf-8 -*-
-import multiprocessing
-import random
-from django.db.models import Count, Q, Max
+from django.db.models import Count, Q, Max, Manager
+from django.db.models.query import QuerySet
 import os
 import time
-import threading
-import datetime
 
 from django.db import models, connection
-import pytz
-from project.exceptions import TwitteableBotsNotFound, AllBotsInUse, NoTweetsOnQueue
-from scrapper.exceptions import BotDetectedAsSpammerException, NoMoreAvailableProxiesForRegistration, \
-    NoMoreAvailableProxiesForUsage
+from core.querysets import TwitterBotQuerySet, ProxyQuerySet
 from scrapper.thread_pool import ThreadPool
 from scrapper.utils import utc_now
 from twitter_bots import settings
 from threading import Lock
 mutex = Lock()
 
+
+# https://djangosnippets.org/snippets/562/
+# https://gist.github.com/allanlei/1090982
+# class CustomManager(Manager):
+    # def __init__(self, qs_class=models.query.QuerySet):
+    #     super(CustomManager,self).__init__()
+    #     self.queryset_class = qs_class
+    #
+    # def get_query_set(self):
+    #     return self.queryset_class(self.model)
+    #
+    # def __getattr__(self, attr, *args):
+    #     try:
+    #         return getattr(self.__class__, attr, *args)
+    #     except AttributeError:
+    #         return getattr(self.get_query_set(), attr, *args)
+
+class MyManager(Manager):
+    def raw_as_qs(self, raw_query, params=()):
+        """Execute a raw query and return a QuerySet.  The first column in the
+        result set must be the id field for the model.
+        :type raw_query: str | unicode
+        :type params: tuple[T] | dict[str | unicode, T]
+        :rtype: django.db.models.query.QuerySet
+        """
+        cursor = connection.cursor()
+        try:
+            cursor.execute(raw_query, params)
+            return self.filter(id__in=(x[0] for x in cursor))
+        finally:
+            cursor.close()
+
+
+# para cosas de multiproceso, donde había que llamar al método fuera de la clase
 # def unwrap_self_send_tweet(*args):
 #     from models import TwitterBot
 #     return TwitterBot.objects.send_tweet(*args)
@@ -25,8 +53,9 @@ mutex = Lock()
 # def f(task_num, lock):
 #     print task_num
 
+
 class TwitterBotManager(models.Manager):
-    def  create_bot(self, **kwargs):
+    def create_bot(self, **kwargs):
         try:
             connection.close()
             mutex.acquire()
@@ -38,11 +67,11 @@ class TwitterBotManager(models.Manager):
         bot.complete_creation()
 
     def create_bots(self, num_bots=None):
-        self.clean_unregistered_bots()
+        self.clean_unregistered()
         self.put_previous_being_created_to_false()
 
         from core.models import Proxy
-        proxies = Proxy.objects.get_available_proxies_for_registration()
+        proxies = Proxy.objects.available_for_registration()
 
         settings.LOGGER.info('Found %i avaiable proxies to create bots at this moment' % len(proxies))
 
@@ -62,74 +91,14 @@ class TwitterBotManager(models.Manager):
         # for thread in threads:
         #     thread.join()
 
-    def clean_unregistered_bots(self):
-        unregistered = self.get_unregistered_bots()
+    def clean_unregistered(self):
+        unregistered = self.unregistered()
         if unregistered.exists():
             settings.LOGGER.warning('Found %s unregistered bots and will be deleted' % unregistered.count())
             unregistered.delete()
 
     def put_previous_being_created_to_false(self):
         self.filter(is_being_created=True).update(is_being_created=False)
-
-    def get_unregistered_bots(self):
-        return self.filter(email_registered_ok=False, twitter_registered_ok=False)
-
-    def get_uncompleted_bots(self):
-        """Devuelve todos los robots pendientes de terminar registros, perfil, etc"""
-        return self.get_all_active_bots(take_suspended=True).filter(
-            Q(twitter_registered_ok=False) |
-            Q(twitter_confirmed_email_ok=False) |
-            Q(twitter_avatar_completed=False) |
-            Q(twitter_bio_completed=False) |
-            Q(is_suspended=True)
-        ).order_by('-date')
-
-    def get_one_bot_with_tweet_to_send(self):
-        """
-        devuelve la tupla (bot, tweet) que el primer bot pueda tuitear. En caso de no poderse
-        construir el tweet con ningún bot entonces se lanza excepción
-        """
-        for bot in self.get_all_twitteable_bots().all():
-            tweet_to_send = bot.make_mention_tweet_to_send()
-            if tweet_to_send:
-                return bot, tweet_to_send
-
-        raise TwitteableBotsNotFound()
-
-    def get_all_active_bots(self, take_suspended=False):
-        """Escoge todos los bots que se puedan usar, incluyendo completos e incompletos,
-        pero que al menos tengan el correo registrado, con proxy ok y que no estén siendo creados"""
-        bots = self.filter(
-                webdriver='PH',
-                is_suspended_email=False,
-                email_registered_ok=True,
-            )\
-            .exclude(proxy__proxy='tor')\
-            .exclude(proxy__is_unavailable_for_registration=True)\
-            .exclude(proxy__is_unavailable_for_use=True)\
-            .exclude(proxy__is_phone_required=True)\
-            .exclude(is_being_created=True)
-
-        if not take_suspended:
-            bots = bots.filter(is_suspended=False)
-
-        return bots
-
-    def get_completed_bots(self):
-        """De los bots que toma devuelve sólo aquellos que estén completamente creados"""
-        return self.get_all_active_bots()\
-            .filter(
-                twitter_confirmed_email_ok=True,
-                twitter_avatar_completed=True,
-                twitter_bio_completed=True,
-            )
-
-    def get_all_twitteable_bots(self):
-        """
-        Entre los completamente creados coge los que no sean extractores, para evitar que twitter detecte
-        actividad múltiple desde misma cuenta
-        """
-        return self.get_completed_bots().filter(extractor=None)
 
     def send_tweet_from_pending_queue(self):
         """Escoge un tweet pendiente de enviar cuyo robot no esté enviando actualmente"""
@@ -177,9 +146,9 @@ class TwitterBotManager(models.Manager):
         # for thread in threads:
         #     thread.join()
 
-    def complete_pendant_bot_creations(self):
+    def finish_creations(self):
         """Mira qué robots aparecen incompletos y termina de hacer en cada uno lo que quede"""
-        uncompleted_bots = self.get_uncompleted_bots()
+        uncompleted_bots = self.uncompleted()
         if uncompleted_bots.exists():
             pool = ThreadPool(settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
             for bot in uncompleted_bots.all():
@@ -189,18 +158,57 @@ class TwitterBotManager(models.Manager):
             settings.LOGGER.info('There is no more pendant bots to complete')
             time.sleep(60)
 
+    #
+    # Proxy methods to queryset
+    #
+
+    def get_queryset(self):
+        return TwitterBotQuerySet(self.model, using=self._db)
+
+    def unregistered(self):
+        return self.get_queryset().unregistered()
+
+    def usable(self):
+        return self.get_queryset().usable()
+
+    def registrable(self):
+        return self.get_queryset().registrable()
+
+    def with_valid_proxy_for_registration(self):
+        return self.get_queryset().with_valid_proxy_for_registration()
+
+    def with_valid_proxy_for_usage(self):
+        return self.get_queryset().with_valid_proxy_for_usage()
+
+    def uncompleted(self):
+        return self.get_queryset().uncompleted()
+
+    def completed(self):
+        return self.get_queryset().completed()
+
+    def twitteable(self):
+        return self.get_queryset().twitteable()
+
+    def without_tweet_to_send_queue_full(self):
+        return self.get_queryset().without_tweet_to_send_queue_full()
+
     def total_from_proxies_group(self, proxies_group):
-        # puede ser que un mismo bot esté registrado y usando el mismo proxy, así que quitamos twitterbots duplicados
-        return (self.using_on_proxies_group(proxies_group) | self.registered_by_proxies_group(proxies_group)).distinct()
+        return self.get_queryset().total_from_proxies_group(proxies_group)
 
     def registered_by_proxies_group(self, proxies_group):
-        return self.filter(proxy_for_registration__proxies_group=proxies_group)
+        return self.get_queryset().registered_by_proxies_group(proxies_group)
 
-    def using_on_proxies_group(self, proxies_group):
-        return self.filter(proxy__proxies_group=proxies_group)
+    def using_proxies_group(self, proxies_group):
+        return self.get_queryset().using_proxies_group(proxies_group)
+
+    def using_in_project(self, project):
+        return self.get_queryset().using_in_project(project)
+
+    def using_in_running_projects(self):
+        return self.get_queryset().using_in_running_projects()
 
 
-class ProxyManager(models.Manager):
+class ProxyManager(MyManager):
     def get_txt_proxies(self):
         """Devuelve una lista de todos los proxies metidos en los .txt"""
         txt_proxies = []
@@ -265,99 +273,14 @@ class ProxyManager(models.Manager):
         check_not_in_proxies_txts()
         add_new_proxies()
 
-    def get_available_proxies_for_usage(self):
-        """Devuelve proxies disponibles para iniciar sesión con bot y tuitear etc"""
+    def get_proxy_providers(self):
+        "Devuelve la lista "
 
-        # base de proxies aptos usar robots ya registrados
-        proxies_base = self.filter(
-            is_in_proxies_txts=True,
-            is_unavailable_for_use=False,
-        )
+    #
+    # PROXY QUERYSET
+    #
 
-        available_proxies_for_usage_ids = []
+    def get_queryset(self):
+        return ProxyQuerySet(self.model, using=self._db)
 
-        # cogemos todos los proxies sin bots
-        proxies_without_bots = proxies_base.filter(twitter_bots_registered=None, twitter_bots_using=None)
-        available_proxies_for_usage_ids.extend([result['id'] for result in proxies_without_bots.values('id')])
 
-        # de los proxies con bots, cogemos los que cumplan todas estas características:
-        #   - que no tengan ningún robot muerto
-        proxies_with_bots = proxies_base.filter(twitter_bots_registered__is_dead=False, twitter_bots_using__is_dead=False)
-        #   - que tengan un número de bots para uso inferior al límite para el uso (usage)
-        proxies_with_bots = proxies_with_bots\
-            .annotate(num_bots=Count('twitter_bots_using'))\
-            .filter(num_bots__lt=settings.MAX_TWT_BOTS_PER_PROXY_FOR_USAGE)
-        available_proxies_for_usage_ids.extend([result['id'] for result in proxies_with_bots.values('id')])
-
-        available_proxies_for_usage = self.filter(id__in=available_proxies_for_usage_ids)
-
-        if not available_proxies_for_usage:
-            raise NoMoreAvailableProxiesForUsage()
-
-        return available_proxies_for_usage
-
-    def get_available_proxies_for_registration(self):
-        """Devuelve proxies disponibles para registrar un bot"""
-
-        # base de proxies aptos para el registro
-        proxies_base = self.filter(
-            is_in_proxies_txts=True,
-            is_unavailable_for_registration=False,
-            is_unavailable_for_use=False,
-            is_phone_required=False,
-        )
-
-        available_proxies_for_reg_ids = []
-
-        # cogemos todos los proxies sin bots
-        proxies_without_bots = proxies_base.filter(twitter_bots_registered=None, twitter_bots_using=None)
-        available_proxies_for_reg_ids.extend([result['id'] for result in proxies_without_bots.values('id')])
-
-        # de los proxies con bots cogemos los que cumplan todas estas características:
-        #   - que no tengan ningún robot muerto
-        proxies_with_bots = proxies_base\
-            .filter(twitter_bots_registered__is_dead=False, twitter_bots_using__is_dead=False)
-        #   - que tengan asignado una cantidad de bots para usage inferior al límite para el registro
-        proxies_with_bots = proxies_with_bots\
-            .annotate(num_bots=Count('twitter_bots_registered'))\
-            .filter(num_bots__lt=settings.MAX_TWT_BOTS_PER_PROXY_FOR_REGISTRATIONS)
-        #   - que el bot más recientemente creado sea igual o más antiguo que la fecha de ahora menos los días dados
-        datetime_days_ago = utc_now() - datetime.timedelta(days=settings.MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY)
-        proxies_with_bots = proxies_with_bots\
-            .annotate(latest_bot_date=Max('twitter_bots_registered__date'))\
-            .filter(latest_bot_date__lte=datetime_days_ago)
-        available_proxies_for_reg_ids.extend([result['id'] for result in proxies_with_bots.values('id')])
-
-        available_proxies_for_reg = self.filter(id__in=available_proxies_for_reg_ids)
-
-        if not available_proxies_for_reg:
-            raise NoMoreAvailableProxiesForRegistration()
-
-        return available_proxies_for_reg
-
-    def with_bots_registered(self, queryset=None):
-        # opcionalmente podemos pasarle una queryset para encadenar filtros, por ejemplo para usar
-        # esto con filtros personalizados en el admin de django
-        obj = queryset or self
-        return obj.filter(twitter_bots_registered__isnull=False).distinct()
-
-    def without_bots_registered(self, queryset=None):
-        obj = queryset or self
-        return obj.filter(twitter_bots_registered__isnull=True).distinct()
-
-    def with_bots_using(self, queryset=None):
-        obj = queryset or self
-        return obj.filter(twitter_bots_using__isnull=False).distinct()
-
-    def without_bots_using(self, queryset=None):
-        obj = queryset or self
-        return obj.filter(twitter_bots_using__isnull=True).distinct()
-
-    def with_bots(self, queryset=None):
-        """Devuelve todos aquellos proxies que estén o hayan sido usados por al menos un robot"""
-        obj = queryset or self
-        return obj.with_bots_registered() | obj.with_bots_using()
-
-    def without_bots(self, queryset=None):
-        obj = queryset or self
-        return obj.without_bots_registered() & obj.without_bots_using()

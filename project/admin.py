@@ -34,21 +34,25 @@ class TargetUserAdmin(admin.ModelAdmin):
 
 
 class ProjectProxiesGroupInline(admin.TabularInline):
-        model = ProxiesGroup.projects.through
+    model = ProxiesGroup.projects.through
 
+class ProjectLinkInline(admin.TabularInline):
+    model = Link
 
 class ProjectAdmin(admin.ModelAdmin):
     list_display = (
         'name',
-        # 'display_sent_tweets_android',
     )
 
     search_fields = ('name',)
     list_display_links = ('name',)
 
+
     inlines = [
         ProjectProxiesGroupInline,
+        ProjectLinkInline
     ]
+
 
 class TweetAdmin(admin.ModelAdmin):
     list_display = (
@@ -147,9 +151,11 @@ class LinkAdmin(admin.ModelAdmin):
 class ProxiesGroupAdmin(admin.ModelAdmin):
     list_display = (
         'name',
+
         'total_bots_count',
         'bots_registered_count',
         'bots_using_count',
+
         'max_tw_bots_per_proxy_for_registration',
         'max_tw_bots_per_proxy_for_usage',
         'time_between_tweets',
@@ -157,13 +163,16 @@ class ProxiesGroupAdmin(admin.ModelAdmin):
     )
 
     def total_bots_count(self, obj):
+        from core.models import TwitterBot
         return TwitterBot.objects.total_from_proxies_group(obj).count()
 
     def bots_registered_count(self, obj):
+        from core.models import TwitterBot
         return TwitterBot.objects.registered_by_proxies_group(obj).count()
 
     def bots_using_count(self, obj):
-        return TwitterBot.objects.using_on_proxies_group(obj).count()
+        from core.models import TwitterBot
+        return TwitterBot.objects.using_proxies_group(obj).count()
 
     exclude = ('projects',)
 

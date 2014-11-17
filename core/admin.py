@@ -16,28 +16,10 @@ class MyUserAdmin(UserAdmin):
     form = MyUserChangeForm
 
 
-class ValidBotListFilter(admin.SimpleListFilter):
-    title = 'Bot type'
-    parameter_name = 'bot_type'
-
-    def lookups(self, request, model_admin):
-        return (
-            ('completed', 'completed'),
-            ('uncompleted', 'uncompleted'),
-            ('unregistered', 'unregistered'),
-        )
-
-    def queryset(self, request, queryset):
-        if self.value() == 'uncompleted':
-            return TwitterBot.objects.get_uncompleted_bots()
-        if self.value() == 'completed':
-            return TwitterBot.objects.get_completed_bots()
-        if self.value() == 'unregistered':
-            return TwitterBot.objects.get_unregistered_bots()
-
 class TwitterBotAdmin(admin.ModelAdmin):
     list_display = (
         'username',
+        'get_group',
         'is_being_created',
         'is_dead',
         'is_suspended',
@@ -50,7 +32,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'twitter_bio_completed',
         'date',
         'proxy_for_registration',
-        'proxy',
+        'proxy_for_usage',
         # 'user_agent',
         'webdriver',
     )
@@ -58,9 +40,50 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'real_name',
         'username',
         'email',
-        'proxy__proxy',
-        'proxy__proxy_provider',
+        'proxy_for_registration__proxy',
+        'proxy_for_registration__proxy_provider',
+        'proxy_for_usage__proxy',
+        'proxy_for_usage__proxy_provider',
     )
+
+    class ValidBotListFilter(admin.SimpleListFilter):
+        title = 'Bot type'
+        parameter_name = 'bot_type'
+
+        def lookups(self, request, model_admin):
+            return (
+                ('completed', 'completed'),
+                ('pendant_to_finish_creation', 'pendant_to_finish_creation'),
+                ('unregistered', 'unregistered'),
+            )
+
+        def queryset(self, request, queryset):
+            if self.value() == 'pendant_to_finish_creation':
+                return queryset.uncompleted()
+            if self.value() == 'completed':
+                return queryset.completed()
+            if self.value() == 'unregistered':
+                return queryset.unregistered()
+
+    # todo: poder filtrar por proxy_provider tanto para proxies de registro como de uso
+    # class ProxyProviderListFilter(admin.SimpleListFilter):
+    #     title = 'Proxy provider'
+    #     parameter_name = 'proxy_provider'
+    #
+    #     def lookups(self, request, model_admin):
+    #         return ((provider, provider) for provider in Proxy.objects.get_providers())
+    #
+    #     def queryset(self, request, queryset):
+    #         provider_name = self.value()
+    #         return queryset.
+    #         for provider_name in Proxy.objects.get_providers():
+    #             if self.value() == provider_name:
+    #                 return queryset.uncompleted()
+    #         if self.value() == 'completed':
+    #             return queryset.completed()
+    #         if self.value() == 'unregistered':
+    #             return queryset.unregistered()
+
     list_filter = (
         ValidBotListFilter,
         'webdriver',
@@ -68,10 +91,11 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'is_dead',
         'is_suspended',
         'is_suspended_email',
-        'proxy__proxy_provider',
     )
     ordering = ('-date',)
-    list_display_links = ('username',)
+    list_display_links = (
+        'username',
+    )
 
     actions = [
         'open_browser_instance',
@@ -147,7 +171,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
 
     def create_new_bot(self, request, queryset):
         try:
-            TwitterBot.objects.clean_unregistered_bots()
+            TwitterBot.objects.clean_unregistered()
             TwitterBot.objects.create_bot()
             self.message_user(request, "Bot created successfully")
         except Exception:
@@ -284,7 +308,7 @@ class ProxyAdmin(admin.ModelAdmin):
 
         def queryset(self, request, queryset):
             if self.value() == 'bots_registered':
-                return Proxy.objects.with_bots_registered(queryset)
+                return Proxy.objects.with_bots_registered()
             if self.value() == 'no_bots_registered':
                 return Proxy.objects.without_bots_registered()
 

@@ -1,17 +1,13 @@
 # -*- coding: utf-8 -*-
 
-
-import datetime
 from django.db import models
 from django.db.models import Count, Q
-import pytz
 import simplejson
 import tweepy
 import time
-from core.managers import mutex
-from core.models import TwitterBot
 from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted
-from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager
+from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
+    TwitterUserManager
 from scrapper.utils import is_gte_than_days_ago, utc_now
 from twitter_bots import settings
 
@@ -32,51 +28,91 @@ class Project(models.Model):
 
     # GETTERS
 
-    def get_tweets_pending_to_send(self):
-        return Tweet.objects.filter(project=self, sent_ok=False, sending=False)
+    def get_twitter_users_unmentioned_by_bot(self, bot, limit=None):
+        return TwitterUser.objects.raw("""SELECT
+                #count(DISTINCT total_project_users.id) as count
+                #DISTINCT(total_project_users.id), total_project_users.created_date
+                distinct(total_project_users.id)
+            FROM
+            (
+                (
+                    select project_twitteruser.id, project_twitteruser.last_tweet_date from
+                    project_twitteruser
+                        LEFT OUTER JOIN
+                    project_follower ON (project_twitteruser.id = project_follower.twitter_user_id)
+                        LEFT OUTER JOIN
+                    project_targetuser ON (project_follower.target_user_id = project_targetuser.id)
+                        LEFT OUTER JOIN
+                    project_project_target_users ON (project_targetuser.id = project_project_target_users.targetuser_id)
+                    WHERE project_project_target_users.project_id = %(project_id)d
+                )
+                union all
+                (
+                    select project_twitteruser.id, project_twitteruser.last_tweet_date from
+                    project_twitteruser
+                        LEFT OUTER JOIN
+                    project_twitteruserhashashtag ON (project_twitteruser.id = project_twitteruserhashashtag.twitter_user_id)
+                        LEFT OUTER JOIN
+                    project_hashtag ON (project_twitteruserhashashtag.hashtag_id = project_hashtag.id)
+                        LEFT OUTER JOIN
+                    project_project_hashtags ON (project_hashtag.id = project_project_hashtags.hashtag_id)
+                    WHERE project_project_hashtags.project_id = %(project_id)d
+                )
+            ) total_project_users
 
-    def get_followers(self, platform=None):
+            LEFT OUTER JOIN
+                project_tweet_mentioned_users ON (total_project_users.id = project_tweet_mentioned_users.twitteruser_id)
+            LEFT OUTER JOIN
+                project_tweet ON (project_tweet_mentioned_users.tweet_id = project_tweet.id)
+            WHERE
+                (
+                    (
+                        project_tweet_mentioned_users.tweet_id IS NOT NULL
+                        AND NOT
+                            (
+                                total_project_users.id IN
+                                    (
+                                        SELECT U1.twitteruser_id
+                                        FROM project_tweet_mentioned_users U1
+                                        INNER JOIN project_tweet U2 ON (U1.tweet_id = U2.id)
+                                        WHERE U2.bot_used_id = %(bot_id)d
+                                    )
+                            )
+                    )
+                    OR project_tweet_mentioned_users.tweet_id IS NULL
+                )
+
+            ORDER BY total_project_users.last_tweet_date DESC
+
+            %(limit)s
+            """
+            %
+            {
+                'project_id': self.pk,
+                'bot_id': bot.pk,
+                'limit': 'limit %d' % limit if limit else '',
+            }
+        )
+
+    def get_tweets_pending_to_send(self):
+        return Tweet.objects.filter(project=self)
+
+    def get_followers(self):
         """Saca los usuarios que son followers a partir de un proyecto"""
-        total_followers = Follower.objects.filter(target_user__projects=self)
-        if platform:
-            return total_followers.filter(twitter_user__source=platform)
-        else:
-            return total_followers
+        return Follower.objects.filter(target_user__projects=self)
 
     def get_hashtagers(self, platform=None):
         """Saca los usuarios que son followers a partir de un proyecto"""
-        total_hashtagers = TwitterUserHasHashtag.objects.filter(hashtag__projects=self)
-        if platform:
-            return total_hashtagers.filter(twitter_user__source=platform)
-        else:
-            return total_hashtagers
+        return TwitterUserHasHashtag.objects.filter(hashtag__projects=self)
 
-    def get_total_users(self, platform=None):
-        # total_followers = self.get_followers()
-        # total_hashtagers = self.get_hashtagers()
-        # return total_followers + total_hashtagers
-        total_users = TwitterUser.objects.filter(
-            Q(target_users__projects=self) |
-            Q(hashtags__projects=self)
-        )
-        if platform:
-            return total_users.filter(source=platform)
-        else:
-            return total_users
+    def get_total_users(self):
+        return TwitterUser.objects.for_project(self)
 
     def get_mentioned_users(self, platform=None):
-        return self.get_total_users(platform=platform).exclude(mentions=None).filter(mentions__project=self)
+        return self.get_total_users().filter(mentions__project=self)
 
-    def get_unmentioned_users(self, platform=None):
-        mentioned_pks = self.get_mentioned_users(platform=platform).values_list('id', flat=True)
-        return self.get_total_users(platform=platform).exclude(pk__in=mentioned_pks)
-
-    def display_sent_tweets_android(self):
-        """ Saca [usuarios_mencionados] / [usuarios_totales]"""
-        return '%i / %i' % (
-            self.get_mentioned_users(platform=TwitterUser.ANDROID).count(),
-            self.get_total_users(platform=TwitterUser.ANDROID).count()
-        )
+    def get_unmentioned_users(self):
+        return TwitterUser.objects.unmentioned_on_project(self)
 
     def get_followers_to_mention(self, platform=None):
         project_followers = self.get_followers(platform=platform)
@@ -88,9 +124,14 @@ class Project(models.Model):
         # return self.filter(target_users__followers)
 
     def get_platforms(self, only_select=None):
-        "Only select indicara las plataformas que queremos obtener entre las disponibles para el proyecto"
+        "saca lista de las plataformas para las que hay enlaces creados en el proyecto"
         platforms = Link.objects.filter(project=self).values('platform').distinct()
         return [pl['platform'] for pl in platforms]
+
+    def get_twitteable_bots(self):
+        """Saca, de sus grupos de proxies asignados, aquellos bots que las usen y puedan tuitear"""
+        from core.models import TwitterBot
+        return TwitterBot.objects.using_in_project(self).twitteable()
 
 
 class TweetMsg(models.Model):
@@ -185,6 +226,8 @@ class TwitterUser(models.Model):
     verified = models.BooleanField(default=False)
     date_saved = models.DateTimeField(auto_now_add=True)
 
+    objects = TwitterUserManager()
+
     def __unicode__(self):
         return self.username
 
@@ -209,7 +252,7 @@ class Tweet(models.Model):
     # RELATIONSHIPS
     tweet_msg = models.ForeignKey(TweetMsg, null=False)
     link = models.ForeignKey('Link', null=True, blank=True, related_name='tweet')
-    bot_used = models.ForeignKey(TwitterBot, related_name='tweets', null=True)
+    bot_used = models.ForeignKey('core.TwitterBot', related_name='tweets', null=True)
     mentioned_users = models.ManyToManyField(TwitterUser, related_name='mentions', null=True, blank=True)
     project = models.ForeignKey(Project, null=True, blank=True, related_name="tweets")
 
@@ -317,7 +360,7 @@ class Extractor(models.Model):
     consumer_secret = models.CharField(null=False, max_length=200)
     access_token = models.CharField(null=False, max_length=200)
     access_token_secret = models.CharField(null=False, max_length=200)
-    twitter_bot = models.OneToOneField(TwitterBot, null=False, related_name='extractor')
+    twitter_bot = models.OneToOneField('core.TwitterBot', null=False, related_name='extractor')
     date_created = models.DateTimeField(auto_now_add=True)
     last_request_date = models.DateTimeField(null=True, blank=True)
     is_rate_limited = models.BooleanField(default=False)

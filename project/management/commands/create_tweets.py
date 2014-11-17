@@ -1,14 +1,10 @@
-import copy
-import random
-from threading import Lock
-import threading
 import time
-from project.exceptions import RateLimitedException, TwitteableBotsNotFound
-from project.models import Project, TargetUser, Extractor, Tweet
+from project.exceptions import TwitteableBotsNotFound
+from project.models import Tweet
 from scrapper.exceptions import FatalError
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
 MODULE_NAME = __name__.split('.')[-1]
 

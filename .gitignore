@@ -170,6 +170,7 @@ pip-log.txt
 
 af_log.txt
 
+*/migrations/*
 static/
 test_db
 *.sql
