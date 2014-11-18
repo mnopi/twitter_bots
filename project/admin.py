@@ -42,6 +42,11 @@ class ProjectLinkInline(admin.TabularInline):
 class ProjectAdmin(admin.ModelAdmin):
     list_display = (
         'name',
+        'is_running',
+    )
+
+    list_editable = (
+        'is_running',
     )
 
     search_fields = ('name',)

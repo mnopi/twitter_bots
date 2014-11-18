@@ -283,4 +283,19 @@ class ProxyManager(MyManager):
     def get_queryset(self):
         return ProxyQuerySet(self.model, using=self._db)
 
+    def available_for_usage(self):
+        return self.get_queryset().available_for_usage()
+
+    def available_for_registration(self):
+        return self.get_queryset().available_for_registration()
+
+    def without_any_dead_bot(self):
+        return self.get_queryset().without_any_dead_bot()
+
+    def with_at_least_one_dead_bot(self):
+        return self.get_queryset().with_at_least_one_dead_bot()
+
+    def using_in_running_projects(self):
+        return self.get_queryset().using_in_running_projects()
+
 

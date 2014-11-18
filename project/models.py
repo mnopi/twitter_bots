@@ -721,10 +721,23 @@ class TweetImg(models.Model):
 
 class ProxiesGroup(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False)
-    max_tw_bots_per_proxy_for_registration = models.PositiveIntegerField(null=False, blank=False)
-    max_tw_bots_per_proxy_for_usage = models.PositiveIntegerField(null=False, blank=False)
-    time_between_tweets = models.CharField(max_length=10, null=False, blank=False)  # '2-5' -> entre 2 y 5 minutos
-    max_num_mentions_per_tweet = models.PositiveIntegerField(null=False, blank=False)
+
+    max_tw_bots_per_proxy_for_registration = models.PositiveIntegerField(null=False, blank=False, default=6)
+    min_days_between_registrations_per_proxy = models.PositiveIntegerField(null=False, blank=False, default=5)
+
+    max_tw_bots_per_proxy_for_usage = models.PositiveIntegerField(null=False, blank=False, default=12)
+    time_between_tweets = models.CharField(max_length=10, null=False, blank=False, default='2-5')  # '2-5' -> entre 2 y 5 minutos
+    max_num_mentions_per_tweet = models.PositiveIntegerField(null=False, blank=False, default=1)
+
+    FIREFOX = 'FI'
+    CHROME = 'CH'
+    PHANTOMJS = 'PH'
+    WEBDRIVERS = (
+        ('FI', 'Firefox'),
+        ('CH', 'Chrome'),
+        ('PH', 'PhantomJS'),
+    )
+    webdriver = models.CharField(max_length=2, choices=WEBDRIVERS, default='FI')
 
     # RELATIONSHIPS
     projects = models.ManyToManyField(Project, related_name='proxies_groups', null=True, blank=True)

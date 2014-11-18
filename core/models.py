@@ -55,17 +55,6 @@ class TwitterBot(models.Model):
     twitter_confirmed_email_ok = models.BooleanField(default=False)
     twitter_avatar_completed = models.BooleanField(default=False)
     twitter_bio_completed = models.BooleanField(default=False)
-    FIREFOX = 'FI'
-    CHROME = 'CH'
-    PHANTOMJS = 'PH'
-    WEBDRIVERS = (
-        ('FI', 'Firefox'),
-        ('CH', 'Chrome'),
-        ('PH', 'PhantomJS'),
-    )
-    webdriver = models.CharField(max_length=2, choices=WEBDRIVERS, default='FI')
-    random_offsets = models.BooleanField(default=False)
-    random_mouse_paths = models.BooleanField(default=False)
 
     # RELATIONSHIPS
     proxy_for_registration = models.ForeignKey('Proxy', null=True, blank=True, related_name='twitter_bots_registered', on_delete=models.DO_NOTHING)
@@ -150,9 +139,20 @@ class TwitterBot(models.Model):
     def assign_proxy(self):
         """Al bot se le asigna un proxy disponible según tenga cuentas ya creadas o no"""
         if self.has_no_accounts():
-            self.proxy = Proxy.objects.available_for_registration().order_by('?')[0]
+            proxies = Proxy.objects.available_for_registration()
+
+            if settings.PRIORIZE_RUNNING_PROJECTS_FOR_BOT_CREATION:
+                proxies_running = proxies.using_in_running_projects()
+                if proxies_running.exists():
+                    self.proxy_for_registration = proxies_running.order_by('?')[0]
+                else:
+                    self.proxy_for_registration = proxies.order_by('?')[0]
+            else:
+                self.proxy_for_registration = proxies.order_by('?')[0]
+
+            self.proxy_for_usage = self.proxy_for_registration
         else:
-            self.proxy = Proxy.objects.available_for_usage().order_by('?')[0]
+            self.proxy_for_usage = Proxy.objects.available_for_usage().order_by('?')[0]
         self.save()
 
     def get_email_scrapper(self):
@@ -165,8 +165,8 @@ class TwitterBot(models.Model):
     def complete_creation(self):
         if self.has_to_complete_creation():
             t1 = utc_now()
-            settings.LOGGER.info('Completing creation for bot %s behind proxy %s @ %s' %
-                                 (self.username, self.proxy.proxy, self.proxy.proxy_provider))
+            settings.LOGGER.info('Completing creation for bot %s behind proxy %s' %
+                                 (self.username, self.proxy_for_usage.__unicode__()))
 
             # eliminamos el directorio de capturas previas para el usuario
             rmdir_if_exists(os.path.join(settings.SCREENSHOTS_DIR, self.real_name))
@@ -269,12 +269,11 @@ class TwitterBot(models.Model):
             self.birth_date = random_date(settings.BIRTH_INTERVAL[0], settings.BIRTH_INTERVAL[1])
             self.user_agent = generate_random_desktop_user_agent()
             self.has_fast_mode = settings.FAST_MODE
-            self.webdriver = settings.WEBDRIVER
             self.random_offsets = settings.RANDOM_OFFSETS_ON_EL_CLICK
             self.assign_proxy()
             self.save()
-            settings.LOGGER.info('Bot %s populated with proxy %s @ %s' %
-                                 (self.username, self.proxy.proxy, self.proxy.proxy_provider))
+            settings.LOGGER.info('Bot %s populated with proxy %s' %
+                                 (self.username, self.proxy_for_usage.__unicode__()))
         except Exception as ex:
             settings.LOGGER.exception('Error populating bot')
             raise ex
@@ -309,7 +308,16 @@ class TwitterBot(models.Model):
         return Project.objects.running().with_bot(self)
 
     def get_group(self):
-        return self.proxy_for_usage.proxies_group
+        if self.proxy_for_usage:
+            return self.proxy_for_usage.proxies_group
+        else:
+            return None
+
+    def get_webdriver(self):
+        if not self.proxy_for_usage or not self.proxy_for_usage.proxies_group:
+            return None
+        else:
+            return self.proxy_for_usage.proxies_group.webdriver
 
     def tweeting_time_interval_lapsed(self):
         "Mira si ha pasado el suficiente tiempo desde la ultima vez que tuiteo"
@@ -483,7 +491,5 @@ class Proxy(models.Model):
         verbose_name_plural = "proxies"
 
     def __unicode__(self):
-        return '%s @ %s' % (self.proxy, self.proxy_provider)
-
-    def get_bots_using(self):
-        return self.__class__.objects.filter(twitter_bots_using__isnull=False)
+        group_str = '(GROUP "%s")' % self.proxies_group.name if self.proxies_group else '(NO GROUP)'
+        return '%s @ %s %s' % (self.proxy, self.proxy_provider, group_str)

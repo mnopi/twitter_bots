@@ -24,7 +24,6 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'is_dead',
         'is_suspended',
         'is_suspended_email',
-        # 'is_manually_registered',
         'email_registered_ok',
         'twitter_registered_ok',
         'twitter_confirmed_email_ok',
@@ -33,9 +32,17 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'date',
         'proxy_for_registration',
         'proxy_for_usage',
-        # 'user_agent',
-        'webdriver',
+        'get_webdriver',
     )
+
+    list_select_related = (
+        'proxy_for_registration',
+        'proxy_for_usage',
+        'proxy_for_usage__proxies_group'
+    )
+
+    list_per_page = 30
+
     search_fields = (
         'real_name',
         'username',
@@ -86,7 +93,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
 
     list_filter = (
         ValidBotListFilter,
-        'webdriver',
+        'proxy_for_usage__proxies_group__webdriver',
         'date',
         'is_dead',
         'is_suspended',
@@ -168,37 +175,6 @@ class TwitterBotAdmin(admin.ModelAdmin):
         else:
             self.message_user(request, "Only select one bot for this action", level=messages.WARNING)
     complete_creation.short_description = "Complete bot creation"
-
-    def create_new_bot(self, request, queryset):
-        try:
-            TwitterBot.objects.clean_unregistered()
-            TwitterBot.objects.create_bot()
-            self.message_user(request, "Bot created successfully")
-        except Exception:
-            self.message_user(request, 'Error creating bot', level=messages.ERROR)
-    create_new_bot.short_description = "Create new bot"
-
-    def process_bot(self, request, queryset):
-        if queryset.count() == 1:
-            bot = queryset[0]
-            try:
-                bot.complete_creation()
-                self.message_user(request, "Bot %s processed ok" % bot.username)
-            except Exception:
-                self.message_user(request, "There was errors processing bot %s." % bot.username, level=messages.ERROR)
-        else:
-            self.message_user(request, "Only select one user for this action", level=messages.WARNING)
-    process_bot.short_description = "Process bot"
-
-    def process_all_bots(self, request, queryset):
-        try:
-            TwitterBot.objects.process_all_bots()
-            self.message_user(request, "All bots processed sucessfully")
-        except Exception:
-            msg = "There were errors processing bots"
-            settings.LOGGER.exception(msg)
-            self.message_user(request, msg, level=messages.ERROR)
-    process_all_bots.short_description = "Process all bots"
 
     def set_twitter_profile(self, request, queryset):
         if queryset.count() == 1:
@@ -283,6 +259,14 @@ class ProxyAdmin(admin.ModelAdmin):
 
     def num_bots_using(self, obj):
         return obj.twitter_bots_using.count()
+
+    list_select_related = (
+        'proxies_group',
+        'twitter_bots_registered',
+        'twitter_bots_using',
+    )
+
+    list_per_page = 30
 
     search_fields = (
         'proxy',

@@ -116,9 +116,8 @@ def generate_random_desktop_user_agent():
 
     def get_from_w3schools():
         # primero comprobamos que esté en pie la página
-        requests.get('http://w3schools.com', timeout=80)
+        requests.get('http://w3schools.com', timeout=30)
         ua = UserAgent()
-        ua.update()
         while True:
             ua = ua.__getattr__(random.choice(['firefox', 'chrome']))
             if is_desktop_ua(ua):
@@ -217,3 +216,7 @@ def is_lte_than_seconds_ago(given_datetime, seconds_ago):
     "Nos dice si la fecha dada es más antigua o igual que la de este momento hace seconds_ago"
     datetime_seconds_ago = utc_now() - datetime.timedelta(seconds=seconds_ago)
     return not is_newer(given_datetime, datetime_seconds_ago)
+
+
+def is_lte_than_days_ago(given_datetime, days_ago):
+    return is_lte_than_seconds_ago(given_datetime, days_ago * 24 * 60 * 60)

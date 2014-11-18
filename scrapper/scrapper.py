@@ -18,6 +18,7 @@ from .exceptions import RequestAttemptsExceededException, ProxyConnectionError, 
     InternetConnectionError, ProxyUrlRequestError
 from .logger import get_browser_instance_id
 import my_phantomjs_webdriver
+from project.models import ProxiesGroup
 from utils import *
 from twitter_bots import settings
 
@@ -94,13 +95,12 @@ class Scrapper(object):
             #profile = webdriver.FirefoxProfile('/Users/rmaja/Library/Application Support/Firefox/Profiles/gdq2kd20.perf')
             profile = webdriver.FirefoxProfile()
 
-            if settings.USE_PROXY and self.user.proxy:
+            if settings.USE_PROXY and self.user.proxy_for_usage:
                 profile.set_preference('network.proxy.type', 1)
-                if self.user.proxy != 'tor':
-                    profile.set_preference("network.proxy.http", proxy_ip)
-                    profile.set_preference("network.proxy.http_port", proxy_port)
-                    profile.set_preference("network.proxy.ssl", proxy_ip)
-                    profile.set_preference("network.proxy.ssl_port", proxy_port)
+                profile.set_preference("network.proxy.http", proxy_ip)
+                profile.set_preference("network.proxy.http_port", proxy_port)
+                profile.set_preference("network.proxy.ssl", proxy_ip)
+                profile.set_preference("network.proxy.ssl_port", proxy_port)
                 profile.set_preference('network.proxy.socks', proxy_ip)
                 profile.set_preference('network.proxy.socks_port', proxy_port)
 
@@ -120,7 +120,7 @@ class Scrapper(object):
             service_args = []
 
             # proxy
-            if settings.USE_PROXY and self.user.proxy:
+            if settings.USE_PROXY and self.user.proxy_for_usage:
                 service_args = [
                     '--proxy=%s:%i' % (proxy_ip, proxy_port),
                     '--cookies-file=%s' % os.path.join(settings.PHANTOMJS_COOKIES_DIR, '%i.txt' % self.user.id),
@@ -128,8 +128,6 @@ class Scrapper(object):
                     # '--local-storage-path=%s' % settings.PHANTOMJS_LOCALSTORAGES_PATH,
                     # '--local-storage-quota=1024',
                 ]
-                if settings.TOR_MODE:
-                    service_args.append('--proxy-type=socks5')
 
             # user-agent
             dcap = dict(DesiredCapabilities.PHANTOMJS)
@@ -160,20 +158,20 @@ class Scrapper(object):
         #
         # seteamos el correspondiente proxy en el caso de usar proxy
         if settings.USE_PROXY:
-            if self.user.proxy:
+            if self.user.proxy_for_usage:
                 # comprobamos si el proxy aún sigue en los txts, si no se le asigna uno de los nuevos
-                if not self.user.proxy.is_in_proxies_txts:
+                if not self.user.proxy_for_usage.is_in_proxies_txts:
                     self.user.assign_proxy()
             else:
                 # si no tiene proxy se le asigna siempre uno
                 self.user.assign_proxy()
 
-            proxy_ip = self.user.proxy.proxy.split(':')[0]
-            proxy_port = int(self.user.proxy.proxy.split(':')[1])
+            proxy_ip = self.user.proxy_for_usage.proxy.split(':')[0]
+            proxy_port = int(self.user.proxy_for_usage.proxy.split(':')[1])
 
         #
         # elegimos tipo de navegador
-        if self.force_firefox or self.user.webdriver == self.user.FIREFOX:
+        if self.force_firefox or self.user.get_webdriver() == ProxiesGroup.FIREFOX:
             get_firefox()
         elif self.user.webdriver == self.user.CHROME:
             get_chrome()
@@ -191,10 +189,10 @@ class Scrapper(object):
     def close_browser(self):
         try:
             self.browser.quit()
-            settings.LOGGER.debug('%s %s instance closed sucessfully' % (get_browser_instance_id(self.user), self.user.webdriver))
+            settings.LOGGER.debug('%s %s instance closed sucessfully' % (get_browser_instance_id(self.user), self.user.get_webdriver()))
         except Exception as ex:
             if not self.browser:
-                settings.LOGGER.warning('%s %s instance was not opened browser' % (get_browser_instance_id(self.user), self.user.webdriver))
+                settings.LOGGER.warning('%s %s instance was not opened browser' % (get_browser_instance_id(self.user), self.user.get_webdriver()))
             else:
                 raise ex
 
