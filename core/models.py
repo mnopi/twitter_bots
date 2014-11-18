@@ -41,10 +41,15 @@ class TwitterBot(models.Model):
 
     is_dead = models.BooleanField(default=False)
     date_death = models.DateTimeField(null=True, blank=True)
+
     is_suspended = models.BooleanField(default=False)
     date_suspended_twitter = models.DateTimeField(null=True, blank=True)
+    # guardamos cuántas veces se ha levantado la suspensión del bot en twitter
+    num_suspensions_lifted = models.PositiveIntegerField(default=0)
+
     is_suspended_email = models.BooleanField(default=False)
     date_suspended_email = models.DateTimeField(null=True, blank=True)
+
     is_being_created = models.BooleanField(default=True)
     is_manually_registered = models.BooleanField(default=False)
     has_fast_mode = models.BooleanField(default=False)
@@ -114,6 +119,7 @@ class TwitterBot(models.Model):
     def unmark_as_suspended(self):
         self.is_suspended = False
         self.date_suspended = None
+        self.num_suspensions_lifted += 1
         self.save()
         settings.LOGGER.info('User %s has lift suspension on his twitter account' % self.username)
 

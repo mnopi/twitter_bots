@@ -94,7 +94,7 @@ if not REGISTER_EMAIL:
 
 #
 # BOT CREATION FINISHER
-MAX_THREADS_COMPLETING_PENDANT_BOTS = 4  # máximo de hilos para restaurar creación de robots todavía a medias
+MAX_THREADS_COMPLETING_PENDANT_BOTS = 1  # máximo de hilos para restaurar creación de robots todavía a medias
 
 
 #

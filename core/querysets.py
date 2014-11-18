@@ -13,15 +13,13 @@ class TwitterBotQuerySet(QuerySet):
 
     def usable(self):
         return self.filter(
-                webdriver='PH',
                 is_being_created=False
             ).\
             with_valid_proxy_for_usage()
 
     def registrable(self):
         "Saca robots que puedan continuar el registro"
-        self.filter(
-                webdriver='PH',
+        return self.filter(
                 is_being_created=False,
                 is_suspended_email=False
             )\
@@ -45,7 +43,7 @@ class TwitterBotQuerySet(QuerySet):
 
     def uncompleted(self):
         """Devuelve todos los robots pendientes de terminar registros, perfil, etc"""
-        return self.registrable()\
+        uncompleted = self.registrable()\
             .filter(
                 Q(twitter_registered_ok=False) |
                 Q(twitter_confirmed_email_ok=False) |
@@ -53,6 +51,17 @@ class TwitterBotQuerySet(QuerySet):
                 Q(twitter_bio_completed=False) |
                 Q(is_suspended=True)
             )
+
+        if settings.PRIORIZE_RUNNING_PROJECTS_FOR_BOT_CREATION:
+            uncompleted = uncompleted.order_by__priorizing_running_projects()
+
+        return uncompleted
+
+    def on_running_projects(self):
+        return self.filter(proxy_for_usage__proxies_group__projects__is_running=True)
+
+    def order_by__priorizing_running_projects(self):
+        return self.order_by('-proxy_for_usage__proxies_group__projects__is_running')
 
     def completed(self):
         """De los bots que toma devuelve sólo aquellos que estén completamente creados"""

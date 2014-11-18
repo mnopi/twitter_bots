@@ -192,6 +192,7 @@ class HotmailScrapper(Scrapper):
             self.browser.find_element_by_partial_link_text('continue to your inbox').click()
 
         # si nos salta el mensaje de bienvenida
+        self.wait_to_page_loaded()
         if self.check_visibility('#notificationContainer button', timeout=10):
             self.click('#notificationContainer button')
 
