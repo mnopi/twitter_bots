@@ -171,11 +171,12 @@ class Scrapper(object):
 
         #
         # elegimos tipo de navegador
-        if self.force_firefox or self.user.get_webdriver() == ProxiesGroup.FIREFOX:
+        user_webdriver = self.user.get_webdriver()
+        if self.force_firefox or user_webdriver == ProxiesGroup.FIREFOX:
             get_firefox()
-        elif self.user.webdriver == self.user.CHROME:
+        elif user_webdriver == ProxiesGroup.CHROME:
             get_chrome()
-        elif self.user.webdriver == self.user.PHANTOMJS:
+        elif user_webdriver == ProxiesGroup.PHANTOMJS:
             get_panthom()
 
         self.browser.maximize_window()

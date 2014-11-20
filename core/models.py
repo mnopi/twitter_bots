@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-from django.db.models import get_model
+from django.db.models import Q
 import feedparser
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from scrapper.accounts.hotmail import HotmailScrapper
-from core.querysets import ProxyQuerySet
-from scrapper.exceptions import TwitterEmailNotFound
+from scrapper.exceptions import TwitterEmailNotFound, NoMoreAvailableProxiesForUsage, \
+    NoMoreAvailableProxiesForRegistration
 from scrapper.logger import get_browser_instance_id
 from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from scrapper.accounts.twitter import TwitterScrapper
@@ -144,21 +144,39 @@ class TwitterBot(models.Model):
 
     def assign_proxy(self):
         """Al bot se le asigna un proxy disponible según tenga cuentas ya creadas o no"""
-        if self.has_no_accounts():
-            proxies = Proxy.objects.available_for_registration()
-
-            if settings.PRIORIZE_RUNNING_PROJECTS_FOR_BOT_CREATION:
-                proxies_running = proxies.using_in_running_projects()
-                if proxies_running.exists():
-                    self.proxy_for_registration = proxies_running.order_by('?')[0]
-                else:
-                    self.proxy_for_registration = proxies.order_by('?')[0]
+        def assign_proxy_for_registration():
+            """Asignamos proxy para registro, el cual será el mismo que para el uso"""
+            available_proxies_for_reg = Proxy.objects.available_for_registration()
+            if not available_proxies_for_reg.exists():
+                raise NoMoreAvailableProxiesForRegistration()
             else:
-                self.proxy_for_registration = proxies.order_by('?')[0]
+                if settings.PRIORIZE_RUNNING_PROJECTS_FOR_BOT_CREATION:
+                    proxies_running = available_proxies_for_reg.using_in_running_projects()
+                    if proxies_running.exists():
+                        self.proxy_for_registration = proxies_running.order_by('?')[0]
+                    else:
+                        settings.LOGGER.warning('There is no more proxies assignable for registration on running projects')
+                        self.proxy_for_registration = available_proxies_for_reg.order_by('?')[0]
+                else:
+                    self.proxy_for_registration = available_proxies_for_reg.order_by('?')[0]
 
-            self.proxy_for_usage = self.proxy_for_registration
+                self.proxy_for_usage = self.proxy_for_registration
+
+        def assign_new_proxy_for_usage():
+            """
+            Asignamos proxy entre los disponibles para el grupo del bot.
+            """
+            new_proxies_available = Proxy.objects.for_group(self.get_group()).available_for_usage()
+            if not new_proxies_available.exists():
+                raise NoMoreAvailableProxiesForUsage()
+            else:
+                return new_proxies_available.order_by('?')[0]
+
+        if self.has_no_accounts():
+            assign_proxy_for_registration()
         else:
-            self.proxy_for_usage = Proxy.objects.available_for_usage().order_by('?')[0]
+            # a la hora de asignar un nuevo proxy para el uso miramos que sea de su mismo grupo
+            assign_new_proxy_for_usage()
         self.save()
 
     def get_email_scrapper(self):
@@ -351,20 +369,23 @@ class TwitterBot(models.Model):
         else:
             return False
 
-    def make_mention_tweet_to_send(self, retry_counter=0):
+    def make_mention_tweet_to_send(self):
         """Crea un tweet con mención pendiente de enviar"""
         from project.models import Tweet, TwitterUser
 
         # saco proyectos asignados para el robot que actualmente estén ejecutándose, ordenados de menor a mayor
         # número de tweets creados en la cola pendientes de enviar
-        bot_projects = self.get_running_projects().order_by__queued_tweets()
-        if bot_projects.exists():
-            for project in bot_projects:
+        projects_with_this_bot = self.get_running_projects().order_by__queued_tweets()
+        if projects_with_this_bot.exists():
+            for project in projects_with_this_bot:
+                project.check_if_has_minimal_content()
+
                 unmentioned_for_tweet_to_send = TwitterUser.objects.get_unmentioned_on_project(
                     project,
                     limit=self.get_group().max_num_mentions_per_tweet
                 )
-                if unmentioned_for_tweet_to_send:
+
+                if unmentioned_for_tweet_to_send.exists():
                     tweet_to_send = Tweet(
                         project=project,
                         tweet_msg=project.tweet_msgs.order_by('?')[0],
@@ -466,8 +487,18 @@ class TwitterBot(models.Model):
         finally:
             self.scrapper.close_browser()
 
-    # QUERYSET METHODS
+    def get_last_tweet_sent(self):
+        """
+            Saca el último tweet enviado por el bot
+            :return tweet último o None si nunca envió tweet
+        """
+        tweets_sent = self.get_sent_ok_tweets()
+        if tweets_sent:
+            return tweets_sent.lastest('date_sent')
+        else:
+            return None
 
+    # QUERYSET METHODS
 
 
 class Proxy(models.Model):
@@ -497,5 +528,14 @@ class Proxy(models.Model):
         verbose_name_plural = "proxies"
 
     def __unicode__(self):
-        group_str = '(GROUP "%s")' % self.proxies_group.name if self.proxies_group else '(NO GROUP)'
-        return '%s @ %s %s' % (self.proxy, self.proxy_provider, group_str)
+        group_str = self.proxies_group.__unicode__() if self.proxies_group else 'NO GROUP'
+        return '%s @ %s :: %s' % (self.proxy, self.proxy_provider, group_str)
+
+    def get_suspended_bots(self):
+        return self.twitter_bots_using.filter(
+            Q(is_suspended=True) |
+            Q(num_suspensions_lifted__gt=0)
+        ).distinct()
+
+    def get_dead_bots(self):
+        return self.twitter_bots_using.filter(is_dead=True).distinct()

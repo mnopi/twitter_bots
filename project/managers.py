@@ -39,20 +39,12 @@ class TweetManager(models.Manager):
         Se queda esperando a que
         """
         try:
-            pending_tweets = self.get_queued_to_send()
+            pending_tweets = self.queued_to_send()
 
             if pending_tweets:
                 for tweet in pending_tweets:
-                    if not tweet.has_bot_sending_another():
-                        last_tweet_sent = self.filter(bot_used=tweet.bot_used).latest('date_sent')
-                        if not last_tweet_sent or not last_tweet_sent.date_sent:
-                            return tweet
-                        else:
-                            # si el bot ya envió algún tweet se comprueba que el último se haya enviado
-                            # antes o igual a la fecha de ahora menos el tiempo aleatorio entre tweets por bot
-                            random_seconds_ago = random.randint(60*settings.TIME_BETWEEN_TWEETS[0], 60*settings.TIME_BETWEEN_TWEETS[1])
-                            if is_lte_than_seconds_ago(last_tweet_sent.date_sent, random_seconds_ago):
-                                return tweet
+                    if tweet.can_be_sent():
+                        return tweet
 
                 raise AllBotsInUse
             else:
@@ -70,13 +62,14 @@ class TweetManager(models.Manager):
         from core.models import TwitterBot
 
         if Project.objects.running().exists():
-            bots = TwitterBot.objects.twitteable().using_in_running_projects().without_tweet_to_send_queue_full()
-            if bots.exists():
-                for bot in bots:
+            # dentro de los proyectos en ejecución tomamos sus bots
+            bots_in_running_projects = TwitterBot.objects.twitteable().using_in_running_projects()
+            bots_with_free_queue = bots_in_running_projects.without_tweet_to_send_queue_full()
+            if bots_with_free_queue.exists():
+                for bot in bots_with_free_queue:
                     bot.make_mention_tweet_to_send()
             else:
-                bots = TwitterBot.objects.twitteable().using_in_running_projects()
-                if bots:
+                if bots_in_running_projects:
                     settings.LOGGER.info('Tweet to send queue full for all twitteable bots at this moment. Waiting %d seconds..'
                                          % settings.TIME_WAITING_FREE_QUEUE)
                     time.sleep(settings.TIME_WAITING_FREE_QUEUE)
@@ -190,14 +183,26 @@ class ExtractorManager(models.Manager):
 
 
 class ProxiesGroupManager(MyManager):
-    pass
+    def log_groups_with_creation_disabled(self):
+        groups_with_creation_disabled = self.filter(is_bot_creation_enabled=False)
+        if groups_with_creation_disabled.exists():
+            groups_str = ', '.join([group.name for group in groups_with_creation_disabled])
+            settings.LOGGER.warning('There are %d groups that have bot creation disabled: %s' %
+                                    (groups_with_creation_disabled.count(), groups_str))
 
 
 class TwitterUserManager(MyManager):
     def get_unmentioned_on_project(self, project, limit=None):
-    #     """Saca usuarios totales para el proyecto menos los que fueron mencionados"""
-    #     mentioned_pks = self.mentioned_on_project(project).values_list('id', flat=True)
-    #     return self.for_project(project).exclude(pk__in=mentioned_pks).distinct()
+        """
+            Saca usuarios no mencionados que pertenezcan a ese proyecto. Tampoco saca los mencionados
+            por otro proyecto, es decir que nunca los mencionó ningún bot.
+
+            Los saca ordenados por el último tweet que hicieron, de más recientes a más antiguos.
+
+        :param project: proyecto sobre el que están guardados a través de target_users y hashtags
+        :param limit: máximo de usuarios que queremos sacar en la consulta
+        :return: queryset con los objetos twitteruser
+        """
         return self.raw_as_qs("""
             SELECT total_project_users.id
             FROM

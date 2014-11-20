@@ -96,6 +96,10 @@ class MyQuerySet(QuerySet):
     def get_chained_distinct(self, *pks):
         return self.filter(pk__in=list(set(chain(*pks))))
 
+    def subtract(self, qs_to_subtract):
+        pks_to_subtract = qs_to_subtract.values_list('pk', flat=True)
+        return self.exclude(pk__in=pks_to_subtract)
+
 class TwitterUserQuerySet(MyQuerySet):
     def for_project(self, project, order_by=None, limit=None):
         """Saca usuarios para un proyecto dado"""

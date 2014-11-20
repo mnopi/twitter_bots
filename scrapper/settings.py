@@ -95,6 +95,7 @@ if not REGISTER_EMAIL:
 #
 # BOT CREATION FINISHER
 MAX_THREADS_COMPLETING_PENDANT_BOTS = 1  # máximo de hilos para restaurar creación de robots todavía a medias
+TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER = 60  # máximo de hilos para restaurar creación de robots todavía a medias
 
 
 #

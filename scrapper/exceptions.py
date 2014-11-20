@@ -70,7 +70,9 @@ class TwitterBotDontExistsOnTwitterException(Exception):
 
 class NoMoreAvailableProxiesForRegistration(Exception):
     def __init__(self):
+        from project.models import ProxiesGroup
         settings.LOGGER.error('There is no more avaiable proxies for creating new bots. Sleeping..')
+        ProxiesGroup.objects.log_groups_with_creation_disabled()
         time.sleep(120)
 
 
