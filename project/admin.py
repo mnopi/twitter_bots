@@ -39,9 +39,17 @@ class ProjectProxiesGroupInline(admin.TabularInline):
 class ProjectLinkInline(admin.TabularInline):
     model = Link
 
+class ProjectTweetImgInline(admin.TabularInline):
+    model = TweetImg
+
 class ProjectAdmin(admin.ModelAdmin):
     list_display = (
         'name',
+        'is_running',
+    )
+
+    list_editable = (
+        'is_running',
     )
 
     search_fields = ('name',)
@@ -50,8 +58,15 @@ class ProjectAdmin(admin.ModelAdmin):
 
     inlines = [
         ProjectProxiesGroupInline,
-        ProjectLinkInline
+        ProjectLinkInline,
+        ProjectTweetImgInline,
     ]
+
+
+class PageLinkHashtagAdmin(admin.ModelAdmin):
+    list_display = (
+        'name'
+    )
 
 
 class TweetAdmin(admin.ModelAdmin):
@@ -62,6 +77,9 @@ class TweetAdmin(admin.ModelAdmin):
         'sending',
         'sent_ok',
         'bot_used',
+        'page_announced',
+        'project',
+        'has_image',
     )
 
     search_fields = (
@@ -132,6 +150,20 @@ class SubLinkInline(admin.TabularInline):
     model = Sublink
 
 
+class PageLinkAdmin(admin.ModelAdmin):
+    list_display = (
+        'page_title',
+        'page_link',
+        'project',
+        'is_active',
+        'hastag',
+    )
+
+    list_filter = (
+        'project',
+    )
+
+
 class LinkAdmin(admin.ModelAdmin):
     list_display = (
         'url',
@@ -199,6 +231,8 @@ admin.site.register(Hashtag)
 admin.site.register(TwitterUserHasHashtag)
 admin.site.register(TweetImg)
 admin.site.register(ProxiesGroup, ProxiesGroupAdmin)
+admin.site.register(PageLink)
+admin.site.register(PageLinkHashtag)
 
 
 

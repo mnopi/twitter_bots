@@ -39,7 +39,7 @@ class TweetManager(models.Manager):
         Se queda esperando a que
         """
         try:
-            pending_tweets = self.get_queued_to_send()
+            pending_tweets = self.queued_to_send()
 
             if pending_tweets:
                 for tweet in pending_tweets:
@@ -73,7 +73,7 @@ class TweetManager(models.Manager):
             bots = TwitterBot.objects.twitteable().using_in_running_projects().without_tweet_to_send_queue_full()
             if bots.exists():
                 for bot in bots:
-                    bot.make_mention_tweet_to_send()
+                    bot.make_tweet_to_send()
             else:
                 bots = TwitterBot.objects.twitteable().using_in_running_projects()
                 if bots:
@@ -97,7 +97,7 @@ class TweetManager(models.Manager):
         #         project_twitteable_bots = project.get_twitteable_bots()
         #         if project_twitteable_bots.exists():
         #             for bot in project_twitteable_bots:
-        #                 bot.make_mention_tweet_to_send()
+        #                 bot.make_tweet_to_send()
         #         else:
         #             settings.LOGGER.warning('Project %s has no twitteable bots now' % project.__unicode__())
         # else:

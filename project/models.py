@@ -14,12 +14,12 @@ from twitter_bots import settings
 
 class Project(models.Model):
     name = models.CharField(max_length=100, null=False, blank=True)
-    hashtags = models.ManyToManyField('Hashtag', related_name='projects', blank=True)
     is_running = models.BooleanField(default=True)
     has_tracked_clicks = models.BooleanField(default=False)
 
     # RELATIONSHIPS
     target_users = models.ManyToManyField('TargetUser', related_name='projects', blank=True)
+    hashtags = models.ManyToManyField('Hashtag', related_name='projects', blank=True)
 
     objects = ProjectManager()
 
@@ -250,11 +250,13 @@ class Tweet(models.Model):
     sent_ok = models.BooleanField(default=False)
 
     # RELATIONSHIPS
-    tweet_msg = models.ForeignKey(TweetMsg, null=False)
-    link = models.ForeignKey('Link', null=True, blank=True, related_name='tweet')
+    tweet_msg = models.ForeignKey(TweetMsg, null=True)
+    link = models.ForeignKey('Link', null=True, blank=True, related_name='tweets')
+    page_announced = models.ForeignKey('PageLink', null=True, blank=True, related_name='tweets')
     bot_used = models.ForeignKey('core.TwitterBot', related_name='tweets', null=True)
     mentioned_users = models.ManyToManyField(TwitterUser, related_name='mentions', null=True, blank=True)
     project = models.ForeignKey(Project, null=True, blank=True, related_name="tweets")
+    tweet_img = models.ForeignKey('TweetImg', null=True, blank=True)
 
     objects = TweetManager()
 
@@ -262,14 +264,29 @@ class Tweet(models.Model):
         return self.compose()
 
     def compose(self):
-        mu_txt = ''
+        compose_txt = ''
+        if self.mentioned_users:
+            mu_txt = ''
         # solo se podrá consultar los usuarios mencionados si antes se guardó la instancia del tweet en BD
-        for mu in self.mentioned_users.all():
-            mu_txt += '@%s ' % mu.username
+            for mu in self.mentioned_users.all():
+                mu_txt += '@%s ' % mu.username
+            compose_txt += mu_txt
+        if self.tweet_msg:
+            compose_txt += self.tweet_msg.text
+        if self.link:
+            compose_txt += ' ' + self.link.url if self.link else ''
+        if self.page_announced:
+            pa = self.page_announced
+            if pa.page_title and pa.hashtag:
+                compose_txt += pa.page_title + ' ' + pa.page_link + ' ' + pa.hashtag.name
+            elif pa.page_title:
+                compose_txt += pa.page_title + ' ' + pa.page_link
+            elif pa.hashtag:
+                compose_txt += pa.page_link + ' ' + pa.hashtag.name
+            else:
+                compose_txt += pa.page_link
 
-        link_txt = ' ' + self.link.url if self.link else ''
-
-        return mu_txt + self.tweet_msg.text + link_txt
+        return compose_txt
 
     def length(self):
         def mentioned_users_space():
@@ -278,12 +295,19 @@ class Tweet(models.Model):
                 length += len(mu.username) + 2
             return length
 
-        total_lenght = 0
-        total_lenght += mentioned_users_space()
-        total_lenght += len(self.tweet_msg.text)
+        total_length = 0
+        if self.mentioned_users:
+            total_length += mentioned_users_space()
+        if self.tweet_msg:
+            total_length += len(self.tweet_msg.text)
         if self.link:
-            total_lenght += 1 + len(self.link.url)
-        return total_lenght
+            total_length += 1 + len(self.link.url)
+        if self.tweet_img:
+            total_length += 23
+        if self.page_announced:
+            total_length += self.page_announced.page_link_length()
+
+        return total_length
 
     def has_space(self):
         """Devuelve si el tweet no supera los 140 caracteres"""
@@ -292,8 +316,50 @@ class Tweet(models.Model):
     def exceeded_tweet_limit(self):
         return self.length() > 140
 
+    def has_image(self):
+        return self.tweet_img != None
+
     def is_available(self):
         return not self.sending and not self.sent_ok
+
+    def add_mentions(self, bot_used, project):
+        unmentioned_for_tweet_to_send = TwitterUser.objects.get_unmentioned_on_project(
+                    project,
+                    limit=bot_used.get_group().max_num_mentions_per_tweet
+                )
+
+        if unmentioned_for_tweet_to_send:
+            for unmentioned in unmentioned_for_tweet_to_send:
+                if self.length() + len(unmentioned.username) + 2 <= 140:
+                    self.mentioned_users.add(unmentioned)
+                else:
+                    break
+
+            settings.LOGGER.info('Queued (project: %s, bot: %s) >> %s' %
+                                 (project.__unicode__(), bot_used.__unicode__(), self.compose()))
+            # break
+        else:
+            settings.LOGGER.warning('Bot %s has not more users to mention for project %s' %
+                                    (bot_used.username, project.name))
+
+    def add_tweet_msg(self, project):
+        tweet_message = project.tweet_msgs.order_by('?')[0]
+        if self.length() + len(tweet_message.text) <= 140:
+            self.tweet_msg = tweet_message
+
+    def add_page_announced(self, project):
+        page_announced = project.pagelink_set.order_by('?')[0]
+        if self.length() + page_announced.page_link_length() <= 140:
+            self.page_announced = page_announced
+
+    def add_image(self, project):
+        if self.length() + 23 <= 140:
+            self.tweet_img = project.tweet_imgs.order_by('?')[0]
+
+    def add_link(self, project):
+        link = project.links.get(is_active=True)
+        if self.length() + len(link.url) + 1 <= 140:
+            self.link = link
 
     def send(self):
         try:
@@ -706,17 +772,44 @@ class TwitterUserHasHashtag(models.Model):
 class TweetImg(models.Model):
     # def get_img_path(self, filename):
     #     if self.pk:
-    #         fileName, fileExtension = os.path.splitext(filename)
     #         path = '%s/photos/cat_%s/photo_%s.jpg' % \
+    #         fileName, fileExtension = os.path.splitext(filename)
     #         (self.country.upper(), self.category.id, self.id)
     #     return prepend_env_folder(path)
 
-    img = models.ImageField(upload_to='images', blank=True, null=True)
+    img = models.ImageField(upload_to='tweet_images', blank=True, null=True)
     is_using = models.BooleanField(default=True)
     project = models.ForeignKey(Project, null=False, related_name='tweet_imgs')
 
     def __unicode__(self):
         return '%s @ %s' % (self.img.path, self.project.name)
+
+
+class PageLinkHashtag(models.Model):
+    name = models.CharField(max_length=100, null=False, blank=False)
+
+    def __unicode__(self):
+        return self.name
+
+
+class PageLink(models.Model):
+    page_title = models.CharField(max_length=150, null=True, blank=True)
+    page_link = models.URLField(null=False)
+    project = models.ForeignKey(Project, null=False, blank=False)
+    is_active = models.BooleanField(default=True)
+    hashtag = models.ForeignKey(PageLinkHashtag, null=True, blank=True, related_name="page_links")
+
+    def __unicode__(self):
+        return self.page_title
+
+    def page_link_length(self):
+        page_link_length = len(self.page_link)
+        if self.page_title:
+            page_link_length += 1 + len(self.page_title)
+        if self.hashtag:
+            page_link_length += 1 + len(self.hashtag.name)
+        return page_link_length
+
 
 
 class ProxiesGroup(models.Model):

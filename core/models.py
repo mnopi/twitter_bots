@@ -337,7 +337,7 @@ class TwitterBot(models.Model):
         else:
             return False
 
-    def make_mention_tweet_to_send(self, retry_counter=0):
+    def make_tweet_to_send(self, retry_counter=0):
         """Crea un tweet con mención pendiente de enviar"""
         from project.models import Tweet, TwitterUser
 
@@ -346,31 +346,25 @@ class TwitterBot(models.Model):
         bot_projects = self.get_running_projects().order_by__queued_tweets()
         if bot_projects.exists():
             for project in bot_projects:
-                unmentioned_for_tweet_to_send = TwitterUser.objects.get_unmentioned_on_project(
-                    project,
-                    limit=self.get_group().max_num_mentions_per_tweet
+
+                tweet_to_send = Tweet(
+                    project=project,
+                    bot_used=self
                 )
-                if unmentioned_for_tweet_to_send:
-                    tweet_to_send = Tweet(
-                        project=project,
-                        tweet_msg=project.tweet_msgs.order_by('?')[0],
-                        link=project.links.get(is_active=True),
-                        bot_used=self,
-                    )
-                    tweet_to_send.save()
+                tweet_to_send.save()
+                bot_group = self.get_group()
 
-                    for unmentioned in unmentioned_for_tweet_to_send:
-                        if tweet_to_send.length() + len(unmentioned.username) + 2 <= 140:
-                            tweet_to_send.mentioned_users.add(unmentioned)
-                        else:
-                            break
-
-                    settings.LOGGER.info('Queued (project: %s, bot: %s) >> %s' %
-                                         (project.__unicode__(), self.__unicode__(), tweet_to_send.compose()))
-                    break
-                else:
-                    settings.LOGGER.warning('Bot %s has not more users to mention for project %s' %
-                                            (self.username, project.name))
+                tweet_to_send.add_tweet_msg(project)
+                tweet_to_send.save()
+                tweet_to_send.add_link(project)
+                tweet_to_send.save()
+                # tweet_to_send.add_image(project)
+                # tweet_to_send.save()
+                tweet_to_send.add_page_announced(project)
+                tweet_to_send.save()
+                tweet_to_send.add_mentions(self, project)
+                tweet_to_send.save()
+                pass
 
         else:
             settings.LOGGER.warning('Bot %s has no running projects assigned at this moment' % self.__unicode__())
@@ -412,7 +406,7 @@ class TwitterBot(models.Model):
         #     settings.LOGGER.info('Reached max queue size of %i tweets pending to send. Waiting %i seconds to retry (%i)..' %
         #                          (tweets_to_send_queue_length, settings.TIME_WAITING_FREE_QUEUE, retry_counter))
         #     time.sleep(settings.TIME_WAITING_FREE_QUEUE)
-        #     self.make_mention_tweet_to_send(retry_counter=retry_counter + 1)
+        #     self.make_tweet_to_send(retry_counter=retry_counter + 1)
 
     def make_feed_tweet_to_send(self):
         "Crea un tweet a partir de algún feed pendiente de enviar"
