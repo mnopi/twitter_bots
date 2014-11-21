@@ -155,6 +155,7 @@ class HotmailScrapper(Scrapper):
                         self.user.save()
                         self.take_screenshot('wrong_email_account_for_login')
                         self.close_browser()
+                        settings.LOGGER.warning('Wrong email account %s for bot %s' % (self.user.email, self.user.username))
                         raise Exception()
                 return errors
 

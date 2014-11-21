@@ -159,15 +159,21 @@ class Scrapper(object):
         # seteamos el correspondiente proxy en el caso de usar proxy
         if settings.USE_PROXY:
             if self.user.proxy_for_usage:
-                # comprobamos si el proxy aún sigue en los txts, si no se le asigna uno de los nuevos
+                # si ya estaba usando un proxy comprobamos si el proxy aún sigue en los txts, si no se le asigna uno de los nuevos SIEMPRE QUE
+                # el bot no haya sido suspendido
                 if not self.user.proxy_for_usage.is_in_proxies_txts:
+                    settings.LOGGER.info('Proxy %s for bot %s is no longer on txts. Trying to assign new one..' %
+                                         (self.user.proxy_for_usage.__unicode__(), self.user.__unicode__()))
                     self.user.assign_proxy()
             else:
-                # si no tiene proxy se le asigna siempre uno
+                # si no tiene proxy se le asigna uno
                 self.user.assign_proxy()
 
             proxy_ip = self.user.proxy_for_usage.proxy.split(':')[0]
             proxy_port = int(self.user.proxy_for_usage.proxy.split(':')[1])
+
+        if not self.user.user_agent:
+            self.change_user_agent()
 
         #
         # elegimos tipo de navegador
@@ -432,12 +438,12 @@ class Scrapper(object):
                             raise ProxyConnectionError(self)
                         else:
                             raise InternetConnectionError()
-        except Exception, e:
-            if type(e) is TimeoutException and ignore_timeout_error:
+        except TimeoutException:
+            if ignore_timeout_error:
                 settings.LOGGER.warning('%s Timeout loading url %s, ignoring TimeoutException..' %
                                         (get_browser_instance_id(self.user), url))
-            else:
-                raise e
+        except Exception, e:
+            raise e
         finally:
             if timeout:
                 self.browser.set_page_load_timeout(settings.PAGE_LOAD_TIMEOUT)
@@ -446,11 +452,12 @@ class Scrapper(object):
         """Dice si el user agent usado es de móvil o no compatible"""
         if check_condition(lambda : 'mobile' in self.browser.current_url):
             self.change_user_agent()
+            self.open_browser()
 
     def change_user_agent(self):
         self.user.user_agent = generate_random_desktop_user_agent()
         self.user.save()
-        self.open_browser()
+        settings.LOGGER.info('Setted user_agent for bot %s' % self.user.username)
 
     def wait_until_closed_windows(self):
         while self.browser.window_handles:
@@ -556,19 +563,23 @@ class Scrapper(object):
             g_scrapper.wait_to_page_loaded()
             self.delay.seconds(3)
 
-            imgs = g_scrapper.get_css_elements('#rg_s .rg_di')
-            if imgs:
-                num_attempts = 0
-                while num_attempts < SEARCH_ATTEMPTS:
-                    img = random.choice(imgs).find_element_by_css_selector('img')
-                    if img.size['width'] >= MIN_RES and img.size['height'] >= MIN_RES:
-                        return img
-                    else:
-                        num_attempts += 1
-                get_img()
+            if self.check_visibility('#rg_s .rg_di'):
+                imgs = g_scrapper.get_css_elements('#rg_s .rg_di')
+                if imgs:
+                    num_attempts = 0
+                    while num_attempts < SEARCH_ATTEMPTS:
+                        img = random.choice(imgs).find_element_by_css_selector('img')
+                        if img.size['width'] >= MIN_RES and img.size['height'] >= MIN_RES:
+                            return img
+                        else:
+                            num_attempts += 1
+                    get_img()
+                else:
+                    # si no se encontró ninguna imagen con el suficiente tamaño se vuelve a buscar con otro nombre
+                    get_img()
             else:
-                # si no se encontró ninguna imagen con el suficiente tamaño se vuelve a buscar con otro nombre
-                get_img()
+                settings.LOGGER.exception()
+                raise Exception()
 
         avatar_path = os.path.join(settings.AVATARS_DIR, '%s.png' % self.user.username)
         MIN_RES = 80  # mínima resolución que debe tener cada imagen encontrada, en px

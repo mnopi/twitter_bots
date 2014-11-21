@@ -172,6 +172,13 @@ class ProxiesGroupManager(MyManager):
             settings.LOGGER.warning('There are %d groups that have bot creation disabled: %s' %
                                     (groups_with_creation_disabled.count(), groups_str))
 
+    def log_groups_with_usage_disabled(self):
+        groups_with_usage_disabled = self.filter(is_bot_usage_enabled=False)
+        if groups_with_usage_disabled.exists():
+            groups_str = ', '.join([group.name for group in groups_with_usage_disabled])
+            settings.LOGGER.warning('There are %d groups that have bot usage disabled: %s' %
+                                    (groups_with_usage_disabled.count(), groups_str))
+
 
 class TwitterUserManager(MyManager):
     def get_unmentioned_on_project(self, project, limit=None):

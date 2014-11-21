@@ -4,8 +4,9 @@ import feedparser
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from scrapper.accounts.hotmail import HotmailScrapper
-from scrapper.exceptions import TwitterEmailNotFound, NoMoreAvailableProxiesForUsage, \
-    NoMoreAvailableProxiesForRegistration
+from scrapper.exceptions import TwitterEmailNotFound, BotHasNoProxiesForUsage, \
+    NoMoreAvailableProxiesForRegistration, SuspendedBotWithoutProxy, TwitterAccountDead, TwitterAccountSuspended, \
+    ProfileStillNotCompleted
 from scrapper.logger import get_browser_instance_id
 from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from scrapper.accounts.twitter import TwitterScrapper
@@ -168,16 +169,19 @@ class TwitterBot(models.Model):
             """
             new_proxies_available = Proxy.objects.for_group(self.get_group()).available_for_usage()
             if not new_proxies_available.exists():
-                raise NoMoreAvailableProxiesForUsage()
+                raise BotHasNoProxiesForUsage(self)
             else:
-                return new_proxies_available.order_by('?')[0]
+                self.proxy_for_usage = new_proxies_available.order_by('?')[0]
 
-        if self.has_no_accounts():
-            assign_proxy_for_registration()
+        if not self.was_suspended():
+            if self.has_to_register_twitter():
+                assign_proxy_for_registration()
+            else:
+                # a la hora de asignar un nuevo proxy para el uso miramos que sea de su mismo grupo
+                assign_new_proxy_for_usage()
+            self.save()
         else:
-            # a la hora de asignar un nuevo proxy para el uso miramos que sea de su mismo grupo
-            assign_new_proxy_for_usage()
-        self.save()
+            raise SuspendedBotWithoutProxy(self)
 
     def get_email_scrapper(self):
         email_domain = self.get_email_account_domain()
@@ -235,6 +239,11 @@ class TwitterBot(models.Model):
                     self.email_scr.set_screenshots_dir('3_confirm_tw_email')
                     try:
                         self.email_scr.confirm_tw_email()
+                        self.twitter_confirmed_email_ok = True
+                        self.save()
+                        self.email_scr.delay.seconds(8)
+                        settings.LOGGER.info('Confirmed twitter email %s for user %s' % (self.email, self.username))
+                        self.email_scr.take_screenshot('tw_email_confirmed_sucessfully', force_take=True)
                     except TwitterEmailNotFound:
                         self.twitter_scr.set_screenshots_dir('resend_conf_email')
                         self.twitter_scr.login()
@@ -243,11 +252,6 @@ class TwitterBot(models.Model):
                                                   (self.username, self.email))
                         self.email_scr.take_screenshot('tw_email_confirmation_failure', force_take=True)
                         raise ex
-                    self.twitter_confirmed_email_ok = True
-                    self.save()
-                    self.email_scr.delay.seconds(8)
-                    settings.LOGGER.info('Confirmed twitter email %s for user %s' % (self.email, self.username))
-                    self.email_scr.take_screenshot('tw_email_confirmed_sucessfully', force_take=True)
 
                 # 4_profile_completion
                 if self.has_to_complete_tw_profile():
@@ -256,11 +260,24 @@ class TwitterBot(models.Model):
 
                 # 5_lift_suspension
                 if self.is_suspended:
+                    settings.LOGGER.info('Lifting suspension for bot %s' % self.username)
                     self.twitter_scr.set_screenshots_dir('5_tw_lift_suspension')
                     self.twitter_scr.login()
+
+            except (SuspendedBotWithoutProxy,
+                    BotHasNoProxiesForUsage,
+                    ProfileStillNotCompleted,
+                    NoMoreAvailableProxiesForRegistration,
+                    TwitterAccountDead,
+                    TwitterAccountSuspended):
+                pass
             except Exception as ex:
                 settings.LOGGER.exception('Error completing creation for bot %s' % self.username)
                 raise ex
+            else:
+                t2 = utc_now()
+                diff_secs = (t2 - t1).seconds
+                settings.LOGGER.info('Bot "%s" completed sucessfully in %s seconds' % (self.username, diff_secs))
             finally:
                 # cerramos las instancias abiertas
                 try:
@@ -272,10 +289,6 @@ class TwitterBot(models.Model):
                 except Exception as ex:
                     settings.LOGGER.exception('Error closing browsers instances for bot %s' % self.username)
                     raise ex
-
-            t2 = utc_now()
-            diff_secs = (t2 - t1).seconds
-            settings.LOGGER.info('Bot "%s" completed sucessfully in %s seconds' % (self.username, diff_secs))
 
     def generate_email(self):
         self.email = generate_random_username(self.real_name) + '@' + settings.EMAIL_ACCOUNT_TYPE
@@ -451,8 +464,8 @@ class TwitterBot(models.Model):
         else:
             return None
 
-    # QUERYSET METHODS
-
+    def was_suspended(self):
+        return self.is_suspended or self.num_suspensions_lifted > 0
 
 class Proxy(models.Model):
     proxy = models.CharField(max_length=21, null=False, blank=True)

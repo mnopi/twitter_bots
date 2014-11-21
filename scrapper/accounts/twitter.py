@@ -4,7 +4,7 @@ from selenium.common.exceptions import MoveTargetOutOfBoundsException
 
 from scrapper.scrapper import Scrapper
 from scrapper.exceptions import BotMustVerifyPhone, TwitterBotDontExistsOnTwitterException, \
-    FailureSendingTweetException, TwitterEmailNotConfirmed, TwitterAccountDead
+    FailureSendingTweetException, TwitterEmailNotConfirmed, TwitterAccountDead, ProfileStillNotCompleted
 from scrapper.utils import *
 from twitter_bots import settings
 
@@ -125,7 +125,8 @@ class TwitterScrapper(Scrapper):
         except Exception, e:
             settings.LOGGER.exception('%s Login on twitter error for %s' % (get_thread_name(), self.user.username))
             self.take_screenshot('login_failure', force_take=True)
-            raise e
+            if type(e) is not TwitterEmailNotConfirmed:
+                raise e
 
     def lift_suspension(self):
         # intentamos levantar suspensión
@@ -197,17 +198,20 @@ class TwitterScrapper(Scrapper):
     def set_profile(self):
         """precondición: estar logueado y en la home"""
         def set_avatar():
+            settings.LOGGER.info('Setting avatar for %s' % self.user.username)
             avatar_path = os.path.join(settings.AVATARS_DIR, '%s.png' % self.user.username)
             try:
-                if self.check_visibility('button.ProfileAvatarEditing-button'):
-                    self.download_pic_from_google()
-
+                try:
+                    self.click('.ProfileAvatar a')
+                except:
                     self.click('button.ProfileAvatarEditing-button')
-                    self.get_css_element('#photo-choose-existing input[type="file"]').send_keys(avatar_path)
-                    self.click('#profile_image_upload_dialog-dialog button.profile-image-save')
-                    # eliminamos el archivo que habíamos guardado para el avatar
-                    os.remove(avatar_path)
-                    return True
+
+                self.download_pic_from_google()
+                self.get_css_element('#photo-choose-existing input[type="file"]').send_keys(avatar_path)
+                self.click('#profile_image_upload_dialog-dialog button.profile-image-save')
+                # eliminamos el archivo que habíamos guardado para el avatar
+                os.remove(avatar_path)
+                return True
             except Exception:
                 settings.LOGGER.exception('Error setting avatar for bot %s' % self.user.username)
                 self.take_screenshot('set_avatar_failure', force_take=True)
@@ -215,6 +219,7 @@ class TwitterScrapper(Scrapper):
 
         def set_bio():
             try:
+                settings.LOGGER.info('Setting bio for %s' % self.user.username)
                 self.fill_input_text('#user_description', self.get_quote())
                 return True
             except Exception:
@@ -230,7 +235,8 @@ class TwitterScrapper(Scrapper):
             self.click('button.UserActions-editButton')  # damos a botón de editar
             self.delay.seconds(3)
 
-            avatar_completed = bio_completed = False
+            avatar_completed = False
+            bio_completed = False
             if self.user.has_to_set_tw_avatar():
                 avatar_completed = set_avatar()
             if self.user.has_to_set_tw_bio():
@@ -250,7 +256,7 @@ class TwitterScrapper(Scrapper):
                 settings.LOGGER.info('Profile completed ok for bot %s' % self.user.username)
                 self.take_screenshot('profile_completed_ok', force_take=True)
             else:
-                settings.LOGGER.info('Profile completed with errors for bot %s' % self.user.username)
+                raise ProfileStillNotCompleted(self.user)
         except Exception as ex:
             settings.LOGGER.exception('Error on bot %s creating twitter profile' % self.user.username)
             self.take_screenshot('profile_completion_failure', force_take=True)

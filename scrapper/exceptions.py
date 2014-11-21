@@ -71,15 +71,28 @@ class TwitterBotDontExistsOnTwitterException(Exception):
 class NoMoreAvailableProxiesForRegistration(Exception):
     def __init__(self):
         from project.models import ProxiesGroup
-        settings.LOGGER.error('There is no more avaiable proxies for creating new bots. Sleeping..')
+        from core.models import Proxy
+
+        settings.LOGGER.error('No available proxies for creating new bots. Sleeping %d seconds..' %
+                              settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATOR)
         ProxiesGroup.objects.log_groups_with_creation_disabled()
-        time.sleep(120)
+        Proxy.objects.log_proxies_valid_for_assign_group()
+        time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATOR)
 
 
-class NoMoreAvailableProxiesForUsage(Exception):
-    def __init__(self):
-        settings.LOGGER.error('There is no more avaiable proxies for usage. Sleeping..')
-        time.sleep(120)
+class BotHasNoProxiesForUsage(Exception):
+    def __init__(self, bot):
+        bot_group = bot.get_group()
+        if not bot_group.is_bot_usage_enabled:
+            settings.LOGGER.warning('Bot %s has assigned group "%s" with bot usage disabled' %
+                                    (bot.username, bot_group.__unicode__()))
+        else:
+            settings.LOGGER.error('No more available proxies for use bot %s' % bot.username)
+
+
+class SuspendedBotWithoutProxy(Exception):
+    def __init__(self, bot):
+        settings.LOGGER.warning('Could not assign new proxy to bot %s because was suspended' % bot.username)
 
 
 class FatalError(Exception):
@@ -125,5 +138,10 @@ class ProxyUrlRequestError(Exception):
     def __init__(self, scrapper, url):
         settings.LOGGER.error('%s Couldn\'t get %s url for user %s behind proxy %s' %
                                           (scrapper.browser_id, url, scrapper.user.username,
-                                           scrapper.user.proxy.__unicode__()))
+                                           scrapper.user.proxy_for_usage.__unicode__()))
         time.sleep(5)
+
+
+class ProfileStillNotCompleted(Exception):
+    def __init__(self, bot):
+        settings.LOGGER.warning('Profile still not completed for bot %s' % bot.__unicode__())

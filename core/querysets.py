@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
+from copy import deepcopy
 import datetime
 from django.db.models import Q, Count, Max
 from django.db.models.query import QuerySet
 from project.querysets import MyQuerySet
-from scrapper.exceptions import NoMoreAvailableProxiesForUsage, NoMoreAvailableProxiesForRegistration
+from scrapper.exceptions import BotHasNoProxiesForUsage, NoMoreAvailableProxiesForRegistration
 from scrapper.utils import utc_now, is_lte_than_days_ago
 from twitter_bots import settings
 

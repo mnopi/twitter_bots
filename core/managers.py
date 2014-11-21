@@ -6,6 +6,7 @@ import time
 
 from django.db import models, connection
 from core.querysets import TwitterBotQuerySet, ProxyQuerySet
+from scrapper.exceptions import NoMoreAvailableProxiesForRegistration
 from scrapper.thread_pool import ThreadPool
 from scrapper.utils import utc_now
 from twitter_bots import settings
@@ -67,20 +68,22 @@ class TwitterBotManager(models.Manager):
         bot.complete_creation()
 
     def create_bots(self, num_bots=None):
+        from core.models import Proxy
         self.clean_unregistered()
         self.put_previous_being_created_to_false()
 
-        from core.models import Proxy
         proxies = Proxy.objects.available_for_registration()
+        if proxies.exists():
+            settings.LOGGER.info('Found %i available proxies to create bots' % proxies.count())
 
-        settings.LOGGER.info('Found %i avaiable proxies to create bots at this moment' % len(proxies))
-
-        pool = ThreadPool(settings.MAX_THREADS_CREATING_BOTS)
-        num_bots = num_bots or len(proxies)
-        for task_num in range(num_bots):
-            settings.LOGGER.info('Adding task %i' % task_num)
-            pool.add_task(self.create_bot)
-        pool.wait_completion()
+            pool = ThreadPool(settings.MAX_THREADS_CREATING_BOTS)
+            num_bots = num_bots or proxies.count()
+            for task_num in range(num_bots):
+                settings.LOGGER.info('Adding task %i' % task_num)
+                pool.add_task(self.create_bot)
+            pool.wait_completion()
+        else:
+            raise NoMoreAvailableProxiesForRegistration()
 
         # threads = []
         # for n in range(num_bots):
@@ -150,7 +153,7 @@ class TwitterBotManager(models.Manager):
         """Mira qué robots aparecen incompletos y termina de hacer en cada uno lo que quede"""
         from project.models import ProxiesGroup
 
-        bots_to_finish_creation = self.pendant_to_finish_creation()
+        bots_to_finish_creation = self.pendant_to_finish_creation()  # sólo se eligen bots de grupos activos
         if bots_to_finish_creation.exists():
             pool = ThreadPool(settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
             for bot in bots_to_finish_creation:
@@ -280,8 +283,10 @@ class ProxyManager(MyManager):
         check_not_in_proxies_txts()
         add_new_proxies()
 
-    def get_proxy_providers(self):
-        "Devuelve la lista "
+    def log_proxies_valid_for_assign_group(self):
+        valid_proxies = self.valid_for_assign_proxies_group()
+        if valid_proxies.exists():
+            settings.LOGGER.warning('There are %d proxies available for group assignation' % valid_proxies.count())
 
     #
     # PROXY QUERYSET

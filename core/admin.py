@@ -172,7 +172,10 @@ class TwitterBotAdmin(admin.ModelAdmin):
             bot = queryset[0]
             try:
                 bot.complete_creation()
-                self.message_user(request, "Bot %s creation completed ok" % bot.username)
+                if bot.has_to_complete_creation():
+                    self.message_user(request, "Bot %s not completed ok yet" % bot.username, level=messages.WARNING)
+                else:
+                    self.message_user(request, "Bot %s creation completed ok" % bot.username)
             except Exception:
                 self.message_user(request, "Error completing bot %s creation" % bot.username, level=messages.ERROR)
         else:
