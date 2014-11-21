@@ -92,7 +92,7 @@ class TwitterBotManager(models.Manager):
         #     thread.join()
 
     def clean_unregistered(self):
-        unregistered = self.unregistered()
+        unregistered = self.without_any_account_registered()
         if unregistered.exists():
             settings.LOGGER.warning('Found %s unregistered bots and will be deleted' % unregistered.count())
             unregistered.delete()
@@ -148,15 +148,19 @@ class TwitterBotManager(models.Manager):
 
     def finish_creations(self):
         """Mira qué robots aparecen incompletos y termina de hacer en cada uno lo que quede"""
-        uncompleted_bots = self.uncompleted()
-        if uncompleted_bots.exists():
+        from project.models import ProxiesGroup
+
+        bots_to_finish_creation = self.pendant_to_finish_creation()
+        if bots_to_finish_creation.exists():
             pool = ThreadPool(settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
-            for bot in uncompleted_bots.all():
+            for bot in bots_to_finish_creation:
                 pool.add_task(bot.complete_creation)
             pool.wait_completion()
         else:
-            settings.LOGGER.info('There is no more pendant bots to complete')
-            time.sleep(60)
+            settings.LOGGER.info('There is no more pendant bots to complete. Sleeping %d seconds for respawn..' %
+                                 settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
+            ProxiesGroup.objects.log_groups_with_creation_disabled()
+            time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
 
     #
     # Proxy methods to queryset
@@ -165,8 +169,8 @@ class TwitterBotManager(models.Manager):
     def get_queryset(self):
         return TwitterBotQuerySet(self.model, using=self._db)
 
-    def unregistered(self):
-        return self.get_queryset().unregistered()
+    def without_any_account_registered(self):
+        return self.get_queryset().without_any_account_registered()
 
     def usable(self):
         return self.get_queryset().usable()
@@ -206,6 +210,9 @@ class TwitterBotManager(models.Manager):
 
     def using_in_running_projects(self):
         return self.get_queryset().using_in_running_projects()
+
+    def pendant_to_finish_creation(self):
+        return self.get_queryset().pendant_to_finish_creation()
 
 
 class ProxyManager(MyManager):
@@ -282,5 +289,50 @@ class ProxyManager(MyManager):
 
     def get_queryset(self):
         return ProxyQuerySet(self.model, using=self._db)
+
+    def available_for_usage(self):
+        return self.get_queryset().available_for_usage()
+
+    def unavailable_for_usage(self):
+        return self.get_queryset().unavailable_for_usage()
+
+    def available_for_registration(self):
+        return self.get_queryset().available_for_registration()
+
+    def unavailable_for_registration(self):
+        return self.get_queryset().unavailable_for_registration()
+
+    def without_any_dead_bot(self):
+        return self.get_queryset().without_any_dead_bot()
+
+    def with_some_dead_bot(self):
+        return self.get_queryset().with_some_dead_bot()
+
+    def using_in_running_projects(self):
+        return self.get_queryset().using_in_running_projects()
+
+    def without_bots(self):
+        return self.get_queryset().without_bots()
+
+    def for_group(self, group):
+        return self.get_queryset().for_group(group)
+
+    def with_some_suspended_bot(self):
+        return self.get_queryset().with_some_suspended_bot()
+
+    def without_any_suspended_bot(self):
+        return self.get_queryset().without_any_suspended_bot()
+
+    def with_proxies_group_enabling_bot_creation(self):
+        return self.get_queryset().with_proxies_group_enabling_bot_creation()
+
+    def with_proxies_group_enabling_bot_usage(self):
+        return self.get_queryset().with_proxies_group_enabling_bot_usage()
+
+    def valid_for_assign_proxies_group(self):
+        return self.get_queryset().valid_for_assign_proxies_group()
+
+    def invalid_for_assign_proxies_group(self):
+        return self.get_queryset().invalid_for_assign_proxies_group()
 
 

@@ -126,7 +126,9 @@ class HotmailScrapper(Scrapper):
         fill_form()
         self.delay.seconds(5)
         submit_form()
-        wait_condition(lambda: 'summarypage' in self.browser.current_url.lower(), timeout=60)
+        if not self.check_visibility('#meControlHeader', timeout=60):
+            raise Exception()
+        # wait_condition(lambda: 'welcome' in self.get_css_element('#overview-head h2').text.lower(), timeout=60)
 
     def check_account_suspended(self):
         not_suspended = lambda: 'unblock' not in self.browser.title.lower()
@@ -190,6 +192,7 @@ class HotmailScrapper(Scrapper):
             self.browser.find_element_by_partial_link_text('continue to your inbox').click()
 
         # si nos salta el mensaje de bienvenida
+        self.wait_to_page_loaded()
         if self.check_visibility('#notificationContainer button', timeout=10):
             self.click('#notificationContainer button')
 

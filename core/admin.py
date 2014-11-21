@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from django.db.models import Count
 from django.http import HttpResponseRedirect
 from django.shortcuts import render_to_response
 from django.template import RequestContext
@@ -23,8 +24,8 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'is_being_created',
         'is_dead',
         'is_suspended',
+        'num_suspensions_lifted',
         'is_suspended_email',
-        # 'is_manually_registered',
         'email_registered_ok',
         'twitter_registered_ok',
         'twitter_confirmed_email_ok',
@@ -33,9 +34,17 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'date',
         'proxy_for_registration',
         'proxy_for_usage',
-        # 'user_agent',
-        'webdriver',
+        'get_webdriver',
     )
+
+    list_select_related = (
+        'proxy_for_registration',
+        'proxy_for_usage',
+        'proxy_for_usage__proxies_group'
+    )
+
+    list_per_page = 30
+
     search_fields = (
         'real_name',
         'username',
@@ -53,17 +62,17 @@ class TwitterBotAdmin(admin.ModelAdmin):
         def lookups(self, request, model_admin):
             return (
                 ('completed', 'completed'),
-                ('pendant_to_finish_creation', 'pendant_to_finish_creation'),
-                ('unregistered', 'unregistered'),
+                ('uncompleted', 'uncompleted'),  # pendientes de finalizar los registros (confirmar email, levantar suspension, etc)
+                ('without_any_account_registered', 'without_any_account_registered'),
             )
 
         def queryset(self, request, queryset):
-            if self.value() == 'pendant_to_finish_creation':
+            if self.value() == 'uncompleted':
                 return queryset.uncompleted()
             if self.value() == 'completed':
                 return queryset.completed()
-            if self.value() == 'unregistered':
-                return queryset.unregistered()
+            if self.value() == 'without_any_account_registered':
+                return queryset.without_any_account_registered()
 
     # todo: poder filtrar por proxy_provider tanto para proxies de registro como de uso
     # class ProxyProviderListFilter(admin.SimpleListFilter):
@@ -86,7 +95,8 @@ class TwitterBotAdmin(admin.ModelAdmin):
 
     list_filter = (
         ValidBotListFilter,
-        'webdriver',
+        'proxy_for_usage__proxies_group__webdriver',
+        'proxy_for_usage__proxies_group',
         'date',
         'is_dead',
         'is_suspended',
@@ -169,37 +179,6 @@ class TwitterBotAdmin(admin.ModelAdmin):
             self.message_user(request, "Only select one bot for this action", level=messages.WARNING)
     complete_creation.short_description = "Complete bot creation"
 
-    def create_new_bot(self, request, queryset):
-        try:
-            TwitterBot.objects.clean_unregistered()
-            TwitterBot.objects.create_bot()
-            self.message_user(request, "Bot created successfully")
-        except Exception:
-            self.message_user(request, 'Error creating bot', level=messages.ERROR)
-    create_new_bot.short_description = "Create new bot"
-
-    def process_bot(self, request, queryset):
-        if queryset.count() == 1:
-            bot = queryset[0]
-            try:
-                bot.complete_creation()
-                self.message_user(request, "Bot %s processed ok" % bot.username)
-            except Exception:
-                self.message_user(request, "There was errors processing bot %s." % bot.username, level=messages.ERROR)
-        else:
-            self.message_user(request, "Only select one user for this action", level=messages.WARNING)
-    process_bot.short_description = "Process bot"
-
-    def process_all_bots(self, request, queryset):
-        try:
-            TwitterBot.objects.process_all_bots()
-            self.message_user(request, "All bots processed sucessfully")
-        except Exception:
-            msg = "There were errors processing bots"
-            settings.LOGGER.exception(msg)
-            self.message_user(request, msg, level=messages.ERROR)
-    process_all_bots.short_description = "Process all bots"
-
     def set_twitter_profile(self, request, queryset):
         if queryset.count() == 1:
             bot = queryset[0]
@@ -262,15 +241,30 @@ class TwitterBotAdmin(admin.ModelAdmin):
             self.message_user(request, "Only select one user for this action", level=messages.WARNING)
     make_feed_tweet_to_send_for_selected_bot.short_description = "Make feed tweet for selected bot"
 
+    raw_id_fields = (
+        'proxy_for_registration',
+        'proxy_for_usage',
+    )
+
 
 class ProxyAdmin(admin.ModelAdmin):
+
+    def get_queryset(self, request):
+        return super(ProxyAdmin, self).queryset(request)\
+            .select_related('proxies_group', 'twitter_bots_registered', 'twitter_bots_using')
+            # .annotate(num_bots_registered=Count('twitter_bots_registered'))\
+            # .annotate(num_bots_using=Count('twitter_bots_using'))
+
     list_display = (
         'proxy',
         'proxy_provider',
         'proxies_group',
         'is_in_proxies_txts',
+        'num_bots_dead',
+        'num_bots_suspended',
         'num_bots_registered',
         'num_bots_using',
+        'date_added',
         'is_unavailable_for_registration',
         'date_unavailable_for_registration',
         'is_unavailable_for_use',
@@ -278,53 +272,126 @@ class ProxyAdmin(admin.ModelAdmin):
         'is_phone_required',
         'date_phone_required',
     )
+
     def num_bots_registered(self, obj):
         return obj.twitter_bots_registered.count()
 
     def num_bots_using(self, obj):
         return obj.twitter_bots_using.count()
 
+    def num_bots_suspended(self, obj):
+        return obj.get_suspended_bots().count()
+
+    def num_bots_dead(self, obj):
+        return obj.get_dead_bots().count()
+
+    list_select_related = (
+        'proxies_group',
+        'twitter_bots_registered',
+        'twitter_bots_using',
+    )
+
+    list_per_page = 15
+
     search_fields = (
         'proxy',
     )
 
+    ordering = ('-date_added',)
+
     # FILTERS
 
-    class HasBotsListFilter(admin.SimpleListFilter):
-        title = 'Has bots'
-        parameter_name = 'has_bots'
-
+    class YesNoFilter(admin.SimpleListFilter):
         def lookups(self, request, model_admin):
             return (
-                ('bots_registered', 'with bots registered',),
-                ('no_bots_registered', 'without bots registered',),
-
-                ('bots_using', 'with bots using'),
-                ('no_bots_using', 'without bots using'),
-
-                ('at_least_one_bot', 'with at least one bot'),
-                ('no_bots', 'without bots'),
+                ('1', 'Yes',),
+                ('0', 'No',),
             )
 
+        def yes(self):
+            return self.value() == '1'
+
+        def no(self):
+            return self.value() == '0'
+
+    class ValidForBotRegistrationListFilter(YesNoFilter):
+        title = 'Valid for bot registration'
+        parameter_name = 'valid_for_bot_registration'
+
         def queryset(self, request, queryset):
-            if self.value() == 'bots_registered':
-                return Proxy.objects.with_bots_registered()
-            if self.value() == 'no_bots_registered':
-                return Proxy.objects.without_bots_registered()
+            if self.yes():
+                return queryset.available_for_registration()
+            elif self.no():
+                return queryset.unavailable_for_registration()
 
-            if self.value() == 'bots_using':
-                return Proxy.objects.with_bots_using()
-            if self.value() == 'no_bots_using':
-                return Proxy.objects.without_bots_using()
+    class ValidForBotUsageListFilter(YesNoFilter):
+        title = 'Valid for bot usage'
+        parameter_name = 'valid_for_bot_usage'
 
-            if self.value() == 'at_least_one_bot':
-                return Proxy.objects.with_bots()
-            if self.value() == 'no_bots':
-                return Proxy.objects.without_bots()
+        def queryset(self, request, queryset):
+            if self.yes():
+                return queryset.available_for_usage()
+            elif self.no():
+                return queryset.unavailable_for_usage()
 
+    class ValidForAssignGroupListFilter(YesNoFilter):
+        title = 'Valid for assign group'
+        parameter_name = 'valid_for_assign_group'
+
+        def queryset(self, request, queryset):
+            if self.yes():
+                return queryset.valid_for_assign_proxies_group()
+            elif self.no():
+                return queryset.invalid_for_assign_proxies_group()
+
+    class HasRegisteredBotsListFilter(YesNoFilter):
+        title = 'Has registered bots'
+        parameter_name = 'has_registered_bots'
+
+        def queryset(self, request, queryset):
+            if self.yes():
+                return queryset.with_some_registered_bot()
+            elif self.no():
+                return queryset.without_any_bot_registered()
+
+    class HasBotsUsingListFilter(YesNoFilter):
+        title = 'Has bots using'
+        parameter_name = 'has_bots_using'
+
+        def queryset(self, request, queryset):
+            if self.yes():
+                return queryset.with_some_bot_using()
+            elif self.no():
+                return queryset.without_bots_using()
+
+    class HasSuspendedBotsListFilter(YesNoFilter):
+        title = 'Has suspended bots'
+        parameter_name = 'has_suspended_bots'
+
+        def queryset(self, request, queryset):
+            if self.yes():
+                return queryset.with_some_suspended_bot()
+            elif self.no():
+                return queryset.without_any_suspended_bot()
+
+    class HasDeadBotsListFilter(YesNoFilter):
+        title = 'Has dead bots'
+        parameter_name = 'has_dead_bots'
+
+        def queryset(self, request, queryset):
+            if self.yes():
+                return queryset.with_some_dead_bot()
+            elif self.no():
+                return queryset.without_any_dead_bot()
 
     list_filter = (
-        HasBotsListFilter,
+        ValidForBotRegistrationListFilter,
+        ValidForBotUsageListFilter,
+        ValidForAssignGroupListFilter,
+        HasRegisteredBotsListFilter,
+        HasBotsUsingListFilter,
+        HasSuspendedBotsListFilter,
+        HasDeadBotsListFilter,
         'proxies_group',
         'proxy_provider',
         'is_in_proxies_txts',

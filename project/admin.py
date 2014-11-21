@@ -33,6 +33,9 @@ class TargetUserAdmin(admin.ModelAdmin):
     extract_followers.short_description = "Extract all followers"
 
 
+# PROJECT ADMIN
+
+# tabular inlines
 class ProjectProxiesGroupInline(admin.TabularInline):
     model = ProxiesGroup.projects.through
 
@@ -73,6 +76,7 @@ class TweetAdmin(admin.ModelAdmin):
     list_display = (
         'compose',
         'length',
+        'date_created',
         'date_sent',
         'sending',
         'sent_ok',
@@ -82,12 +86,21 @@ class TweetAdmin(admin.ModelAdmin):
         'has_image',
     )
 
+    ordering = ('-sending', '-sent_ok')
+
+    exclude = (
+        'mentioned_users',
+    )
+
+    list_per_page = 15
+
     search_fields = (
         'bot_used__username',
     )
     list_filter = (
         'sending',
         'sent_ok',
+        'date_created',
         'date_sent',
        # 'link__platform'
     )
@@ -183,6 +196,10 @@ class LinkAdmin(admin.ModelAdmin):
 class ProxiesGroupAdmin(admin.ModelAdmin):
     list_display = (
         'name',
+        'webdriver',
+
+        'is_bot_creation_enabled',
+        'is_bot_usage_enabled',
 
         'total_bots_count',
         'bots_registered_count',
@@ -207,6 +224,11 @@ class ProxiesGroupAdmin(admin.ModelAdmin):
         return TwitterBot.objects.using_proxies_group(obj).count()
 
     exclude = ('projects',)
+
+    list_editable = (
+        'is_bot_creation_enabled',
+        'is_bot_usage_enabled',
+    )
 
     search_fields = (
         'name',

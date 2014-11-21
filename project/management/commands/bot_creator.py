@@ -14,6 +14,9 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         settings.LOGGER.info('-- INITIALIZED BOT CREATOR --')
 
+        TwitterBot.objects.clean_unregistered()
+        TwitterBot.objects.put_previous_being_created_to_false()
+
         try:
             if args and '1' in args:
                 TwitterBot.objects.create_bot()

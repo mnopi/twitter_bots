@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-from django.db.models import get_model
+from django.db.models import Q
 import feedparser
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from scrapper.accounts.hotmail import HotmailScrapper
-from core.querysets import ProxyQuerySet
-from scrapper.exceptions import TwitterEmailNotFound
+from scrapper.exceptions import TwitterEmailNotFound, NoMoreAvailableProxiesForUsage, \
+    NoMoreAvailableProxiesForRegistration
 from scrapper.logger import get_browser_instance_id
 from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from scrapper.accounts.twitter import TwitterScrapper
@@ -41,10 +41,15 @@ class TwitterBot(models.Model):
 
     is_dead = models.BooleanField(default=False)
     date_death = models.DateTimeField(null=True, blank=True)
+
     is_suspended = models.BooleanField(default=False)
     date_suspended_twitter = models.DateTimeField(null=True, blank=True)
+    # guardamos cuántas veces se ha levantado la suspensión del bot en twitter
+    num_suspensions_lifted = models.PositiveIntegerField(default=0)
+
     is_suspended_email = models.BooleanField(default=False)
     date_suspended_email = models.DateTimeField(null=True, blank=True)
+
     is_being_created = models.BooleanField(default=True)
     is_manually_registered = models.BooleanField(default=False)
     has_fast_mode = models.BooleanField(default=False)
@@ -55,17 +60,6 @@ class TwitterBot(models.Model):
     twitter_confirmed_email_ok = models.BooleanField(default=False)
     twitter_avatar_completed = models.BooleanField(default=False)
     twitter_bio_completed = models.BooleanField(default=False)
-    FIREFOX = 'FI'
-    CHROME = 'CH'
-    PHANTOMJS = 'PH'
-    WEBDRIVERS = (
-        ('FI', 'Firefox'),
-        ('CH', 'Chrome'),
-        ('PH', 'PhantomJS'),
-    )
-    webdriver = models.CharField(max_length=2, choices=WEBDRIVERS, default='FI')
-    random_offsets = models.BooleanField(default=False)
-    random_mouse_paths = models.BooleanField(default=False)
 
     # RELATIONSHIPS
     proxy_for_registration = models.ForeignKey('Proxy', null=True, blank=True, related_name='twitter_bots_registered', on_delete=models.DO_NOTHING)
@@ -125,6 +119,7 @@ class TwitterBot(models.Model):
     def unmark_as_suspended(self):
         self.is_suspended = False
         self.date_suspended = None
+        self.num_suspensions_lifted += 1
         self.save()
         settings.LOGGER.info('User %s has lift suspension on his twitter account' % self.username)
 
@@ -149,10 +144,39 @@ class TwitterBot(models.Model):
 
     def assign_proxy(self):
         """Al bot se le asigna un proxy disponible según tenga cuentas ya creadas o no"""
+        def assign_proxy_for_registration():
+            """Asignamos proxy para registro, el cual será el mismo que para el uso"""
+            available_proxies_for_reg = Proxy.objects.available_for_registration()
+            if not available_proxies_for_reg.exists():
+                raise NoMoreAvailableProxiesForRegistration()
+            else:
+                if settings.PRIORIZE_RUNNING_PROJECTS_FOR_BOT_CREATION:
+                    proxies_running = available_proxies_for_reg.using_in_running_projects()
+                    if proxies_running.exists():
+                        self.proxy_for_registration = proxies_running.order_by('?')[0]
+                    else:
+                        settings.LOGGER.warning('There is no more proxies assignable for registration on running projects')
+                        self.proxy_for_registration = available_proxies_for_reg.order_by('?')[0]
+                else:
+                    self.proxy_for_registration = available_proxies_for_reg.order_by('?')[0]
+
+                self.proxy_for_usage = self.proxy_for_registration
+
+        def assign_new_proxy_for_usage():
+            """
+            Asignamos proxy entre los disponibles para el grupo del bot.
+            """
+            new_proxies_available = Proxy.objects.for_group(self.get_group()).available_for_usage()
+            if not new_proxies_available.exists():
+                raise NoMoreAvailableProxiesForUsage()
+            else:
+                return new_proxies_available.order_by('?')[0]
+
         if self.has_no_accounts():
-            self.proxy = Proxy.objects.available_for_registration().order_by('?')[0]
+            assign_proxy_for_registration()
         else:
-            self.proxy = Proxy.objects.available_for_usage().order_by('?')[0]
+            # a la hora de asignar un nuevo proxy para el uso miramos que sea de su mismo grupo
+            assign_new_proxy_for_usage()
         self.save()
 
     def get_email_scrapper(self):
@@ -165,8 +189,8 @@ class TwitterBot(models.Model):
     def complete_creation(self):
         if self.has_to_complete_creation():
             t1 = utc_now()
-            settings.LOGGER.info('Completing creation for bot %s behind proxy %s @ %s' %
-                                 (self.username, self.proxy.proxy, self.proxy.proxy_provider))
+            settings.LOGGER.info('Completing creation for bot %s behind proxy %s' %
+                                 (self.username, self.proxy_for_usage.__unicode__()))
 
             # eliminamos el directorio de capturas previas para el usuario
             rmdir_if_exists(os.path.join(settings.SCREENSHOTS_DIR, self.real_name))
@@ -269,12 +293,11 @@ class TwitterBot(models.Model):
             self.birth_date = random_date(settings.BIRTH_INTERVAL[0], settings.BIRTH_INTERVAL[1])
             self.user_agent = generate_random_desktop_user_agent()
             self.has_fast_mode = settings.FAST_MODE
-            self.webdriver = settings.WEBDRIVER
             self.random_offsets = settings.RANDOM_OFFSETS_ON_EL_CLICK
             self.assign_proxy()
             self.save()
-            settings.LOGGER.info('Bot %s populated with proxy %s @ %s' %
-                                 (self.username, self.proxy.proxy, self.proxy.proxy_provider))
+            settings.LOGGER.info('Bot %s populated with proxy %s' %
+                                 (self.username, self.proxy_for_usage.__unicode__()))
         except Exception as ex:
             settings.LOGGER.exception('Error populating bot')
             raise ex
@@ -309,7 +332,16 @@ class TwitterBot(models.Model):
         return Project.objects.running().with_bot(self)
 
     def get_group(self):
-        return self.proxy_for_usage.proxies_group
+        if self.proxy_for_usage:
+            return self.proxy_for_usage.proxies_group
+        else:
+            return None
+
+    def get_webdriver(self):
+        if not self.proxy_for_usage or not self.proxy_for_usage.proxies_group:
+            return None
+        else:
+            return self.proxy_for_usage.proxies_group.webdriver
 
     def tweeting_time_interval_lapsed(self):
         "Mira si ha pasado el suficiente tiempo desde la ultima vez que tuiteo"
@@ -343,10 +375,11 @@ class TwitterBot(models.Model):
 
         # saco proyectos asignados para el robot que actualmente estén ejecutándose, ordenados de menor a mayor
         # número de tweets creados en la cola pendientes de enviar
-        bot_projects = self.get_running_projects().order_by__queued_tweets()
-        if bot_projects.exists():
-            for project in bot_projects:
-
+        projects_with_this_bot = self.get_running_projects().order_by__queued_tweets()
+        if projects_with_this_bot.exists():
+            for project in projects_with_this_bot:
+                project.check_if_has_minimal_content()
+                
                 tweet_to_send = Tweet(
                     project=project,
                     bot_used=self
@@ -368,45 +401,6 @@ class TwitterBot(models.Model):
 
         else:
             settings.LOGGER.warning('Bot %s has no running projects assigned at this moment' % self.__unicode__())
-
-
-
-        #     for project in Project.objects.running().order_by__queued_tweets():
-        #         # saco alguno que no fue mencionado por el bot
-        #         unmentioned_by_bot = project.get_unmentioned_users()\
-        #             .exclude(mentions__bot_used=self)
-        #         if unmentioned_by_bot.exists():
-        #             tweet_to_send = Tweet(
-        #                 project=project,
-        #                 tweet_msg=project.tweet_msgs.order_by('?')[0],
-        #                 link=project.links.get(is_active=True),
-        #                 bot_used=self,
-        #             )
-        #             tweet_to_send.save()
-        #
-        #             # añadimos usuarios a mencionar, los primeros en añadirse serán los últimos que hayan tuiteado
-        #             try:
-        #                 unmentioned_selected = unmentioned_by_bot.order_by('-last_tweet_date')[:settings.MAX_MENTIONS_PER_TWEET]
-        #             except Exception as e:
-        #                 unmentioned_selected = unmentioned_by_bot.all()
-        #
-        #             for unmentioned in unmentioned_selected:
-        #                 if tweet_to_send.length() + len(unmentioned.username) + 2 <= 140:
-        #                     tweet_to_send.mentioned_users.add(unmentioned)
-        #                 else:
-        #                     break
-        #
-        #             settings.LOGGER.info('Queued (project: %s, bot: %s) >> %s' %
-        #                                  (project.__unicode__(), self.__unicode__(), tweet_to_send.compose()))
-        #             break
-        #         else:
-        #             settings.LOGGER.warning('Bot %s has not more users to mention for project %s' %
-        #                                     (self.username, project.name))
-        # else:
-        #     settings.LOGGER.info('Reached max queue size of %i tweets pending to send. Waiting %i seconds to retry (%i)..' %
-        #                          (tweets_to_send_queue_length, settings.TIME_WAITING_FREE_QUEUE, retry_counter))
-        #     time.sleep(settings.TIME_WAITING_FREE_QUEUE)
-        #     self.make_tweet_to_send(retry_counter=retry_counter + 1)
 
     def make_feed_tweet_to_send(self):
         "Crea un tweet a partir de algún feed pendiente de enviar"
@@ -446,8 +440,18 @@ class TwitterBot(models.Model):
         finally:
             self.scrapper.close_browser()
 
-    # QUERYSET METHODS
+    def get_last_tweet_sent(self):
+        """
+            Saca el último tweet enviado por el bot
+            :return tweet último o None si nunca envió tweet
+        """
+        tweets_sent = self.get_sent_ok_tweets()
+        if tweets_sent:
+            return tweets_sent.lastest('date_sent')
+        else:
+            return None
 
+    # QUERYSET METHODS
 
 
 class Proxy(models.Model):
@@ -477,7 +481,14 @@ class Proxy(models.Model):
         verbose_name_plural = "proxies"
 
     def __unicode__(self):
-        return '%s @ %s' % (self.proxy, self.proxy_provider)
+        group_str = self.proxies_group.__unicode__() if self.proxies_group else 'NO GROUP'
+        return '%s @ %s :: %s' % (self.proxy, self.proxy_provider, group_str)
 
-    def get_bots_using(self):
-        return self.__class__.objects.filter(twitter_bots_using__isnull=False)
+    def get_suspended_bots(self):
+        return self.twitter_bots_using.filter(
+            Q(is_suspended=True) |
+            Q(num_suspensions_lifted__gt=0)
+        ).distinct()
+
+    def get_dead_bots(self):
+        return self.twitter_bots_using.filter(is_dead=True).distinct()

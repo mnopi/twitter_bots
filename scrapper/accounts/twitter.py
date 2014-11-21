@@ -143,16 +143,19 @@ class TwitterScrapper(Scrapper):
                 if self.check_visibility('form.t1-form .error-occurred'):
                     cr.report_wrong_captcha()
                     submit_unsuspension(attempt+1)
-
+                else:
+                    # si la suspensión se levantó bien..
+                    self.user.unmark_as_suspended()
         try:
             self.user.mark_as_suspended()
             self.click(self.get_css_element('#account-suspended a'))
             self.wait_to_page_loaded()
             cr = DeathByCaptchaResolver(self)
-            self.click('#checkbox_discontinue')
+            if self.check_visibility('#checkbox_discontinue'):
+                self.click('#checkbox_discontinue')
             self.click('#checkbox_permanent')
             submit_unsuspension(attempt=0)
-            self.user.unmark_as_suspended()
+
         except Exception as e:
             settings.LOGGER.exception('')
             raise TwitterAccountDead(self.user)

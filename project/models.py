@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import random
 
 from django.db import models
 from django.db.models import Count, Q
@@ -8,7 +9,7 @@ import time
 from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
     TwitterUserManager
-from scrapper.utils import is_gte_than_days_ago, utc_now
+from scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago
 from twitter_bots import settings
 
 
@@ -101,21 +102,21 @@ class Project(models.Model):
         """Saca los usuarios que son followers a partir de un proyecto"""
         return Follower.objects.filter(target_user__projects=self)
 
-    def get_hashtagers(self, platform=None):
+    def get_hashtagers(self):
         """Saca los usuarios que son followers a partir de un proyecto"""
         return TwitterUserHasHashtag.objects.filter(hashtag__projects=self)
 
     def get_total_users(self):
         return TwitterUser.objects.for_project(self)
 
-    def get_mentioned_users(self, platform=None):
+    def get_mentioned_users(self):
         return self.get_total_users().filter(mentions__project=self)
 
     def get_unmentioned_users(self):
         return TwitterUser.objects.unmentioned_on_project(self)
 
-    def get_followers_to_mention(self, platform=None):
-        project_followers = self.get_followers(platform=platform)
+    def get_followers_to_mention(self):
+        project_followers = self.get_followers()
         project_followers = project_followers.annotate(mentions_count=Count('twitter_user__mentions'))
         return project_followers.filter(mentions_count=0)
 
@@ -132,6 +133,16 @@ class Project(models.Model):
         """Saca, de sus grupos de proxies asignados, aquellos bots que las usen y puedan tuitear"""
         from core.models import TwitterBot
         return TwitterBot.objects.using_in_project(self).twitteable()
+
+    def check_if_has_minimal_content(self):
+        """Verifica si el proyecto tiene asignado el contenido suficiente para poderse fabricar tweets para él"""
+        if not self.tweet_msgs.exists():
+            settings.LOGGER.error('Project "%s" has no tweet_mgs defined' % self.__unicode__())
+            raise Exception()
+
+        if not self.links.exists():
+            settings.LOGGER.error('Project "%s" has no links defined' % self.__unicode__())
+            raise Exception()
 
 
 class TweetMsg(models.Model):
@@ -244,7 +255,7 @@ class TwitterUser(models.Model):
 
 
 class Tweet(models.Model):
-    date_created = models.DateTimeField(auto_now_add=True)
+    date_created = models.DateTimeField(auto_now_add=True)  # la fecha en la que se crea y se mete en la cola
     date_sent = models.DateTimeField(null=True, blank=True)
     sending = models.BooleanField(default=False)
     sent_ok = models.BooleanField(default=False)
@@ -386,6 +397,28 @@ class Tweet(models.Model):
     def has_bot_sending_another(self):
         """Comprueba si el bot asignado para el tweet ya está enviando otro"""
         return Tweet.objects.filter(sending=True, bot_used=self.bot_used).exists()
+
+    def has_enough_time_spend_before_sending(self):
+        """
+            Indica si ha pasado el suficientemente tiempo para poder lanzarse este tweet tras el último
+            que lanzó su robot. Por ejemplo, si su robot pertenece a un grupo de intervalo '2-7' minutos,
+            entonces indicará si pasó ese tiempo en caso de haber lanzado algún tweet antes
+        """
+        last_tweet_sent = self.bot_used.get_last_tweet_sent()
+        if not last_tweet_sent or not last_tweet_sent.date_sent:
+            return True
+        else:
+            # si el bot ya envió algún tweet se comprueba que el último se haya enviado
+            # antes o igual a la fecha de ahora menos el tiempo aleatorio entre tweets por bot
+            time_between_tweets = self.bot_used.get_group().time_between_tweets.split('-')
+            random_seconds_ago = random.randint(60*int(time_between_tweets[0]), 60*int(time_between_tweets[1]))
+            if is_lte_than_seconds_ago(last_tweet_sent.date_sent, random_seconds_ago):
+                return True
+            else:
+                return False
+
+    def can_be_sent(self):
+        return not self.has_bot_sending_another() and self.has_enough_time_spend_before_sending()
 
 
 class Link(models.Model):
@@ -814,10 +847,28 @@ class PageLink(models.Model):
 
 class ProxiesGroup(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False)
-    max_tw_bots_per_proxy_for_registration = models.PositiveIntegerField(null=False, blank=False)
-    max_tw_bots_per_proxy_for_usage = models.PositiveIntegerField(null=False, blank=False)
-    time_between_tweets = models.CharField(max_length=10, null=False, blank=False)  # '2-5' -> entre 2 y 5 minutos
-    max_num_mentions_per_tweet = models.PositiveIntegerField(null=False, blank=False)
+
+    # bot registration
+    is_bot_creation_enabled = models.BooleanField(default=False)
+    max_tw_bots_per_proxy_for_registration = models.PositiveIntegerField(null=False, blank=False, default=6)
+    min_days_between_registrations_per_proxy = models.PositiveIntegerField(null=False, blank=False, default=5)
+
+    # bot usage
+    is_bot_usage_enabled = models.BooleanField(default=False)
+    max_tw_bots_per_proxy_for_usage = models.PositiveIntegerField(null=False, blank=False, default=12)
+    time_between_tweets = models.CharField(max_length=10, null=False, blank=False, default='2-5')  # '2-5' -> entre 2 y 5 minutos
+    max_num_mentions_per_tweet = models.PositiveIntegerField(null=False, blank=False, default=1)
+
+    # webdriver
+    FIREFOX = 'FI'
+    CHROME = 'CH'
+    PHANTOMJS = 'PH'
+    WEBDRIVERS = (
+        ('FI', 'Firefox'),
+        ('CH', 'Chrome'),
+        ('PH', 'PhantomJS'),
+    )
+    webdriver = models.CharField(max_length=2, choices=WEBDRIVERS, default='PH')
 
     # RELATIONSHIPS
     projects = models.ManyToManyField(Project, related_name='proxies_groups', null=True, blank=True)

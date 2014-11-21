@@ -87,13 +87,15 @@ REGISTER_EMAIL = True  # para activar o no el registro del email
 TW_CONFIRM_EMAIL = True  # para activar o no el leer el email de confirmación de twitter
 TW_SET_AVATAR = True
 TW_SET_BIO = True
+PRIORIZE_RUNNING_PROJECTS_FOR_BOT_CREATION = True  # para crear bots primero para los proyectos que estén en marcha
 # si no activamos registro de email evidentemente no haremos la confirmación
 if not REGISTER_EMAIL:
     TW_CONFIRM_EMAIL = False
 
 #
 # BOT CREATION FINISHER
-MAX_THREADS_COMPLETING_PENDANT_BOTS = 4  # máximo de hilos para restaurar creación de robots todavía a medias
+MAX_THREADS_COMPLETING_PENDANT_BOTS = 1  # máximo de hilos para restaurar creación de robots todavía a medias
+TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER = 60  # máximo de hilos para restaurar creación de robots todavía a medias
 
 
 #
