@@ -3,7 +3,7 @@ from selenium.webdriver.common.keys import Keys
 
 from scrapper.scrapper import Scrapper
 from scrapper.captcha_resolvers import DeathByCaptchaResolver
-from scrapper.exceptions import TwitterEmailNotFound, EmailAccountSuspended
+from scrapper.exceptions import TwitterEmailNotFound, EmailAccountSuspended, EmailAccountNotFound
 from scrapper.utils import *
 from twitter_bots import settings
 
@@ -119,7 +119,7 @@ class HotmailScrapper(Scrapper):
 
             self.click('#iOptinEmail')
 
-        settings.LOGGER.info('Signing up %s..' % self.user.email)
+        self.logger.info('Signing up %s..' % self.user.email)
         self.go_to(settings.URLS['hotmail_reg'])
         captcha_resolver = DeathByCaptchaResolver(self)
         self.wait_visibility_of_css_element('#iliveswitch', timeout=10)
@@ -134,7 +134,7 @@ class HotmailScrapper(Scrapper):
         not_suspended = lambda: 'unblock' not in self.browser.title.lower()
         suspended = not check_condition(not_suspended)
         if suspended:
-            raise EmailAccountSuspended(self.user)
+            raise EmailAccountSuspended(self)
 
     def login(self):
         def submit_form(attempts=0):
@@ -150,13 +150,8 @@ class HotmailScrapper(Scrapper):
                         cr.resolve_captcha('#idTd_HIP_HIPControl img', '#idTd_HIP_HIPControl input')
                         self.fill_input_text('input[name=passwd]', self.user.password_email)
                     else:
-                        # si no hay captcha entonces lo damos por email malo y lanzamos excepción
-                        self.user.email_registered_ok = False
-                        self.user.save()
-                        self.take_screenshot('wrong_email_account_for_login')
-                        self.close_browser()
-                        settings.LOGGER.warning('Wrong email account %s for bot %s' % (self.user.email, self.user.username))
-                        raise Exception()
+                        # si no hay captcha entonces lanzamos excepción diciendo que el email no existe como registrado
+                        raise EmailAccountNotFound(self)
                 return errors
 
             if attempts > 1:
@@ -181,9 +176,9 @@ class HotmailScrapper(Scrapper):
                 self.wait_to_page_loaded()
             self._quit_inbox_shit()
             self.check_account_suspended()
-            settings.LOGGER.info('User %s logged in hotmail' % self.user.email)
+            self.logger.info('Logged in hotmail ok')
         except Exception as ex:
-            settings.LOGGER.exception('The was a problem loggin in %s' % self.user.email)
+            self.logger.exception('Error login into hotmail')
             raise ex
 
     def _quit_inbox_shit(self):
@@ -224,5 +219,5 @@ class HotmailScrapper(Scrapper):
                 self.send_special_key(Keys.ENTER)
                 self.delay.seconds(7)
         else:
-            settings.LOGGER.warning('No twitter email arrived for user %s, resending twitter email..' % self.user.username)
+            self.logger.warning('No twitter email arrived, resending twitter email..')
             raise TwitterEmailNotFound()

@@ -35,6 +35,3 @@ import logging
 import logging.config
 logging.config.dictConfig(LOGGING)
 LOGGER = logging.getLogger('scrapper')
-
-def get_browser_instance_id(user):
-    return '[%s | %i]' % (user.username, user.id)

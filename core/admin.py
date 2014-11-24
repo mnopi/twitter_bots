@@ -43,7 +43,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'proxy_for_usage__proxies_group'
     )
 
-    list_per_page = 30
+    list_per_page = 15
 
     search_fields = (
         'real_name',

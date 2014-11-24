@@ -15,8 +15,7 @@ import socket
 import telnetlib
 from .delay import Delay
 from .exceptions import RequestAttemptsExceededException, ProxyConnectionError, ProxyTimeoutError, \
-    InternetConnectionError, ProxyUrlRequestError
-from .logger import get_browser_instance_id
+    InternetConnectionError, ProxyUrlRequestError, IncompatibleUserAgent
 import my_phantomjs_webdriver
 from project.models import ProxiesGroup
 from utils import *
@@ -27,7 +26,6 @@ INVALID_EMAIL_DOMAIN_MSG = 'Invalid email domain used, only accepts: hushmail.co
 
 class Scrapper(object):
     # cada scrapper (hotmail, twitter..) tendrá su propia carpeta para capturar los pantallazos
-    screenshots_dir = ''
     CMD_KEY = Keys.COMMAND if sys.platform == 'darwin' else Keys.CONTROL
 
     def __init__(self, user=None, force_firefox=False, screenshots_dir=None):
@@ -44,8 +42,7 @@ class Scrapper(object):
         self.screenshots_dir = screenshots_dir or ''
         self.screenshot_num = 1  # contador para capturas de pantalla
         self.current_mouse_position = {'x': 0, 'y': 0}
-        if self.user.pk:
-            self.browser_id = get_browser_instance_id(self.user)
+        self.logger = ScrapperLogger(self)
 
     def check_proxy_works_ok(self):
         """Mira si funciona correctamente el proxy que se supone que tenemos contratado"""
@@ -57,34 +54,6 @@ class Scrapper(object):
 
     def open_browser(self, renew_user_agent=False):
         """Devuelve el navegador a usar"""
-
-        def renew_tor_ip(method='stem'):
-            """
-            Usa la librería stem para renovar ip con la que se conecta a tor
-            Para que esto funcione hay que editar /usr/local/etc/tor/torrc y añadir la línea:
-            ControlPort 9051
-            """
-            if method == 'stem':
-                with Controller.from_port(port=settings.TOR_CTRL_PORT) as controller:
-                    controller.authenticate()
-                    controller.signal(Signal.NEWNYM)
-            elif method == 'socket':
-                try:
-                    tor_c = socket.create_connection(("127.0.0.1", settings.TOR_CTRL_PORT))
-                    tor_c.send('AUTHENTICATE\r\nSIGNAL NEWNYM\r\n')
-                    response = tor_c.recv(1024)
-                    if response != '250 OK\r\n250 OK\r\n':
-                        settings.LOGGER.warning('Unexpected response from Tor control port: {}\n'.format(response))
-                except Exception, e:
-                    settings.LOGGER.warning('Error connecting to Tor control port: {}'.format(repr(e)))
-            elif method == 'telnet':
-                telnet = telnetlib.Telnet("127.0.0.1", settings.TOR_CTRL_PORT)
-                telnet.set_debuglevel(0)
-                telnet.write('authenticate ""' + "\n")
-                telnet.read_until("250 OK")
-                telnet.write("signal newnym" + "\n")
-                telnet.read_until("250 OK")
-                telnet.write("quit")
 
         def get_firefox():
             # PARA USAR PROXY CON AUTENTICACIÓN BASIC HTTP EN FIREFOX:
@@ -140,13 +109,6 @@ class Scrapper(object):
                 desired_capabilities=dcap
             )
 
-            # self.browser = webdriver.PhantomJS(
-            #     settings.PHANTOMJS_BIN_PATH,
-            #     service_args=service_args,
-            #     desired_capabilities=dcap
-            # )
-            settings.LOGGER.debug('%s phantomJS instance opened successfully' % get_browser_instance_id(self.user))
-
         # si ya hay navegador antes de abrirlo nos aseguramos que esté cerrado para no acumular una instancia más
         # cada vez que abrimos
         if self.browser:
@@ -162,8 +124,8 @@ class Scrapper(object):
                 # si ya estaba usando un proxy comprobamos si el proxy aún sigue en los txts, si no se le asigna uno de los nuevos SIEMPRE QUE
                 # el bot no haya sido suspendido
                 if not self.user.proxy_for_usage.is_in_proxies_txts:
-                    settings.LOGGER.info('Proxy %s for bot %s is no longer on txts. Trying to assign new one..' %
-                                         (self.user.proxy_for_usage.__unicode__(), self.user.__unicode__()))
+                    self.logger.info('Proxy %s is no longer on txts. Trying to assign new one..' %
+                                     self.user.proxy_for_usage.__unicode__())
                     self.user.assign_proxy()
             else:
                 # si no tiene proxy se le asigna uno
@@ -187,19 +149,15 @@ class Scrapper(object):
 
         self.browser.maximize_window()
         self.browser.set_page_load_timeout(settings.PAGE_LOAD_TIMEOUT)
-
-        # cargamos las cookies que el usuario haya guardado (no se puede hacer si no se entra a la página del dominio de cada cookie)
-        # cookies = simplejson.loads(self.user.cookies)
-        # for cookie in cookies:
-        #     self.browser.add_cookie(cookie)
+        self.logger.debug('%s instance opened successfully' % self.user.get_webdriver())
 
     def close_browser(self):
         try:
             self.browser.quit()
-            settings.LOGGER.debug('%s %s instance closed sucessfully' % (get_browser_instance_id(self.user), self.user.get_webdriver()))
+            self.logger.debug('%s instance closed sucessfully' % self.user.get_webdriver())
         except Exception as ex:
             if not self.browser:
-                settings.LOGGER.warning('%s %s instance was not opened browser' % (get_browser_instance_id(self.user), self.user.get_webdriver()))
+                self.logger.warning('%s instance was not opened browser' % self.user.get_webdriver())
             else:
                 raise ex
 
@@ -426,7 +384,7 @@ class Scrapper(object):
                         self.wait_to_page_loaded()
                     self.check_user_agent_compatibility()
                     self._quit_focus_from_address_bar()
-                    settings.LOGGER.debug('%s go_to: %s' % (self.browser_id, url))
+                    self.logger.debug('go_to: %s' % url)
                     self.take_screenshot('go_to')
                 else:
                     if proxy_works():
@@ -437,11 +395,10 @@ class Scrapper(object):
                             # si el proxy no funciona y sí la conexión a internet, es culpa del proxy
                             raise ProxyConnectionError(self)
                         else:
-                            raise InternetConnectionError()
+                            raise InternetConnectionError(self)
         except TimeoutException:
             if ignore_timeout_error:
-                settings.LOGGER.warning('%s Timeout loading url %s, ignoring TimeoutException..' %
-                                        (get_browser_instance_id(self.user), url))
+                self.logger.warning('Timeout loading url %s, ignoring TimeoutException..' % url)
         except Exception, e:
             raise e
         finally:
@@ -457,7 +414,7 @@ class Scrapper(object):
     def change_user_agent(self):
         self.user.user_agent = generate_random_desktop_user_agent()
         self.user.save()
-        settings.LOGGER.info('Setted user_agent for bot %s' % self.user.username)
+        self.logger.info('User agent has changed to %s' % self.user.user_agent)
 
     def wait_until_closed_windows(self):
         while self.browser.window_handles:
@@ -525,9 +482,9 @@ class Scrapper(object):
 
         # si el es un selector css entonces hacemos captura de pantalla cómo queda después del click
         if el_str:
-            msg = '%s click_%s' % (get_browser_instance_id(self.user), el_str)
+            msg = 'click_%s' % el_str
             self.take_screenshot(msg)
-            settings.LOGGER.debug(msg)
+            self.logger.debug(msg)
 
     def _quit_focus_from_address_bar(self):
         self.send_special_key(Keys.TAB)
@@ -561,9 +518,9 @@ class Scrapper(object):
             )
             g_scrapper.send_special_key(Keys.ENTER)
             g_scrapper.wait_to_page_loaded()
-            self.delay.seconds(3)
+            g_scrapper.delay.seconds(3)
 
-            if self.check_visibility('#rg_s .rg_di'):
+            if g_scrapper.check_visibility('#rg_s .rg_di'):
                 imgs = g_scrapper.get_css_elements('#rg_s .rg_di')
                 if imgs:
                     num_attempts = 0
@@ -578,8 +535,8 @@ class Scrapper(object):
                     # si no se encontró ninguna imagen con el suficiente tamaño se vuelve a buscar con otro nombre
                     get_img()
             else:
-                settings.LOGGER.exception()
-                raise Exception()
+                g_scrapper.logger.warning('Error getting image from google because element #rg_s .rg_di was not found.')
+                raise IncompatibleUserAgent(self)
 
         avatar_path = os.path.join(settings.AVATARS_DIR, '%s.png' % self.user.username)
         MIN_RES = 80  # mínima resolución que debe tener cada imagen encontrada, en px
@@ -594,7 +551,7 @@ class Scrapper(object):
         try:
             while True:
                 if attempt_num > SEARCH_ATTEMPTS:
-                    settings.LOGGER.warning('Exceeded %i attempts downloading picture profile for bot %s'
+                    g_scrapper.logger.warning('Exceeded %i attempts downloading picture profile for bot %s'
                                             % (SEARCH_ATTEMPTS, self.user.username))
                     raise Exception()
 
@@ -614,7 +571,7 @@ class Scrapper(object):
                 else:
                     os.remove(avatar_path)
                     attempt_num += 1
-                    settings.LOGGER.warning('Invalid picture downloaded from %s. Trying again (%i)..' %
+                    self.logger.warning('Invalid picture downloaded from %s. Trying again (%i)..' %
                                             (g_scrapper.browser.current_url, attempt_num))
                     self.take_screenshot('picture_download_failure_attempt_%i' % attempt_num, force_take=True)
 
@@ -625,8 +582,7 @@ class Scrapper(object):
                 #     settings.LOGGER.warning('Invalid picture downloaded from %s. Trying again..' % g_scrapper.browser.current_url)
 
         except Exception, e:
-            settings.LOGGER.exception('%s Could not download picture from google for user "%s"' %
-                             (get_browser_instance_id(self.user), self.user.username))
+            self.logger.exception('Error downloading picture from google')
             g_scrapper.take_screenshot('picture_download_failure')
             raise e
         finally:
@@ -643,7 +599,7 @@ class Scrapper(object):
         while True:
             try:
                 if attempt >= n_attempts:
-                    raise RequestAttemptsExceededException(self.user, url)
+                    raise RequestAttemptsExceededException(self, url)
                 else:
                     self.go_to(url, **kwargs)
                     break
@@ -675,12 +631,12 @@ class Scrapper(object):
                         break
                 return sel_quote
             except Exception:
-                settings.LOGGER.exception('Error getting quote from quotationspage')
-                q_scrapper.take_screenshot('quote_get_fail')
+                self.logger.exception('Error getting quote from quotationspage')
+                q_scrapper.take_screenshot('quote_get_fail_from_quotationspage')
                 return None
 
         def get_quote_from_quotedb():
-            pass
+            raise NotImplementedError
 
         q_scrapper = None
         try:
@@ -696,7 +652,7 @@ class Scrapper(object):
             else:
                 raise Exception()
         except Exception, e:
-            settings.LOGGER.exception('%s Error getting quote' % get_browser_instance_id(self.user))
+            self.logger.exception('Error getting quote from quotationspage')
             q_scrapper.take_screenshot('quote_get_fail')
             raise e
         finally:
@@ -724,8 +680,7 @@ class Scrapper(object):
                 self.browser.save_screenshot(os.path.join(dir, '%i_%s.jpg' % (self.screenshot_num, title)))
             self.screenshot_num += 1
         except Exception:
-            settings.LOGGER.exception('%s Error shooting %i_%s.jpg' %
-                             (get_browser_instance_id(self.user), self.screenshot_num, title))
+            self.logger.exception('Error shooting %i_%s.jpg' % (self.screenshot_num, title))
 
     def move_mouse_to_el(self, el):
         """Mueve el ratón hacia la coordenada relativa 0,0 de un elemento 'el' dado"""
@@ -754,6 +709,31 @@ class Scrapper(object):
         self.send_special_key(Keys.ARROW_DOWN)
         self.send_special_key(Keys.ARROW_DOWN)
         self.send_special_key(Keys.ENTER)
+
+
+class ScrapperLogger(object):
+        logger = settings.LOGGER
+
+        def __init__(self, scrapper):
+            if scrapper.user.pk:
+                self.scrapper_id = '[%s | %i]' % (scrapper.user.username, scrapper.user.id)
+            else:
+                self.scrapper_id = '[%s]' % scrapper.user.username
+
+        def info(self, msg):
+            self.logger.info('%s - %s' % (self.scrapper_id, msg))
+
+        def debug(self, msg):
+            self.logger.debug('%s - %s' % (self.scrapper_id, msg))
+
+        def warning(self, msg):
+            self.logger.warning('%s - %s' % (self.scrapper_id, msg))
+
+        def error(self, msg):
+            self.logger.error('%s - %s' % (self.scrapper_id, msg))
+
+        def exception(self, msg):
+            self.logger.exception('%s - %s' % (self.scrapper_id, msg))
 
 
 class MyActionChains(ActionChains):

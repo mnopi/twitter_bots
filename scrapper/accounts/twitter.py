@@ -54,7 +54,7 @@ class TwitterScrapper(Scrapper):
                     break
 
         try:
-            settings.LOGGER.info('User %s signing up on twitter..' % self.user.username)
+            self.logger.info('Signing up on twitter..')
             self.go_to(settings.URLS['twitter_reg'])
             # esperamos a que se cargue bien el formulario
             self.wait_visibility_of_css_element('#full-name', timeout=settings.PAGE_LOAD_TIMEOUT)
@@ -83,7 +83,7 @@ class TwitterScrapper(Scrapper):
 
             # si pide teléfono
             if check_condition(lambda: 'phone_number' in self.browser.current_url, timeout=20):
-                raise BotMustVerifyPhone(self.user)
+                raise BotMustVerifyPhone(self)
 
             wait_condition(lambda: 'congratulations' in self.browser.current_url or
                                    'welcome' in self.browser.current_url)
@@ -93,10 +93,10 @@ class TwitterScrapper(Scrapper):
             # finalmente lo ponemos como registrado en twitter
             self.user.twitter_registered_ok = True
             self.user.save()
-            settings.LOGGER.info('User %s successfully signed up on twitter' % self.user.username)
+            self.logger.info('Twitter account registered successfully')
         except Exception, e:
             self.take_screenshot('twitter_registered_fail', force_take=True)
-            settings.LOGGER.exception('Error on bot %s signing up twitter account' % self.user.username)
+            self.logger.exception('Error registering twitter account')
             raise e
 
     def is_logged_in(self):
@@ -122,18 +122,20 @@ class TwitterScrapper(Scrapper):
 
             self.clear_local_storage()
             self.check_account_suspended()
+        except TwitterEmailNotConfirmed:
+            pass
         except Exception, e:
-            settings.LOGGER.exception('%s Login on twitter error for %s' % (get_thread_name(), self.user.username))
+            self.logger.exception('Login on twitter error')
             self.take_screenshot('login_failure', force_take=True)
-            if type(e) is not TwitterEmailNotConfirmed:
-                raise e
+            raise e
 
     def lift_suspension(self):
         # intentamos levantar suspensión
         def submit_unsuspension(attempt):
             if attempt == 5:
-                raise Exception('Exceeded 5 attemps to lift suspension for bot %s' % self.user.username)
+                raise TwitterAccountDead(self)
             else:
+                self.logger.info('Lifting twitter account suspension (attempt %i)..' % attempt)
                 cr.resolve_captcha(
                     self.get_css_element('#recaptcha_challenge_image'),
                     self.get_css_element('#recaptcha_response_field')
@@ -147,19 +149,15 @@ class TwitterScrapper(Scrapper):
                 else:
                     # si la suspensión se levantó bien..
                     self.user.unmark_as_suspended()
-        try:
-            self.user.mark_as_suspended()
-            self.click(self.get_css_element('#account-suspended a'))
-            self.wait_to_page_loaded()
-            cr = DeathByCaptchaResolver(self)
-            if self.check_visibility('#checkbox_discontinue'):
-                self.click('#checkbox_discontinue')
-            self.click('#checkbox_permanent')
-            submit_unsuspension(attempt=0)
 
-        except Exception as e:
-            settings.LOGGER.exception('')
-            raise TwitterAccountDead(self.user)
+        self.user.mark_as_suspended()
+        self.click(self.get_css_element('#account-suspended a'))
+        self.wait_to_page_loaded()
+        cr = DeathByCaptchaResolver(self)
+        if self.check_visibility('#checkbox_discontinue'):
+            self.click('#checkbox_discontinue')
+        self.click('#checkbox_permanent')
+        submit_unsuspension(attempt=0)
 
     def check_account_suspended(self):
         """Una vez logueado miramos si fue suspendida la cuenta"""
@@ -169,13 +167,13 @@ class TwitterScrapper(Scrapper):
             if 'confirm your email' in self.get_css_element('#account-suspended').text:
                 self.click('#account-suspended a')
                 self.delay.seconds(4)
-                raise TwitterEmailNotConfirmed(self.user)
+                raise TwitterEmailNotConfirmed(self)
             else:
                 self.lift_suspension()
         elif self.check_visibility('.resend-confirmation-email-link'):
             self.click('.resend-confirmation-email-link')
             self.delay.seconds(4)
-            raise TwitterEmailNotConfirmed(self.user)
+            raise TwitterEmailNotConfirmed(self)
         else:
             self.user.is_suspended = False
             self.user.save()
@@ -183,7 +181,7 @@ class TwitterScrapper(Scrapper):
     def check_account_exists(self):
         "Mira si tras intentar loguearse el usuario existe o no en twitter"
         if 'error' in self.browser.current_url:
-            raise TwitterBotDontExistsOnTwitterException(self.user)
+            raise TwitterBotDontExistsOnTwitterException(self)
 
     def twitter_page_is_loaded_on_new_window(self):
         """mira si se cargó por completo la página en la ventana nueva que se abre al pinchar en el enlace
@@ -198,32 +196,46 @@ class TwitterScrapper(Scrapper):
     def set_profile(self):
         """precondición: estar logueado y en la home"""
         def set_avatar():
-            settings.LOGGER.info('Setting avatar for %s' % self.user.username)
+            def click_avatar_el():
+                """Hace click en el elemento del avatar vacío para que salga el botón de subir avatar"""
+                try:
+                    if not self.check_visibility(upload_file_btn_css):
+                        self.click('.ProfileAvatar a')
+                    if not self.check_visibility(upload_file_btn_css):
+                        self.click('button.ProfileAvatarEditing-button')
+                except:
+                    if not self.check_visibility(upload_file_btn_css):
+                        self.click('button.ProfileAvatarEditing-button')
+
+            self.logger.info('Setting twitter avatar..')
             avatar_path = os.path.join(settings.AVATARS_DIR, '%s.png' % self.user.username)
             try:
-                try:
-                    self.click('.ProfileAvatar a')
-                except:
-                    self.click('button.ProfileAvatarEditing-button')
+                upload_file_btn_css = '#photo-choose-existing input[type="file"]'
+                click_avatar_el()
 
                 self.download_pic_from_google()
-                self.get_css_element('#photo-choose-existing input[type="file"]').send_keys(avatar_path)
+
+                # hacemos click otra vez ya que al volver de la ventana de google puede haberse cerrado
+                # el botón para subir avatar
+                click_avatar_el()
+
+                self.get_css_element(upload_file_btn_css).send_keys(avatar_path)
                 self.click('#profile_image_upload_dialog-dialog button.profile-image-save')
                 # eliminamos el archivo que habíamos guardado para el avatar
                 os.remove(avatar_path)
                 return True
             except Exception:
-                settings.LOGGER.exception('Error setting avatar for bot %s' % self.user.username)
+                self.logger.exception('Error setting twitter avatar')
                 self.take_screenshot('set_avatar_failure', force_take=True)
                 return False
 
         def set_bio():
             try:
-                settings.LOGGER.info('Setting bio for %s' % self.user.username)
+                self.logger.info('Setting bio for %s' % self.user.username)
                 self.fill_input_text('#user_description', self.get_quote())
                 return True
             except Exception:
-                settings.LOGGER.exception('Error setting bio for bot %s' % self.user.username)
+                self.logger.exception('Error setting twitter bio')
                 self.take_screenshot('set_bio_failure', force_take=True)
                 return False
 
@@ -253,13 +265,13 @@ class TwitterScrapper(Scrapper):
                 self.user.save()
 
             if self.user.has_tw_profile_completed():
-                settings.LOGGER.info('Profile completed ok for bot %s' % self.user.username)
+                self.logger.info('Profile completed sucessfully')
                 self.take_screenshot('profile_completed_ok', force_take=True)
             else:
-                raise ProfileStillNotCompleted(self.user)
+                raise ProfileStillNotCompleted(self)
         except Exception as ex:
-            settings.LOGGER.exception('Error on bot %s creating twitter profile' % self.user.username)
-            self.take_screenshot('profile_completion_failure', force_take=True)
+            self.logger.exception('Error creating twitter profile')
+            self.take_screenshot('profile_creation_failure', force_take=True)
             raise ex
 
     def close(self):
@@ -281,16 +293,16 @@ class TwitterScrapper(Scrapper):
         if self.check_visibility('#global-tweet-dialog'):
             # si aún aparece el diálogo de twitear es que no se envió ok
             # si el  se elimina y se marca el bot como inválido
-            settings.LOGGER.warning('%s Failure sending tweet %i from %s' % (get_thread_name(), tweet.pk, self.user.username))
+            self.logger.warning('Error sending tweet %i' % tweet.pk)
             self.take_screenshot('failure_sending_tweet', force_take=True)
             tweet.delete()
             raise FailureSendingTweetException()
         else:
-            settings.LOGGER.info('%s %s sent tweet %i ok' % (get_thread_name(), self.user.username, tweet.pk))
+            self.logger.info('Tweet %i sent ok' % tweet.pk)
             self.take_screenshot('tweet_sent_ok', force_take=True)
 
         self.delay.seconds(7)
 
     def send_mention(self, username_to_mention, mention_msg):
         self.send_tweet('@' + username_to_mention + ' ' + mention_msg)
-        settings.LOGGER.info('Mention sent ok %s -> %s' % (self.user.username, username_to_mention))
+        self.logger.info('Mention sent ok %s -> %s' % (self.user.username, username_to_mention))

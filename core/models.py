@@ -3,11 +3,10 @@ from django.db.models import Q
 import feedparser
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from project.exceptions import NoMoreAvailableProxiesForRegistration, BotHasNoProxiesForUsage, SuspendedBotWithoutProxy
 from scrapper.accounts.hotmail import HotmailScrapper
-from scrapper.exceptions import TwitterEmailNotFound, BotHasNoProxiesForUsage, \
-    NoMoreAvailableProxiesForRegistration, SuspendedBotWithoutProxy, TwitterAccountDead, TwitterAccountSuspended, \
-    ProfileStillNotCompleted
-from scrapper.logger import get_browser_instance_id
+from scrapper.exceptions import TwitterEmailNotFound, \
+    TwitterAccountDead, TwitterAccountSuspended, ProfileStillNotCompleted
 from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from scrapper.accounts.twitter import TwitterScrapper
 from core.managers import TwitterBotManager, ProxyManager
@@ -227,7 +226,7 @@ class TwitterBot(models.Model):
                     self.save()
                     self.email_scr.take_screenshot('signed_up_sucessfully', force_take=True)
                     self.email_scr.delay.seconds(7)
-                    settings.LOGGER.info('%s %s signed up ok' % (get_browser_instance_id(self), self.email))
+                    self.email_scr.logger.info('%s signed up ok' % self.email)
 
                 # 2_signup_twitter
                 if self.has_to_register_twitter():

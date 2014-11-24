@@ -6,7 +6,7 @@ import time
 
 from django.db import models, connection
 from core.querysets import TwitterBotQuerySet, ProxyQuerySet
-from scrapper.exceptions import NoMoreAvailableProxiesForRegistration
+from project.exceptions import NoMoreAvailableProxiesForRegistration
 from scrapper.thread_pool import ThreadPool
 from scrapper.utils import utc_now
 from twitter_bots import settings

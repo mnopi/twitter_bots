@@ -1,6 +1,6 @@
 import copy
 from core.models import TwitterBot, Proxy
-from scrapper.exceptions import FatalError
+from project.exceptions import FatalError
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
 

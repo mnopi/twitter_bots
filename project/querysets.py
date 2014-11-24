@@ -17,11 +17,6 @@ class ExtractorQuerySet(QuerySet):
         ]
         available_extractors = Extractor.objects.filter(id__in=available_extractors_ids)
 
-        # if not available_extractors:
-        # last_used_extractor = self.latest('last_request_date')
-        #     settings.LOGGER.warning('No available %s extractors at this moment. Last used was %s at %s' %
-        #                             (self.display_extractor_mode(mode), last_used_extractor.twitter_bot.username,
-        #                              last_used_extractor.last_request_date))
         return available_extractors
 
 

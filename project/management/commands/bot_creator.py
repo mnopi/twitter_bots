@@ -1,12 +1,11 @@
-import copy
-from core.models import TwitterBot, Proxy
-from scrapper.exceptions import FatalError
+from core.models import TwitterBot
+from project.exceptions import FatalError
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
 
 set_logger('bot_creator')
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
 class Command(BaseCommand):
     help = 'Creates bots'
