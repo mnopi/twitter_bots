@@ -712,9 +712,8 @@ class Scrapper(object):
 
 
 class ScrapperLogger(object):
-        logger = settings.LOGGER
-
         def __init__(self, scrapper):
+            self.logger = settings.LOGGER
             if scrapper.user.pk:
                 self.scrapper_id = '[%s | %i]' % (scrapper.user.username, scrapper.user.id)
             else:

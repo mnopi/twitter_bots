@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
+import logging
 
 import os
+import sys
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 
@@ -58,8 +60,8 @@ WSGI_APPLICATION = 'twitter_bots.wsgi.application'
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
-        # "NAME": "twitter_bots
-        "NAME": "twitter_bots_prod",
+        # "NAME": "twitter_bots",
+        "NAME": "twitter_bots_dev",
         "USER": "mnopi",
         "PASSWORD": "1aragon1",
         "HOST": "192.168.1.115",
@@ -96,48 +98,54 @@ AUTH_USER_MODEL = "core.User"
 
 
 LOGS_DIR = os.path.join(PROJECT_ROOT, 'logs')
+# logger
+
+class IgnoreErrorsFilter(logging.Filter):
+    def filter(self, record):
+        return record.levelname != 'ERROR' and record.levelname != 'CRITICAL' and record.levelname != 'EXCEPTION'
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': "[%(asctime)s] %(levelname)s [%(name)s:%(lineno)s] %(message)s",
+            # 'format': '%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s'
+            'format': "[%(asctime)s] %(levelname)s %(message)s",
             'datefmt': "%d/%b/%Y %H:%M:%S"
         },
         'simple': {
             'format': '%(levelname)s %(message)s'
         },
     },
+    'filters': {
+        'ignore_errors': {
+            '()': IgnoreErrorsFilter
+        }
+    },
     'handlers': {
-        'file': {
-            'level': 'DEBUG',
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': os.path.join(LOGS_DIR, 'mysite.log'),
-            'formatter': 'verbose',
-            'maxBytes': 1024 * 1024 * 5,  # 5 MB,
-        },
-        'console': {
-            'level': 'DEBUG',
+        'console_info': {
+            'level': 'INFO',
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
+            'stream': sys.stdout,
+            'filters': ['ignore_errors'],
+        },
+        'console_error': {
+            'level': 'ERROR',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose'
         },
     },
     'loggers': {
-        'django': {
-            'handlers': ['file'],
-            'propagate': True,
+        'project.management.commands': {
+            'handlers': ['console_info', 'console_error'],
             'level': 'INFO',
+            'propagate': True,
         },
-        'twitter_bots': {
-            'handlers': ['file', 'console'],
-            'level': 'DEBUG',
-        },
-    }
+    },
 }
 
-
-import logging
-LOGGER = logging.getLogger('twitter_bots')
+LOGGER = None
 
 
 PROXY_PROVIDERS_ACCOUNTS = {

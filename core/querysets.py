@@ -150,6 +150,7 @@ class ProxyQuerySet(MyQuerySet):
         #   - que no tengan ningún robot muerto
         #   - que tengan un número de bots para uso inferior al límite marcado por su grupo
         proxies_with_bots = proxies_base\
+            .without_any_suspended_bot()\
             .without_any_dead_bot()\
             .with_enough_space_for_usage()
         available_proxies_for_usage_ids.extend([result['id'] for result in proxies_with_bots.values('id')])
@@ -168,8 +169,6 @@ class ProxyQuerySet(MyQuerySet):
         proxies_base = self\
             .with_proxies_group_assigned()\
             .with_proxies_group_enabling_bot_creation()\
-            .without_any_suspended_bot()\
-            .without_any_dead_bot()\
             .filter(
                 is_in_proxies_txts=True,
                 is_unavailable_for_registration=False,  # registro de email
@@ -187,10 +186,12 @@ class ProxyQuerySet(MyQuerySet):
         #   - que no tengan ningún robot muerto
         #   - que tengan asignado una cantidad de bots inferior al límite para el registro
         #   - que el bot más recientemente creado sea igual o más antiguo que la fecha de ahora menos los días dados
-        valid_proxies_with_bots = proxies_base.without_any_dead_bot()\
+        proxies_with_bots = proxies_base\
+            .without_any_suspended_bot()\
+            .without_any_dead_bot()\
             .with_enough_space_for_registration()\
             .with_enough_time_ago_for_last_registration()
-        available_proxies_for_reg_ids.extend([result['id'] for result in valid_proxies_with_bots.values('id')])
+        available_proxies_for_reg_ids.extend([result['id'] for result in proxies_with_bots.values('id')])
 
         return self.filter(id__in=available_proxies_for_reg_ids)
 
@@ -296,8 +297,17 @@ class ProxyQuerySet(MyQuerySet):
 
     def without_any_suspended_bot(self):
         return self\
-            .exclude(twitter_bots_using__is_suspended=True)\
-            .exclude(twitter_bots_using__num_suspensions_lifted__gt=0)\
+            .filter(
+                (
+                    Q(proxies_group__reuse_proxies_with_suspended_bots=False) &
+                    (Q(twitter_bots_using__is_suspended=False) | Q(twitter_bots_using__num_suspensions_lifted=0))
+                ) |
+                (
+                    Q(proxies_group__reuse_proxies_with_suspended_bots=True) &
+                    (Q(twitter_bots_using__is_suspended=True) | Q(twitter_bots_using__num_suspensions_lifted__gt=0))
+                )
+
+            )\
             .distinct()
 
     def valid_for_assign_proxies_group(self):

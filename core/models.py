@@ -270,9 +270,9 @@ class TwitterBot(models.Model):
                     TwitterAccountDead,
                     TwitterAccountSuspended):
                 pass
-            except Exception as ex:
-                settings.LOGGER.exception('Error completing creation for bot %s' % self.username)
-                raise ex
+            # except Exception as ex:
+            #     settings.LOGGER.exception('Error completing creation for bot %s' % self.username)
+            #     raise ex
             else:
                 t2 = utc_now()
                 diff_secs = (t2 - t1).seconds

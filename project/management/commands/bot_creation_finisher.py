@@ -1,12 +1,11 @@
-import copy
-from core.models import TwitterBot, Proxy
+from core.models import TwitterBot
 from project.exceptions import FatalError
+import logging
 from twitter_bots import settings
-from twitter_bots.settings import set_logger
 
-set_logger('bot_creation_finisher')
+settings.LOGGER = logging.getLogger(__name__)
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
 class Command(BaseCommand):
     help = 'Finish pendant tasks to finish bot creation'

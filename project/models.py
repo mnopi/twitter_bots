@@ -857,6 +857,10 @@ class ProxiesGroup(models.Model):
     max_tw_bots_per_proxy_for_registration = models.PositiveIntegerField(null=False, blank=False, default=6)
     min_days_between_registrations_per_proxy = models.PositiveIntegerField(null=False, blank=False, default=5)
 
+    # indica si vamos a reutilizar proxies con bots chungos (por ejemplo para grupos de prueba etc)
+    reuse_proxies_with_suspended_bots = models.BooleanField(default=False)
+    reuse_proxies_with_dead_bots = models.BooleanField(default=False)
+
     # bot usage
     is_bot_usage_enabled = models.BooleanField(default=False)
     max_tw_bots_per_proxy_for_usage = models.PositiveIntegerField(null=False, blank=False, default=12)
