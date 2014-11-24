@@ -288,6 +288,8 @@ class Tweet(models.Model):
             compose_txt += ' ' + self.link.url if self.link else ''
         if self.page_announced:
             pa = self.page_announced
+            if self.tweet_msg or self.link:
+                compose_txt += ' '
             if pa.page_title and pa.hashtag:
                 compose_txt += pa.page_title + ' ' + pa.page_link + ' ' + pa.hashtag.name
             elif pa.page_title:
@@ -316,6 +318,8 @@ class Tweet(models.Model):
         if self.tweet_img:
             total_length += 23
         if self.page_announced:
+            if self.tweet_msg or self.link:
+                total_length += 1
             total_length += self.page_announced.page_link_length()
 
         return total_length
@@ -858,6 +862,12 @@ class ProxiesGroup(models.Model):
     max_tw_bots_per_proxy_for_usage = models.PositiveIntegerField(null=False, blank=False, default=12)
     time_between_tweets = models.CharField(max_length=10, null=False, blank=False, default='2-5')  # '2-5' -> entre 2 y 5 minutos
     max_num_mentions_per_tweet = models.PositiveIntegerField(null=False, blank=False, default=1)
+
+    has_tweet_msg = models.BooleanField(default=False)
+    has_link = models.BooleanField(default=False)
+    has_tweet_img = models.BooleanField(default=False)
+    has_page_announced = models.BooleanField(default=False)
+    has_mentions = models.BooleanField(default=False)
 
     # webdriver
     FIREFOX = 'FI'

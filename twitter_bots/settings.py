@@ -58,7 +58,7 @@ WSGI_APPLICATION = 'twitter_bots.wsgi.application'
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
-        # "NAME": "twitter_bots",
+        # "NAME": "twitter_bots
         "NAME": "twitter_bots_prod",
         "USER": "mnopi",
         "PASSWORD": "1aragon1",

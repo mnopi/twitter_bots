@@ -399,16 +399,21 @@ class TwitterBot(models.Model):
                 tweet_to_send.save()
                 bot_group = self.get_group()
 
-                tweet_to_send.add_tweet_msg(project)
-                tweet_to_send.save()
-                tweet_to_send.add_link(project)
-                tweet_to_send.save()
-                # tweet_to_send.add_image(project)
-                # tweet_to_send.save()
-                tweet_to_send.add_page_announced(project)
-                tweet_to_send.save()
-                tweet_to_send.add_mentions(self, project)
-                tweet_to_send.save()
+                if bot_group.has_tweet_msg:
+                    tweet_to_send.add_tweet_msg(project)
+                    tweet_to_send.save()
+                if bot_group.has_link:
+                    tweet_to_send.add_link(project)
+                    tweet_to_send.save()
+                if bot_group.has_tweet_img:
+                    tweet_to_send.add_image(project)
+                    tweet_to_send.save()
+                if bot_group.has_page_announced:
+                    tweet_to_send.add_page_announced(project)
+                    tweet_to_send.save()
+                if bot_group.has_mentions:
+                    tweet_to_send.add_mentions(self, project)
+                    tweet_to_send.save()
                 pass
 
         else:
@@ -459,7 +464,7 @@ class TwitterBot(models.Model):
         """
         tweets_sent = self.get_sent_ok_tweets()
         if tweets_sent:
-            return tweets_sent.lastest('date_sent')
+            return tweets_sent.latest('date_sent')
         else:
             return None
 

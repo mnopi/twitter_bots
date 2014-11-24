@@ -96,6 +96,7 @@ class TweetAdmin(admin.ModelAdmin):
 
     search_fields = (
         'bot_used__username',
+        'compose',
     )
     list_filter = (
         'sending',
@@ -209,6 +210,12 @@ class ProxiesGroupAdmin(admin.ModelAdmin):
         'max_tw_bots_per_proxy_for_usage',
         'time_between_tweets',
         'max_num_mentions_per_tweet',
+
+        'has_tweet_msg',
+        'has_link',
+        'has_tweet_img',
+        'has_page_announced',
+        'has_mentions',
     )
 
     def total_bots_count(self, obj):
@@ -228,6 +235,14 @@ class ProxiesGroupAdmin(admin.ModelAdmin):
     list_editable = (
         'is_bot_creation_enabled',
         'is_bot_usage_enabled',
+    )
+
+    list_filter = (
+        'has_tweet_msg',
+        'has_link',
+        'has_tweet_img',
+        'has_page_announced',
+        'has_mentions',
     )
 
     search_fields = (

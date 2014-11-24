@@ -83,7 +83,7 @@ class Migration(SchemaMigration):
             'is_suspended_email': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
             'password_email': ('django.db.models.fields.CharField', [], {'max_length': '20', 'blank': 'True'}),
             'password_twitter': ('django.db.models.fields.CharField', [], {'max_length': '20', 'blank': 'True'}),
-            'proxy': ('django.db.models.fields.related.ForeignKey', [], {'blank': 'True', 'related_name': "'twitter_bots_using'", 'null': 'True', 'on_delete': 'models.DO_NOTHING', 'to': u"orm['core.Proxy']"}),
+            'proxy_for_usage': ('django.db.models.fields.related.ForeignKey', [], {'blank': 'True', 'related_name': "'twitter_bots_using'", 'null': 'True', 'on_delete': 'models.DO_NOTHING', 'to': u"orm['core.Proxy']"}),
             'proxy_for_registration': ('django.db.models.fields.related.ForeignKey', [], {'blank': 'True', 'related_name': "'twitter_bots_registered'", 'null': 'True', 'on_delete': 'models.DO_NOTHING', 'to': u"orm['core.Proxy']"}),
             'random_mouse_paths': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
             'random_offsets': ('django.db.models.fields.BooleanField', [], {'default': 'False'}),
