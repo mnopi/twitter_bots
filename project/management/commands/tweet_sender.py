@@ -2,7 +2,7 @@ import multiprocessing
 import os
 from core.models import TwitterBot
 from project.models import Tweet
-from scrapper.exceptions import FatalError
+from project.exceptions import FatalError
 from twitter_bots import settings
 import time
 

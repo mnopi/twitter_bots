@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import sys
 
 PROJECT_ROOT = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 
@@ -104,7 +105,10 @@ TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER = 60
 WEBDRIVERS_PATH = os.path.join(PROJECT_ROOT, 'scrapper', 'webdrivers')
 
 PHANTOMJS_PATH = os.path.join(WEBDRIVERS_PATH, 'phantomjs')
-PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_mac_bin')
+if sys.platform == "win32":
+    PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_windows_bin.exe')
+else:
+    PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_mac_bin')
 
 SCREENSHOTS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'screenshots')
 AVATARS_DIR = os.path.join(PROJECT_ROOT, 'scrapper', 'avatars')

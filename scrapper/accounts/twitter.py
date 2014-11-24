@@ -9,6 +9,8 @@ from scrapper.utils import *
 from twitter_bots import settings
 
 
+
+
 class TwitterScrapper(Scrapper):
 
     def sign_up(self):
@@ -272,6 +274,13 @@ class TwitterScrapper(Scrapper):
     def send_tweet(self, tweet):
         self.click('#global-new-tweet-button')
         self.send_keys(tweet.compose())
+
+        # Si el tweet contiene imagen la añade
+        if tweet.has_image():
+            el = self.browser.find_element_by_xpath("//*[@id=\"global-tweet-dialog-dialog\"]"
+                                                    "/div[2]/div[4]/form/div[2]/div[1]/div[1]/div/label/input")
+            el.send_keys(tweet.tweet_img.img.path)
+
 
         # self.click('#tweet-box-mini-home-profile')
         # self.delay.seconds(1, force_delay=True)

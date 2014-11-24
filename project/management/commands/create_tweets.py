@@ -1,7 +1,7 @@
 import time
 from project.exceptions import TwitteableBotsNotFound
 from project.models import Tweet
-from scrapper.exceptions import FatalError
+from project.exceptions import FatalError
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
 from django.core.management.base import BaseCommand
