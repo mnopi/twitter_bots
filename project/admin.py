@@ -202,20 +202,24 @@ class ProxiesGroupAdmin(admin.ModelAdmin):
         'is_bot_creation_enabled',
         'is_bot_usage_enabled',
 
-        'total_bots_count',
-        'bots_registered_count',
-        'bots_using_count',
-
-        'max_tw_bots_per_proxy_for_registration',
-        'max_tw_bots_per_proxy_for_usage',
-        'time_between_tweets',
-        'max_num_mentions_per_tweet',
+        'reuse_proxies_with_suspended_bots',
 
         'has_tweet_msg',
         'has_link',
         'has_tweet_img',
         'has_page_announced',
         'has_mentions',
+
+        'total_bots_count',
+        'bots_registered_count',
+        'bots_using_count',
+
+        'max_tw_bots_per_proxy_for_registration',
+        'min_days_between_registrations_per_proxy',
+        'max_tw_bots_per_proxy_for_usage',
+        'time_between_tweets',
+        'max_num_mentions_per_tweet',
+
     )
 
     def total_bots_count(self, obj):

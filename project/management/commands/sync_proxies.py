@@ -1,11 +1,10 @@
-import copy
-from core.models import TwitterBot, Proxy
+from core.models import Proxy
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
 
-set_logger('sync_proxies')
+set_logger(__name__)
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
 class Command(BaseCommand):
     help = """
@@ -15,4 +14,6 @@ class Command(BaseCommand):
         """
 
     def handle(self, *args, **options):
+        settings.LOGGER.info('-- INITIALIZED SYNC PROXIES --')
         Proxy.objects.sync_proxies()
+        settings.LOGGER.info('-- FINISHED SYNC PROXIES --')

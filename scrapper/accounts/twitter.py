@@ -86,7 +86,8 @@ class TwitterScrapper(Scrapper):
                 raise BotMustVerifyPhone(self)
 
             wait_condition(lambda: 'congratulations' in self.browser.current_url or
-                                   'welcome' in self.browser.current_url)
+                                   'welcome' in self.browser.current_url or
+                                   'start' in self.browser.current_url)
 
             self.take_screenshot('twitter_registered_ok', force_take=True)
 
@@ -196,30 +197,19 @@ class TwitterScrapper(Scrapper):
     def set_profile(self):
         """precondición: estar logueado y en la home"""
         def set_avatar():
-            def click_avatar_el():
-                """Hace click en el elemento del avatar vacío para que salga el botón de subir avatar"""
-                try:
-                    if not self.check_visibility(upload_file_btn_css):
-                        self.click('.ProfileAvatar a')
-                    if not self.check_visibility(upload_file_btn_css):
-                        self.click('button.ProfileAvatarEditing-button')
-                except:
-                    if not self.check_visibility(upload_file_btn_css):
-                        self.click('button.ProfileAvatarEditing-button')
-
             self.logger.info('Setting twitter avatar..')
             avatar_path = os.path.join(settings.AVATARS_DIR, '%s.png' % self.user.username)
             try:
-                upload_file_btn_css = '#photo-choose-existing input[type="file"]'
-                click_avatar_el()
-
                 self.download_pic_from_google()
 
-                # hacemos click otra vez ya que al volver de la ventana de google puede haberse cerrado
-                # el botón para subir avatar
-                click_avatar_el()
+                try:
+                    self.click('.ProfileAvatar a')
+                    if not self.check_visibility('#photo-choose-existing'):
+                        self.click('button.ProfileAvatarEditing-button')
+                except:
+                    self.click('button.ProfileAvatarEditing-button')
 
-                self.get_css_element(upload_file_btn_css).send_keys(avatar_path)
+                self.get_css_element('#photo-choose-existing input[type="file"]').send_keys(avatar_path)
                 self.click('#profile_image_upload_dialog-dialog button.profile-image-save')
                 # eliminamos el archivo que habíamos guardado para el avatar
                 os.remove(avatar_path)

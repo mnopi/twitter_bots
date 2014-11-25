@@ -273,7 +273,7 @@ class ProxyManager(MyManager):
             settings.LOGGER.info('Adding new proxies to database..')
             new_count = 0
             for txt_proxy, txt_proxy_provider in txt_proxies:
-                if not self.filter(proxy=txt_proxy, proxy_provider=txt_proxy_provider).exists():
+                if txt_proxy and not self.filter(proxy=txt_proxy, proxy_provider=txt_proxy_provider).exists():
                     self.create(proxy=txt_proxy, proxy_provider=txt_proxy_provider)
                     settings.LOGGER.info('\tAdded new proxy %s @ %s' % (txt_proxy, txt_proxy_provider))
                     new_count += 1

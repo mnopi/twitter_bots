@@ -75,5 +75,5 @@ class SuspendedBotWithoutProxy(Exception):
 
 class FatalError(Exception):
     def __init__(self):
-        settings.LOGGER.exception('FATAL ERROR')
+        settings.LOGGER.error('FATAL ERROR')
         time.sleep(10)

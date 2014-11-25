@@ -1,9 +1,9 @@
-import logging
 from core.models import TwitterBot
 from project.exceptions import FatalError
 from twitter_bots import settings
+from twitter_bots.settings import set_logger
 
-settings.LOGGER = logging.getLogger(__name__)
+set_logger(__name__)
 
 from django.core.management.base import BaseCommand
 

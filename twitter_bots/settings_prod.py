@@ -22,7 +22,7 @@ settings.DATABASES = {
 # scrapping settings
 settings.PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_linux_bin')
 
-settings.MAX_THREADS_COMPLETING_PENDANT_BOTS = 20
+settings.MAX_THREADS_COMPLETING_PENDANT_BOTS = 50
 settings.MAX_THREADS_CREATING_BOTS = 50
 settings.MAX_THREADS_SENDING_TWEETS = 70
 

@@ -859,7 +859,6 @@ class ProxiesGroup(models.Model):
 
     # indica si vamos a reutilizar proxies con bots chungos (por ejemplo para grupos de prueba etc)
     reuse_proxies_with_suspended_bots = models.BooleanField(default=False)
-    reuse_proxies_with_dead_bots = models.BooleanField(default=False)
 
     # bot usage
     is_bot_usage_enabled = models.BooleanField(default=False)

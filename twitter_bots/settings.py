@@ -62,12 +62,12 @@ DATABASES = {
         "ENGINE": "django.db.backends.mysql",
         # "NAME": "twitter_bots",
         "NAME": "twitter_bots_dev",
-        "USER": "mnopi",
-        "PASSWORD": "1aragon1",
-        "HOST": "192.168.1.115",
+        "USER": "root",
+        "PASSWORD": "",
+        # "HOST": "192.168.1.115",
         # "HOST": "88.26.212.82",
         # "PASSWORD": "",
-        # "HOST": "127.0.0.1",
+        "HOST": "127.0.0.1",
         "PORT": "3306",
     }
 }
@@ -124,7 +124,7 @@ LOGGING = {
     },
     'handlers': {
         'console_info': {
-            'level': 'INFO',
+            'level': 'DEBUG',
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
             'stream': sys.stdout,
@@ -135,11 +135,19 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose'
         },
+        'management_logs_file': {
+            'level':'DEBUG',
+            'class':'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs/{log_filename}.log'),
+            'maxBytes': 1024*1024*5, # 5 MB
+            'backupCount': 5,
+            'formatter':'verbose',
+        }
     },
     'loggers': {
         'project.management.commands': {
-            'handlers': ['console_info', 'console_error'],
-            'level': 'INFO',
+            'handlers': ['console_info', 'console_error', 'management_logs_file'],
+            'level': 'DEBUG',
             'propagate': True,
         },
     },
@@ -155,18 +163,18 @@ PROXY_PROVIDERS_ACCOUNTS = {
 
 from scrapper.settings import *
 
-def set_logger(logger_name):
+def set_logger(name):
     # import copy
     # custom_logger = copy.deepcopy(LOGGING)
     global LOGGING, LOGGER
-    LOGGING['handlers']['file']['filename'] = os.path.join(LOGS_DIR, '%s.log' % logger_name)
-    LOGGING['loggers'][logger_name] = LOGGING['loggers']['twitter_bots']
-    del LOGGING['loggers']['twitter_bots']
+    for handler in LOGGING['handlers'].values():
+        if handler['class'] == 'logging.FileHandler' or handler['class'] == 'logging.handlers.RotatingFileHandler':
+            handler['filename'] = handler['filename'].format(log_filename=name.split('.')[-1])
 
     import logging
     import logging.config
     logging.config.dictConfig(LOGGING)
-    LOGGER = logging.getLogger(logger_name)
+    LOGGER = logging.getLogger(name)
 
 
 SUPERVISOR_LOGS_DIR = os.path.join(LOGS_DIR, 'supervisor')

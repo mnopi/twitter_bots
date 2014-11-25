@@ -253,7 +253,7 @@ class TwitterBot(models.Model):
                         raise ex
 
                 # 4_profile_completion
-                if self.has_to_complete_tw_profile():
+                if not self.has_to_confirm_tw_email() and self.has_to_complete_tw_profile():
                     self.twitter_scr.set_screenshots_dir('4_tw_profile_completion')
                     self.twitter_scr.set_profile()
 

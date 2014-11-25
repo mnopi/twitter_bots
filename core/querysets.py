@@ -128,6 +128,11 @@ class TwitterBotQuerySet(QuerySet):
 
 
 class ProxyQuerySet(MyQuerySet):
+    q__without_any_suspended_bot = ~(
+        Q(twitter_bots_using__is_suspended=True) |
+        Q(twitter_bots_using__num_suspensions_lifted__gt=0)
+    )
+
     def available_for_usage(self):
         """Devuelve proxies disponibles para iniciar sesión con bot y tuitear etc"""
 
@@ -150,8 +155,7 @@ class ProxyQuerySet(MyQuerySet):
         #   - que no tengan ningún robot muerto
         #   - que tengan un número de bots para uso inferior al límite marcado por su grupo
         proxies_with_bots = proxies_base\
-            .without_any_suspended_bot()\
-            .without_any_dead_bot()\
+            .filter_suspended_bots()\
             .with_enough_space_for_usage()
         available_proxies_for_usage_ids.extend([result['id'] for result in proxies_with_bots.values('id')])
 
@@ -187,8 +191,7 @@ class ProxyQuerySet(MyQuerySet):
         #   - que tengan asignado una cantidad de bots inferior al límite para el registro
         #   - que el bot más recientemente creado sea igual o más antiguo que la fecha de ahora menos los días dados
         proxies_with_bots = proxies_base\
-            .without_any_suspended_bot()\
-            .without_any_dead_bot()\
+            .filter_suspended_bots()\
             .with_enough_space_for_registration()\
             .with_enough_time_ago_for_last_registration()
         available_proxies_for_reg_ids.extend([result['id'] for result in proxies_with_bots.values('id')])
@@ -229,11 +232,26 @@ class ProxyQuerySet(MyQuerySet):
     def without_proxies_group_assigned(self):
         return self.filter(proxies_group__isnull=True)
 
+    def without_any_suspended_bot(self):
+        return self.filter(self.q__without_any_suspended_bot).distinct()
+
     def without_any_dead_bot(self):
         return self.filter(
             Q(twitter_bots_using__isnull=True) |
             Q(twitter_bots_using__is_dead=False)
         ).distinct()
+
+    def filter_suspended_bots(self):
+        return self.filter(
+            (
+                Q(proxies_group__reuse_proxies_with_suspended_bots=False) &
+                self.q__without_any_suspended_bot
+            ) |
+            (
+                Q(proxies_group__reuse_proxies_with_suspended_bots=True)
+            )
+        )\
+        .distinct()
 
     def with_some_dead_bot(self):
         return self.filter(twitter_bots_using__is_dead=True).distinct()
@@ -249,11 +267,11 @@ class ProxyQuerySet(MyQuerySet):
 
     def with_enough_space_for_registration(self):
         """Saca los que tengan espacio para crear nuevos bots"""
-        proxies_with_enought_space_pks = [
-            proxy.pk
-            for proxy in self._annotate__num_bots_registered().select_related('proxies_group')
-            if proxy.num_bots_registered < proxy.proxies_group.max_tw_bots_per_proxy_for_registration
-        ]
+        proxies_with_enought_space_pks = []
+        for proxy in self.select_related('proxies_group', 'twitter_bots_registered'):
+            if proxy.twitter_bots_registered.count() < proxy.proxies_group.max_tw_bots_per_proxy_for_registration:
+                proxies_with_enought_space_pks.append(proxy.pk)
+
         return self.filter(pk__in=proxies_with_enought_space_pks)
 
     def with_enough_space_for_usage(self):
@@ -294,21 +312,6 @@ class ProxyQuerySet(MyQuerySet):
             Q(twitter_bots_using__is_suspended=True) |
             Q(twitter_bots_using__num_suspensions_lifted__gt=0)
         ).distinct()
-
-    def without_any_suspended_bot(self):
-        return self\
-            .filter(
-                (
-                    Q(proxies_group__reuse_proxies_with_suspended_bots=False) &
-                    (Q(twitter_bots_using__is_suspended=False) | Q(twitter_bots_using__num_suspensions_lifted=0))
-                ) |
-                (
-                    Q(proxies_group__reuse_proxies_with_suspended_bots=True) &
-                    (Q(twitter_bots_using__is_suspended=True) | Q(twitter_bots_using__num_suspensions_lifted__gt=0))
-                )
-
-            )\
-            .distinct()
 
     def valid_for_assign_proxies_group(self):
         """Saca proxies válidos para asignarles un grupo"""
