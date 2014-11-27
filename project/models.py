@@ -361,20 +361,32 @@ class Tweet(models.Model):
         tweet_message = project.tweet_msgs.order_by('?')[0]
         if self.length() + len(tweet_message.text) <= 140:
             self.tweet_msg = tweet_message
+        else:
+            settings.LOGGER.warning('Tweet %s is too long to add custom message %s' %
+                                    (self, tweet_message))
 
     def add_page_announced(self, project):
         page_announced = project.pagelink_set.order_by('?')[0]
         if self.length() + page_announced.page_link_length() <= 140:
             self.page_announced = page_announced
+        else:
+            settings.LOGGER.warning('Tweet %s is too long to add page link %s' %
+                                    (self, page_announced))
 
     def add_image(self, project):
         if self.length() + 23 <= 140:
             self.tweet_img = project.tweet_imgs.order_by('?')[0]
+        else:
+            settings.LOGGER.warning('Tweet %s is too long to add image' %
+                                    (self))
 
     def add_link(self, project):
         link = project.links.get(is_active=True)
         if self.length() + len(link.url) + 1 <= 140:
             self.link = link
+        else:
+            settings.LOGGER.warning('Tweet %s is too long to add link %s' %
+                                    (self, link))
 
     def send(self):
         try:
