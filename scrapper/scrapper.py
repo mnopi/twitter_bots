@@ -18,6 +18,7 @@ from .exceptions import RequestAttemptsExceededException, ProxyConnectionError, 
     InternetConnectionError, ProxyUrlRequestError, IncompatibleUserAgent
 import my_phantomjs_webdriver
 from project.models import ProxiesGroup
+from twitter_bots.settings import set_logger
 from utils import *
 from twitter_bots import settings
 
@@ -359,50 +360,47 @@ class Scrapper(object):
             """Para ver que el proxy funciona comprobamos contra google"""
             scr = Scrapper(self.user)
             scr.open_browser()
-            prev_url = scr.browser.current_url
-            scr.browser.get('http://google.com')
-            return scr.browser.current_url != prev_url
+            try:
+                scr.browser.get('http://google.com')
+                return True
+            except TimeoutException:
+                return False
 
         def internet_connection_works():
             """Para ver que la conexión a internet funciona lanzamos el phantom sin ir a través de proxy"""
             browser = webdriver.PhantomJS(settings.PHANTOMJS_BIN_PATH)
-            prev_url = browser.current_url
-            browser.get('http://google.com')
-            return browser.current_url != prev_url
+            try:
+                browser.get('http://google.com')
+                return True
+            except TimeoutException:
+                return False
 
         try:
             if timeout:
                 self.browser.set_page_load_timeout(timeout)
-            prev_url = self.browser.current_url
             self.browser.get(url)
-            # self.browser.get('http://localhost:8001/admin/')
-            is_new_url = url != prev_url
-            if is_new_url:
-                if self.browser.current_url != prev_url:
-                    # si ha cambiado current_url es que se tomó bien la nueva
-                    if wait_page_loaded:
-                        self.wait_to_page_loaded()
-                    self.check_user_agent_compatibility()
-                    self._quit_focus_from_address_bar()
-                    self.logger.debug('go_to: %s' % url)
-                    self.take_screenshot('go_to')
-                else:
-                    if proxy_works():
-                        # si el proxy funciona es que el fallo es específico de pedir esa url en concreto
-                        raise ProxyUrlRequestError(self, url)
-                    else:
-                        if internet_connection_works():
-                            # si el proxy no funciona y sí la conexión a internet, es culpa del proxy
-                            raise ProxyConnectionError(self)
-                        else:
-                            raise InternetConnectionError(self)
+            self.check_user_agent_compatibility()
+            self._quit_focus_from_address_bar()
+            self.logger.debug('go_to: %s' % url)
+            self.take_screenshot('go_to')
         except TimeoutException:
             if ignore_timeout_error:
                 self.logger.warning('Timeout loading url %s, ignoring TimeoutException..' % url)
+            else:
+                if proxy_works():
+                    # si el proxy funciona es que el fallo es específico de pedir esa url en concreto
+                    raise ProxyUrlRequestError(self, url)
+                elif internet_connection_works():
+                    # si el proxy no funciona y sí la conexión a internet
+                    raise ProxyConnectionError(self)
+                else:
+                    raise InternetConnectionError(self)
         except Exception, e:
+            settings.LOGGER.exception('error')
             raise e
         finally:
             if timeout:
+                # si hubo timeout entonces restauramos al puesto en settings
                 self.browser.set_page_load_timeout(settings.PAGE_LOAD_TIMEOUT)
 
     def check_user_agent_compatibility(self):
@@ -440,7 +438,6 @@ class Scrapper(object):
 
             for c in typed_before_txt:
                 self.send_special_key(Keys.BACKSPACE)
-
 
     def click(self, el):
         # def get_offsets():
@@ -480,11 +477,19 @@ class Scrapper(object):
 
         self.delay.box_switch()
 
-        # si el es un selector css entonces hacemos captura de pantalla cómo queda después del click
-        if el_str:
-            msg = 'click_%s' % el_str
-            self.take_screenshot(msg)
-            self.logger.debug(msg)
+        # sacamos el elemento por logger y captura de pantalla
+        if not el_str:
+            try:
+                el_str = el.text
+            except:
+                try:
+                    el_str = el.tag_name
+                except:
+                    el_str = 'unnamed_el'
+
+        msg = 'click >> %s' % el_str
+        self.take_screenshot(msg)
+        self.logger.debug(msg)
 
     def _quit_focus_from_address_bar(self):
         self.send_special_key(Keys.TAB)
@@ -507,6 +512,9 @@ class Scrapper(object):
         for key in keys:
             ActionChains(self.browser).send_keys(key).perform()
             self.delay.key_stroke()
+
+        self.logger.debug('send_keys >> "%s"' % keys)
+        self.take_screenshot('send_keys')
 
     def download_pic_from_google(self):
         """Pilla de google una imágen y la guarda en disco"""
@@ -610,7 +618,7 @@ class Scrapper(object):
         "160 es el limite de caracteres para la bio en twitter por ejemplo"
         def get_quote_from_quotationspage():
             try:
-                q_scrapper.go_to('http://www.quotationspage.com/random.php3', ignore_timeout_error=True)
+                q_scrapper.go_to('http://www.quotationspage.com/random.php3')
 
                 # a veces se abre ventanita de spam mierda como la última en window_handles, así que vamos pasando
                 # desde la última a la primera
@@ -644,8 +652,6 @@ class Scrapper(object):
             q_scrapper.screenshots_dir = 'quotationspage'
             q_scrapper.open_browser()
             sel_quote = get_quote_from_quotationspage()
-            if not sel_quote:
-                sel_quote = get_quote_from_quotedb()
 
             if sel_quote:
                 return sel_quote
@@ -713,6 +719,10 @@ class Scrapper(object):
 
 class ScrapperLogger(object):
         def __init__(self, scrapper):
+            if not settings.LOGGER:
+                set_logger('default')
+                settings.LOGGER.warning('No logger configured, default logger created')
+
             self.logger = settings.LOGGER
             if scrapper.user.pk:
                 self.scrapper_id = '[%s | %i]' % (scrapper.user.username, scrapper.user.id)

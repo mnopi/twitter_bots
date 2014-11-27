@@ -246,6 +246,9 @@ class TwitterBot(models.Model):
                     except TwitterEmailNotFound:
                         self.twitter_scr.set_screenshots_dir('resend_conf_email')
                         self.twitter_scr.login()
+                        self.email_scr.confirm_tw_email()
+                        self.twitter_confirmed_email_ok = True
+                        self.save()
                     except Exception as ex:
                         settings.LOGGER.exception('Error on bot %s confirming email %s' %
                                                   (self.username, self.email))
@@ -263,6 +266,13 @@ class TwitterBot(models.Model):
                     self.twitter_scr.set_screenshots_dir('5_tw_lift_suspension')
                     self.twitter_scr.login()
 
+                t2 = utc_now()
+                diff_secs = (t2 - t1).seconds
+                if self.has_to_complete_creation():
+                    settings.LOGGER.info('Bot "%s" processed incompletely in %s seconds' % (self.username, diff_secs))
+                else:
+                    settings.LOGGER.info('Bot "%s" completed sucessfully in %s seconds' % (self.username, diff_secs))
+
             except (SuspendedBotWithoutProxy,
                     BotHasNoProxiesForUsage,
                     ProfileStillNotCompleted,
@@ -270,13 +280,9 @@ class TwitterBot(models.Model):
                     TwitterAccountDead,
                     TwitterAccountSuspended):
                 pass
-            # except Exception as ex:
-            #     settings.LOGGER.exception('Error completing creation for bot %s' % self.username)
-            #     raise ex
-            else:
-                t2 = utc_now()
-                diff_secs = (t2 - t1).seconds
-                settings.LOGGER.info('Bot "%s" completed sucessfully in %s seconds' % (self.username, diff_secs))
+            except Exception as ex:
+                settings.LOGGER.exception('Error completing creation for bot %s' % self.username)
+                raise ex
             finally:
                 # cerramos las instancias abiertas
                 try:
@@ -470,6 +476,7 @@ class TwitterBot(models.Model):
 
     def was_suspended(self):
         return self.is_suspended or self.num_suspensions_lifted > 0
+
 
 class Proxy(models.Model):
     proxy = models.CharField(max_length=21, null=False, blank=True)

@@ -102,7 +102,7 @@ class ProxyTimeoutError(Exception):
 
 class ProxyUrlRequestError(Exception):
     def __init__(self, scrapper, url):
-        scrapper.logger.error('Couldn\'t get url %s behind proxy %s' % (scrapper.user.proxy_for_usage.__unicode__()))
+        scrapper.logger.error('Proxy %s gets google.com ok, but couldn\'t get %s' % (scrapper.user.proxy_for_usage.__unicode__(), url))
         time.sleep(5)
 
 

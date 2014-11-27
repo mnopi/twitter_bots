@@ -36,7 +36,7 @@ COMPATIBLE_EMAIL_ACCOUNTS = [
 #
 # SCRAPPER SETTINGS
 USE_PROXY = True
-PAGE_LOAD_TIMEOUT = 300  # segundos que se espera a la respuesta al pedir una URL
+PAGE_LOAD_TIMEOUT = 140  # segundos que se espera a la respuesta al pedir una URL
 RANDOM_OFFSETS_ON_EL_CLICK = False  # activar offset al hacer click con el ratón sobre un elemento dado
 TYPING_SPEED = (20, 40)  # en ms, el tiempo que pasa entre que se presiona/levanta una tecla
 WEBDRIVER = 'PH'
@@ -78,7 +78,7 @@ TIME_BETWEEN_TWEETS = (2, 7)  # el bot twitea cada x segundos escogidos aleatori
 
 #
 # BOT CREATOR
-MAX_THREADS_CREATING_BOTS = 50  # máximo de hilos para crear bots
+MAX_THREADS_CREATING_BOTS = 8  # máximo de hilos para crear bots
 MAX_TWT_BOTS_PER_PROXY_FOR_REGISTRATIONS = 6  # máximo de robots que pueden haber creados a la vez desde misma ip
 MIN_DAYS_BETWEEN_REGISTRATIONS_PER_PROXY = 5  # mínimo de días que tienen que pasar para registrar 2 robots desde misma ip
 BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha de nacimiento del bot
@@ -95,7 +95,7 @@ TIME_SLEEPING_FOR_RESPAWN_BOT_CREATOR = 120
 
 #
 # BOT CREATION FINISHER
-MAX_THREADS_COMPLETING_PENDANT_BOTS = 5  # máximo de hilos para restaurar creación de robots todavía a medias
+MAX_THREADS_COMPLETING_PENDANT_BOTS = 8  # máximo de hilos para restaurar creación de robots todavía a medias
 TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER = 60
 
 
@@ -118,12 +118,6 @@ PROXIES_DIR = os.path.join(PROJECT_ROOT, 'core', 'proxies')
 # CH (chrome)
 # PH (phantomjs)
 # WEBDRIVER = 'FI'
-
-if TOR_MODE:
-    FAST_MODE = True
-    USE_PROXY = True
-    REGISTER_EMAIL = True
-    TW_CONFIRM_EMAIL = True
 
 if TEST_MODE:
     FAST_MODE = True

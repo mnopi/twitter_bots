@@ -108,7 +108,7 @@ class TwitterBotQuerySet(QuerySet):
         return (self.using_proxies_group(proxies_group) | self.registered_by_proxies_group(proxies_group)).distinct()
 
     def registered_by_proxies_group(self, proxies_group):
-        return self.filter(proxy_for_registration__proxies_group=proxies_group)
+        return self.filter(twitter_registered_ok=False, proxy_for_registration__proxies_group=proxies_group)
 
     def using_proxies_group(self, proxies_group):
         """Saca robots usándose en el grupo de proxies dado"""

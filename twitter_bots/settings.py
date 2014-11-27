@@ -60,14 +60,18 @@ WSGI_APPLICATION = 'twitter_bots.wsgi.application'
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
-        # "NAME": "twitter_bots",
-        "NAME": "twitter_bots_dev",
-        "USER": "root",
-        "PASSWORD": "",
-        # "HOST": "192.168.1.115",
-        # "HOST": "88.26.212.82",
+
+        # "NAME": "twitter_bots_dev",
+        # "USER": "root",
         # "PASSWORD": "",
-        "HOST": "127.0.0.1",
+        # "HOST": "127.0.0.1",
+        # "PORT": "3306",
+
+        "NAME": "twitter_bots_prod",
+        # "HOST": "192.168.1.115",
+        "USER": "mnopi",
+        "PASSWORD": "1aragon1",
+        "HOST": "88.26.212.82",
         "PORT": "3306",
     }
 }
@@ -93,6 +97,7 @@ USE_TZ = True
 STATIC_URL = '/static/'
 
 MEDIA_ROOT = os.path.join(PROJECT_ROOT, 'media')
+STATIC_ROOT = os.path.join(PROJECT_ROOT, 'static')
 
 AUTH_USER_MODEL = "core.User"
 
@@ -110,7 +115,7 @@ LOGGING = {
     'formatters': {
         'verbose': {
             # 'format': '%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s'
-            'format': "[%(asctime)s] %(levelname)s %(message)s",
+            'format': "[%(asctime)s] %(threadName)s  %(levelname)s\t\t%(message)s",
             'datefmt': "%d/%b/%Y %H:%M:%S"
         },
         'simple': {
@@ -149,6 +154,11 @@ LOGGING = {
             'handlers': ['console_info', 'console_error', 'management_logs_file'],
             'level': 'DEBUG',
             'propagate': True,
+        },
+        'default': {
+            'handlers': ['console_info', 'console_error'],
+            'level': 'DEBUG',
+            'propagate': False,
         },
     },
 }
