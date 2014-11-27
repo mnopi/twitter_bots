@@ -337,15 +337,15 @@ class ProxyAdmin(admin.ModelAdmin):
             elif self.no():
                 return queryset.unavailable_for_usage()
 
-    class ValidForAssignGroupListFilter(YesNoFilter):
-        title = 'Valid for assign group'
-        parameter_name = 'valid_for_assign_group'
+    class HasCompletedBotsListFilter(YesNoFilter):
+        title = 'Has completed bots'
+        parameter_name = 'has_completed_bots'
 
         def queryset(self, request, queryset):
             if self.yes():
-                return queryset.valid_for_assign_proxies_group()
+                return queryset.with_completed_bots()
             elif self.no():
-                return queryset.invalid_for_assign_proxies_group()
+                return queryset.without_completed_bots()
 
     class HasRegisteredBotsListFilter(YesNoFilter):
         title = 'Has registered bots'
@@ -390,7 +390,8 @@ class ProxyAdmin(admin.ModelAdmin):
     list_filter = (
         ValidForBotRegistrationListFilter,
         ValidForBotUsageListFilter,
-        ValidForAssignGroupListFilter,
+        # ValidForAssignGroupListFilter,
+        HasCompletedBotsListFilter,
         HasRegisteredBotsListFilter,
         HasBotsUsingListFilter,
         HasSuspendedBotsListFilter,

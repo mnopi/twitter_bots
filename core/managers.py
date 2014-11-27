@@ -340,4 +340,9 @@ class ProxyManager(MyManager):
     def invalid_for_assign_proxies_group(self):
         return self.get_queryset().invalid_for_assign_proxies_group()
 
+    def with_completed_bots(self):
+        return  self.get_queryset().with_completed_bots()
+
+    def without_completed_bots(self):
+        return  self.get_queryset().without_completed_bots()
 

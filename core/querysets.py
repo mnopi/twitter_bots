@@ -317,5 +317,28 @@ class ProxyQuerySet(MyQuerySet):
         """Saca proxies válidos para asignarles un grupo"""
         return self.without_bots().filter(is_in_proxies_txts=True)
 
+    def with_completed_bots(self):
+        """Saca proxies que tengan al menos un bot completamente creado"""
+        return self.filter(
+            twitter_bots_using__is_being_created=False,
+            twitter_bots_using__is_dead=False,
+            twitter_bots_using__is_suspended=False,
+            twitter_bots_using__twitter_registered_ok=True,
+            twitter_bots_using__twitter_confirmed_email_ok=True,
+            twitter_bots_using__twitter_avatar_completed=True,
+            twitter_bots_using__twitter_bio_completed=True,
+        )
+
+    def without_completed_bots(self):
+        """Saca proxies que no tengan ningún bot completamente creado"""
+        return self.filter(
+            Q(twitter_bots_using__is_dead=True) |
+            Q(twitter_bots_using__is_suspended=True) |
+            Q(twitter_bots_using__twitter_registered_ok=False) |
+            Q(twitter_bots_using__twitter_confirmed_email_ok=False) |
+            Q(twitter_bots_using__twitter_avatar_completed=False) |
+            Q(twitter_bots_using__twitter_bio_completed=False)
+        )
+
     def invalid_for_assign_proxies_group(self):
         return self.subtract(self.valid_for_assign_proxies_group())
