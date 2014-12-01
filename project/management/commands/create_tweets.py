@@ -8,9 +8,7 @@ from django.core.management.base import BaseCommand
 
 MODULE_NAME = __name__.split('.')[-1]
 
-set_logger(MODULE_NAME)
-
-MAX_PENDING_TWEETS = settings.MAX_THREADS_SENDING_TWEETS * 2
+set_logger(__name__)
 
 
 class Command(BaseCommand):

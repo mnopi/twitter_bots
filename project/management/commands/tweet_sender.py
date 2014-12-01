@@ -1,10 +1,8 @@
-import multiprocessing
 import os
 from core.models import TwitterBot
 from project.models import Tweet
 from project.exceptions import FatalError
 from twitter_bots import settings
-import time
 
 __author__ = 'Michel'
 
@@ -12,7 +10,7 @@ MODULE_NAME = __name__.split('.')[-1]
 
 from django.core.management.base import BaseCommand, CommandError
 
-settings.set_logger(MODULE_NAME)
+settings.set_logger(__name__)
 
 class Command(BaseCommand):
     help = 'Send pending tweets'

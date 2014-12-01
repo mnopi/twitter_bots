@@ -40,50 +40,73 @@ class TargetUserAdmin(admin.ModelAdmin):
 # tabular inlines
 class TweetMsgInlineFormset(forms.models.BaseInlineFormSet):
     def clean(self):
-        max(self.forms, key = lambda p: len(p.instance.text)).instance
-        a = 2
-        raise ValidationError('juas')
-
+        if self.forms:
+            longest_msg = max(self.forms, key = lambda p: len(p.instance.text) and p.cleaned_data['DELETE'] == False).instance
+        # delete_checked = False
+        #
+        # for form in self.forms:
+        #     try:
+        #         if form.cleaned_data:
+        #             if form.cleaned_data['DELETE']:
+        #                 delete_checked = True
+        #
+        #     except AttributeError:
+        #         pass
+        #
+        # if delete_checked:
+        super(TweetMsgInlineFormset, self).clean()
 
 class TweetMsgAdmin(admin.ModelAdmin):
     list_display = (
         'text',
+        'project',
+        'language',
     )
 
+    list_filter = (
+        'project',
+        'language',
+    )
 
 class ProjectAdminForm(forms.ModelForm):
     class Meta:
         model = Project
+
     def clean(self):
         project = self.instance
-        for group in project.proxies_groups.all():
-            tweet_length = 0
-            error_msg = 'The group: ' + group.name + ' can\'t create tweet composed by'
-            if group.has_tweet_msg:
-                longest_msg = max(project.tweet_msgs.all(), key = lambda p: len(p.text))
-                tweet_length += len(longest_msg.text)
-                error_msg += " tweet_msg: " + longest_msg.text + ','
-            if group.has_link:
-                longest_link = max(project.links.all(), key = lambda  q: len(q.url))
-                tweet_length += len(longest_link.url) + 1
-                error_msg += " link: " + longest_link.url + ','
-            if group.has_page_announced:
-                longest_page = max(project.pagelink_set.all(), key = lambda r: r.page_link_length())
-                if group.has_tweet_msg or group.has_link:
-                    tweet_length += 1
-                tweet_length += longest_page.page_link_length()
-                error_msg += " page_announced: " + longest_page.page_title + ','
-            if group.has_mentions:
-                mentions_length = 17 * group.max_num_mentions_per_tweet
-                tweet_length += mentions_length
-                error_msg += ' ' + str(group.max_num_mentions_per_tweet) + ' mentions,'
-            if group.has_tweet_img:
-                img_length = 23
-                tweet_length += img_length
-                error_msg += " and image"
-            if tweet_length > 140:
-                error_msg += ' because is too long (' + str(tweet_length) + ')'
-                raise ValidationError(error_msg)
+        if project.pk:
+            for group in project.proxies_groups.all():
+                tweet_length = 0
+                error_msg = 'The group: ' + group.name + ' can\'t create tweet composed by'
+                if group.has_tweet_msg:
+                    if project.tweet_msgs.all():
+                        longest_msg = max(project.tweet_msgs.all(), key = lambda p: len(p.text))
+                        tweet_length += len(longest_msg.text)
+                        error_msg += " tweet_msg: " + longest_msg.text + ','
+                if group.has_link:
+                    if project.links.all():
+                        longest_link = max(project.links.all(), key = lambda  q: len(q.url))
+                        tweet_length += len(longest_link.url) + 1
+                        error_msg += " link: " + longest_link.url + ','
+                if group.has_page_announced:
+                    if project.pagelink_set.all():
+                        longest_page = max(project.pagelink_set.all(), key = lambda r: r.page_link_length())
+                        if group.has_tweet_msg or group.has_link:
+                            tweet_length += 1
+                        tweet_length += longest_page.page_link_length()
+                        error_msg += " page_announced: " + longest_page.page_title + ','
+                if group.has_mentions:
+                    mentions_length = 17 * group.max_num_mentions_per_tweet
+                    tweet_length += mentions_length
+                    error_msg += ' ' + str(group.max_num_mentions_per_tweet) + ' mentions,'
+                if group.has_tweet_img:
+                    if project.tweet_imgs:
+                        img_length = 23
+                        tweet_length += img_length
+                        error_msg += " and image"
+                if tweet_length > 140:
+                    error_msg += ' because is too long (' + str(tweet_length) + ')'
+                    raise ValidationError(error_msg)
         return super(ProjectAdminForm, self).clean()
 
 
@@ -201,6 +224,7 @@ class TwitterUserAdmin(admin.ModelAdmin):
         'source',
         'target_users',
         'hashtags__q',
+        'language',
     )
 
 

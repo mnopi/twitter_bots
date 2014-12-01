@@ -181,7 +181,7 @@ class ProxiesGroupManager(MyManager):
 
 
 class TwitterUserManager(MyManager):
-    def get_unmentioned_on_project(self, project, limit=None):
+    def get_unmentioned_on_project(self, project, limit=None, language=None):
         """
             Saca usuarios no mencionados que pertenezcan a ese proyecto. Tampoco saca los mencionados
             por otro proyecto, es decir que nunca los mencionó ningún bot.
@@ -198,6 +198,7 @@ class TwitterUserManager(MyManager):
                 (
                     (
                         select project_twitteruser.id, project_twitteruser.last_tweet_date
+                        %(language_field)s
                         from project_twitteruser
                         LEFT OUTER JOIN project_follower ON (project_twitteruser.id = project_follower.twitter_user_id)
                         LEFT OUTER JOIN project_targetuser ON (project_follower.target_user_id = project_targetuser.id)
@@ -207,6 +208,7 @@ class TwitterUserManager(MyManager):
                     union
                     (
                         select project_twitteruser.id, project_twitteruser.last_tweet_date
+                        %(language_field)s
                         from project_twitteruser
                         LEFT OUTER JOIN project_twitteruserhashashtag ON (project_twitteruser.id = project_twitteruserhashashtag.twitter_user_id)
                         LEFT OUTER JOIN project_hashtag ON (project_twitteruserhashashtag.hashtag_id = project_hashtag.id)
@@ -216,12 +218,15 @@ class TwitterUserManager(MyManager):
                 ) total_project_users
             LEFT OUTER JOIN project_tweet_mentioned_users ON (total_project_users.id = project_tweet_mentioned_users.twitteruser_id)
             WHERE project_tweet_mentioned_users.tweet_id IS NULL
+            %(language)s
             ORDER BY total_project_users.last_tweet_date DESC
             %(limit)s
             """ %
             {
                 'project_pk': project.pk,
-                'limit': 'LIMIT %d' % limit if limit else ''
+                'limit': 'LIMIT %d' % limit if limit else '',
+                'language': 'and total_project_users.language="%s"' % language if language else '',
+                'language_field': ', project_twitteruser.language' if language else ''
             }
         )
 

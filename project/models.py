@@ -149,6 +149,7 @@ class TweetMsg(models.Model):
     text = models.CharField(max_length=101, null=False, blank=False)
     # proyecto nulo es mensaje de un feed por ejemplo
     project = models.ForeignKey(Project, null=True, blank=True, related_name='tweet_msgs')
+    language = models.CharField(max_length=2, null=True, blank=True)
 
     def __unicode__(self):
         return '%s @ %s' % (self.text, self.project.name) if self.project else self.text
@@ -338,9 +339,14 @@ class Tweet(models.Model):
         return not self.sending and not self.sent_ok
 
     def add_mentions(self, bot_used, project):
+        if self.tweet_msg:
+            language = self.tweet_msg.language
+        else:
+            language = None
         unmentioned_for_tweet_to_send = TwitterUser.objects.get_unmentioned_on_project(
                     project,
-                    limit=bot_used.get_group().max_num_mentions_per_tweet
+                    limit=bot_used.get_group().max_num_mentions_per_tweet,
+                    language=language
                 )
 
         if unmentioned_for_tweet_to_send:

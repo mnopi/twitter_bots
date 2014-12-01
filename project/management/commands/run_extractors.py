@@ -5,7 +5,7 @@ import threading
 import time
 from project.exceptions import RateLimitedException
 from project.models import Project, TargetUser, Extractor
-from scrapper.exceptions import FatalError
+from project.exceptions import FatalError
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
 from django.core.management.base import BaseCommand, CommandError
@@ -24,8 +24,8 @@ class Command(BaseCommand):
             threads = []
             if settings.EXTRACT_FOLLOWERS:
                 threads.append(threading.Thread(target=Extractor.objects.extract_followers))
-            if settings.EXTRACT_HASHTAGS:
-                threads.append(threading.Thread(target=Extractor.objects.extract_hashtags))
+            # if settings.EXTRACT_HASHTAGS:
+            #     threads.append(threading.Thread(target=Extractor.objects.extract_hashtags))
             for th in threads:
                 th.start()
 
