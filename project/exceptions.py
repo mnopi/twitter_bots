@@ -77,3 +77,9 @@ class FatalError(Exception):
     def __init__(self):
         settings.LOGGER.error('FATAL ERROR')
         time.sleep(10)
+
+
+class TweetCreationException(Exception):
+    def __init__(self, tweet):
+        settings.LOGGER.warning('Error creating tweet %i and will be deleted' % tweet.pk)
+        tweet.delete()

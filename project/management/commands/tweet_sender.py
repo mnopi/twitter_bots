@@ -1,21 +1,19 @@
-import os
 from core.models import TwitterBot
 from project.models import Tweet
 from project.exceptions import FatalError
 from twitter_bots import settings
+from django.core.management.base import BaseCommand
+from twitter_bots.settings import set_logger
 
-__author__ = 'Michel'
 
 MODULE_NAME = __name__.split('.')[-1]
 
-from django.core.management.base import BaseCommand, CommandError
-
-settings.set_logger(__name__)
 
 class Command(BaseCommand):
     help = 'Send pending tweets'
 
     def handle(self, *args, **options):
+        set_logger(__name__)
         settings.LOGGER.info('-- INITIALIZED %s --' % MODULE_NAME)
 
         Tweet.objects.put_sending_to_not_sending()

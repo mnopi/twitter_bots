@@ -6,7 +6,7 @@ from django.db.models import Count, Q
 import simplejson
 import tweepy
 import time
-from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted
+from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted, TweetCreationException
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
     TwitterUserManager
 from scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago, naive_to_utc
@@ -343,6 +343,7 @@ class Tweet(models.Model):
             language = self.tweet_msg.language
         else:
             language = None
+
         unmentioned_for_tweet_to_send = TwitterUser.objects.get_unmentioned_on_project(
                     project,
                     limit=bot_used.get_group().max_num_mentions_per_tweet,
@@ -362,6 +363,7 @@ class Tweet(models.Model):
         else:
             settings.LOGGER.warning('Bot %s has not more users to mention for project %s' %
                                     (bot_used.username, project.name))
+            raise TweetCreationException(self)
 
     def add_tweet_msg(self, project):
         tweet_message = project.tweet_msgs.order_by('?')[0]

@@ -3,7 +3,8 @@ from django.db.models import Q
 import feedparser
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-from project.exceptions import NoMoreAvailableProxiesForRegistration, BotHasNoProxiesForUsage, SuspendedBotWithoutProxy
+from project.exceptions import NoMoreAvailableProxiesForRegistration, BotHasNoProxiesForUsage, SuspendedBotWithoutProxy, \
+    TweetCreationException
 from scrapper.accounts.hotmail import HotmailScrapper
 from scrapper.exceptions import TwitterEmailNotFound, \
     TwitterAccountDead, TwitterAccountSuspended, ProfileStillNotCompleted
@@ -396,32 +397,37 @@ class TwitterBot(models.Model):
         projects_with_this_bot = self.get_running_projects().order_by__queued_tweets()
         if projects_with_this_bot.exists():
             for project in projects_with_this_bot:
-                project.check_if_has_minimal_content()
-                
-                tweet_to_send = Tweet(
-                    project=project,
-                    bot_used=self
-                )
-                tweet_to_send.save()
-                bot_group = self.get_group()
 
-                if bot_group.has_tweet_msg:
-                    tweet_to_send.add_tweet_msg(project)
-                    tweet_to_send.save()
-                if bot_group.has_link:
-                    tweet_to_send.add_link(project)
-                    tweet_to_send.save()
-                if bot_group.has_tweet_img:
-                    tweet_to_send.add_image(project)
-                    tweet_to_send.save()
-                if bot_group.has_page_announced:
-                    tweet_to_send.add_page_announced(project)
-                    tweet_to_send.save()
-                if bot_group.has_mentions:
-                    tweet_to_send.add_mentions(self, project)
-                    tweet_to_send.save()
-                pass
+                # project.check_if_has_minimal_content()
 
+                try:
+                    tweet_to_send = Tweet(
+                        project=project,
+                        bot_used=self
+                    )
+                    tweet_to_send.save()
+                    bot_group = self.get_group()
+
+                    if bot_group.has_tweet_msg:
+                        tweet_to_send.add_tweet_msg(project)
+                        tweet_to_send.save()
+                    if bot_group.has_link:
+                        tweet_to_send.add_link(project)
+                        tweet_to_send.save()
+                    if bot_group.has_tweet_img:
+                        tweet_to_send.add_image(project)
+                        tweet_to_send.save()
+                    if bot_group.has_page_announced:
+                        tweet_to_send.add_page_announced(project)
+                        tweet_to_send.save()
+                    if bot_group.has_mentions:
+                        tweet_to_send.add_mentions(self, project)
+
+                    # tras encontrar ese proyecto con el que hemos podido construir el tweet salimos para
+                    # dar paso al siguiente bot
+                    break
+                except TweetCreationException:
+                    continue
         else:
             settings.LOGGER.warning('Bot %s has no running projects assigned at this moment' % self.__unicode__())
 
