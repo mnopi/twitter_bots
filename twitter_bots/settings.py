@@ -60,15 +60,19 @@ WSGI_APPLICATION = 'twitter_bots.wsgi.application'
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
-        # "NAME": "twitter_bots",
-        "NAME": "twitter_bots_prod",
-        "USER": "mnopi",
-        "PASSWORD": "1aragon1",
-        "HOST": "192.168.1.115",
-        # "HOST": "88.26.212.82",
-        # "PASSWORD": "",
-        # "HOST": "127.0.0.1",
+
+        "NAME": "twitter_bots_dev",
+        "USER": "root",
+        "PASSWORD": "",
+        "HOST": "127.0.0.1",
         "PORT": "3306",
+
+        # "NAME": "twitter_bots_prod",
+        # # "HOST": "192.168.1.115",
+        # "USER": "mnopi",
+        # "PASSWORD": "1aragon1",
+        # "HOST": "88.26.212.82",
+        # "PORT": "3306",
     }
 }
 

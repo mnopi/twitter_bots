@@ -56,7 +56,8 @@ TAKE_SCREENSHOTS = True
 EXTRACT_FOLLOWERS = True
 MAX_DAYS_SINCE_REGISTERED_ON_TWITTER_WITHOUT_TWEETS = 50  # máximo de días desde que el usuario se registró y todavía no envió ningún tweet
 MAX_DAYS_SINCE_LAST_TWEET = 90  # máximo de días desde que el usuario twiteó por última vez
-MAX_PAGE_BREAKS_EXTRACTING_FOLLOWERS = 3  # a los x pagebreaks marca el target_user como extraído y pasa al siguiente
+MAX_PAGE_BREAKS_EXTRACTING_FOLLOWERS = 50  # a los x pagebreaks marca el target_user como extraído y pasa al siguiente
+MAX_PAGES_RETRIEVED_PER_TARGET_USER = 1  # máximo de páginas seguidas que el extractor toma de cada targetuser
 ## hashtags
 EXTRACT_HASHTAGS = False
 MAX_DAYS_FOR_OLDER_TWEET_IN_HASHTAGS = 5
@@ -93,10 +94,11 @@ PRIORIZE_RUNNING_PROJECTS_FOR_BOT_CREATION = True  # para crear bots primero par
 if not REGISTER_EMAIL:
     TW_CONFIRM_EMAIL = False
 TIME_SLEEPING_FOR_RESPAWN_BOT_CREATOR = 120
+REUSE_PROXIES_REQUIRING_PHONE_VERIFICATION = False
 
 #
 # BOT CREATION FINISHER
-MAX_THREADS_COMPLETING_PENDANT_BOTS = 8  # máximo de hilos para restaurar creación de robots todavía a medias
+MAX_THREADS_COMPLETING_PENDANT_BOTS = 5  # máximo de hilos para restaurar creación de robots todavía a medias
 TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER = 60
 
 

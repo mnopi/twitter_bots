@@ -294,7 +294,7 @@ class ProxyAdmin(admin.ModelAdmin):
         'twitter_bots_using',
     )
 
-    list_per_page = 15
+    list_per_page = 100
 
     search_fields = (
         'proxy',

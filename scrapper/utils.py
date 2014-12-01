@@ -220,3 +220,4 @@ def is_lte_than_seconds_ago(given_datetime, seconds_ago):
 
 def is_lte_than_days_ago(given_datetime, days_ago):
     return is_lte_than_seconds_ago(given_datetime, days_ago * 24 * 60 * 60)
+

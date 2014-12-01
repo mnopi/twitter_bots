@@ -6,7 +6,7 @@ from tweepy import TweepError
 from core.managers import MyManager
 from project.exceptions import RateLimitedException, AllFollowersExtracted, AllBotsInUse, \
     NoTweetsOnQueue
-from project.querysets import ProjectQuerySet, TwitterUserQuerySet, TweetQuerySet
+from project.querysets import ProjectQuerySet, TwitterUserQuerySet, TweetQuerySet, ExtractorQuerySet, TargetUserQuerySet
 from scrapper.utils import get_thread_name, is_lte_than_seconds_ago
 from twitter_bots import settings
 from django.db import models
@@ -16,6 +16,14 @@ class TargetUserManager(models.Manager):
     def create(self, **kwargs):
         target_user_created = super(TargetUserManager, self).create(**kwargs)
         target_user_created.complete_creation()
+
+    # QUERYSETS
+
+    def get_queryset(self):
+        return TargetUserQuerySet(self.model, using=self._db)
+
+    def available_to_extract(self):
+        return self.get_queryset().available_to_extract()
 
 
 class TweetManager(models.Manager):
@@ -113,7 +121,7 @@ class ProjectManager(models.Manager):
         return self.get_query_set().order_by__queued_tweets(direction)
 
 
-class ExtractorManager(models.Manager):
+class ExtractorManager(MyManager):
     def display_extractor_mode(self, mode):
         from .models import Extractor
         if mode == Extractor.FOLLOWER_MODE:
@@ -125,26 +133,32 @@ class ExtractorManager(models.Manager):
         settings.LOGGER.info('### Using %s extractor: %s behind proxy %s ###' %
                              (self.display_extractor_mode(mode),
                               extractor.twitter_bot.username,
-                              extractor.twitter_bot.proxy.__unicode__()))
+                              extractor.twitter_bot.proxy_for_usage.__unicode__()))
 
     def extract_followers(self):
-        from .models import Extractor
-        for extractor in self.get_available_extractors(Extractor.FOLLOWER_MODE):
-            try:
-                self.log_extractor_being_used(extractor, mode=Extractor.FOLLOWER_MODE)
-                extractor.extract_followers_from_all_target_users()
-            except TweepError as e:
-                if 'Cannot connect to proxy' in e.reason:
-                    settings.LOGGER.exception('')
-                    continue
-                else:
-                    raise e
-            except AllFollowersExtracted:
-                break
-            except RateLimitedException:
-                continue
+        from project.models import Extractor
 
-        time.sleep(random.randint(5, 15))
+        available_follower_extractors = self.available(Extractor.FOLLOWER_MODE)
+        if available_follower_extractors.exists():
+            for extractor in available_follower_extractors:
+                try:
+                    self.log_extractor_being_used(extractor, mode=Extractor.FOLLOWER_MODE)
+                    extractor.extract_followers_from_all_target_users()
+                except TweepError as e:
+                    if 'Cannot connect to proxy' in e.reason:
+                        settings.LOGGER.exception('')
+                        continue
+                    else:
+                        raise e
+                except AllFollowersExtracted:
+                    break
+                except RateLimitedException:
+                    continue
+
+            time.sleep(random.randint(5, 15))
+        else:
+            settings.LOGGER.error('No available follower extractors. Sleeping..')
+            time.sleep(30)
 
     def extract_hashtags(self):
         from .models import Extractor
@@ -162,6 +176,14 @@ class ExtractorManager(models.Manager):
                 continue
 
         time.sleep(random.randint(5, 15))
+
+    # QUERYSETS
+
+    def get_queryset(self):
+        return ExtractorQuerySet(self.model, using=self._db)
+
+    def available(self, mode):
+        return self.get_queryset().available(mode)
 
 
 class ProxiesGroupManager(MyManager):

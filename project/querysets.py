@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
-from array import array
 from itertools import chain
 from django.db import connection
 
 from django.db.models import Count, Q
 from django.db.models.query import QuerySet
-from twitter_bots import settings
 
 
 class ExtractorQuerySet(QuerySet):

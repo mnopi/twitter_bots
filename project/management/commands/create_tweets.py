@@ -8,13 +8,12 @@ from django.core.management.base import BaseCommand
 
 MODULE_NAME = __name__.split('.')[-1]
 
-set_logger(__name__)
-
 
 class Command(BaseCommand):
     help = 'Make tweets to send by tweet_sender'
 
     def handle(self, *args, **options):
+        set_logger(__name__)
         settings.LOGGER.info('-- INITIALIZED %s --' % MODULE_NAME)
 
         try:

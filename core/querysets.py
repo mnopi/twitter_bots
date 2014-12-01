@@ -18,22 +18,30 @@ class TwitterBotQuerySet(QuerySet):
             with_valid_proxy_for_usage()
 
     def registrable(self):
-        "Saca robots que puedan continuar el registro"
+        """
+            Saca robots que puedan continuar el registro.
+            No vamos a continuar con aquellos que estén registrados en twitter pero no tengan correo
+        """
         return self.filter(
-                is_being_created=False,
-                is_dead=False,
-                is_suspended_email=False
-            )\
-            .with_valid_proxy_for_registration()
+            is_being_created=False,
+            is_dead=False,
+            is_suspended_email=False
+        )\
+        .exclude(Q(email_registered_ok=False) & Q(twitter_registered_ok=True))\
+        .with_valid_proxy_for_registration()
 
     def with_valid_proxy_for_registration(self):
-        return self.filter(
+        qs = self.filter(
                 proxy_for_usage__is_unavailable_for_registration=False,
                 proxy_for_usage__is_unavailable_for_use=False,
-                proxy_for_usage__is_phone_required=False,
             )\
             .exclude(proxy_for_registration__proxy='tor')\
             .exclude(proxy_for_usage__proxy='tor')
+
+        if not settings.REUSE_PROXIES_REQUIRING_PHONE_VERIFICATION:
+            qs = qs.filter(proxy_for_usage__is_phone_required=False)
+
+        return qs
 
     def with_valid_proxy_for_usage(self):
         return self.filter(
@@ -51,12 +59,13 @@ class TwitterBotQuerySet(QuerySet):
                 Q(twitter_avatar_completed=False) |
                 Q(twitter_bio_completed=False) |
                 Q(is_suspended=True)
-            )
+            )\
+            .filter_suspended_bots()
 
         if settings.PRIORIZE_RUNNING_PROJECTS_FOR_BOT_CREATION:
             uncompleted = uncompleted.order_by__priorizing_running_projects()
 
-        return uncompleted
+        return uncompleted.distinct()
 
     def on_running_projects(self):
         return self.filter(proxy_for_usage__proxies_group__projects__is_running=True)
@@ -73,7 +82,7 @@ class TwitterBotQuerySet(QuerySet):
                 twitter_avatar_completed=True,
                 twitter_bio_completed=True,
                 is_suspended=False,
-            )
+            ).distinct()
 
     def twitteable(self):
         """
@@ -126,6 +135,23 @@ class TwitterBotQuerySet(QuerySet):
         """Saca los bots pendientes de completar y que sean de grupos que tengan activado el crear bots"""
         return self.uncompleted().filter(proxy_for_usage__proxies_group__is_bot_creation_enabled=True)
 
+    q__without_any_suspended_bot = ~(
+        Q(is_suspended=True) |
+        Q(num_suspensions_lifted__gt=0)
+    )
+
+    def filter_suspended_bots(self):
+        return self.filter(
+            (
+                Q(proxy_for_usage__proxies_group__reuse_proxies_with_suspended_bots=False) &
+                self.q__without_any_suspended_bot
+            ) |
+            (
+                Q(proxy_for_usage__proxies_group__reuse_proxies_with_suspended_bots=True)
+            )
+        )\
+        .distinct()
+
 
 class ProxyQuerySet(MyQuerySet):
     q__without_any_suspended_bot = ~(
@@ -144,6 +170,8 @@ class ProxyQuerySet(MyQuerySet):
                 is_in_proxies_txts=True,
                 is_unavailable_for_use=False,
             )
+        if not settings.REUSE_PROXIES_REQUIRING_PHONE_VERIFICATION:
+            proxies_base = proxies_base.filter(is_phone_required=False)
 
         available_proxies_for_usage_ids = []
 
@@ -177,8 +205,9 @@ class ProxyQuerySet(MyQuerySet):
                 is_in_proxies_txts=True,
                 is_unavailable_for_registration=False,  # registro de email
                 is_unavailable_for_use=False,
-                is_phone_required=False,
             )
+        if not settings.REUSE_PROXIES_REQUIRING_PHONE_VERIFICATION:
+            proxies_base = proxies_base.filter(is_phone_required=False)
 
         available_proxies_for_reg_ids = []
 
