@@ -4,7 +4,8 @@ from selenium.common.exceptions import MoveTargetOutOfBoundsException
 
 from scrapper.scrapper import Scrapper
 from scrapper.exceptions import BotMustVerifyPhone, TwitterBotDontExistsOnTwitterException, \
-    FailureSendingTweetException, TwitterEmailNotConfirmed, TwitterAccountDead, ProfileStillNotCompleted
+    FailureSendingTweetException, TwitterEmailNotConfirmed, TwitterAccountDead, ProfileStillNotCompleted, \
+    PageNotReadyState
 from scrapper.utils import *
 from twitter_bots import settings
 
@@ -80,7 +81,7 @@ class TwitterScrapper(Scrapper):
             if self.check_visibility(welcome_a):
                 self.click(welcome_a)
 
-            self.wait_to_page_loaded()
+            self.wait_to_page_readystate()
             self.delay.seconds(7)
 
             # si pide teléfono
@@ -113,6 +114,7 @@ class TwitterScrapper(Scrapper):
         """Hace todo el proceso de entrar en twitter y loguearse si fuera necesario por no tener las cookies guardadas"""
         try:
             self.go_to(settings.URLS['twitter_login'])
+            self.wait_to_page_readystate()
 
             # para ver si ya estamos logueados o no
             if not self.is_logged_in():
@@ -120,13 +122,15 @@ class TwitterScrapper(Scrapper):
                 self.fill_input_text('#signin-password', self.user.password_twitter)
                 self.click('.front-signin button')
 
-            self.wait_to_page_loaded()
+            self.wait_to_page_readystate()
             self.check_account_exists()
 
             self.clear_local_storage()
             self.check_account_suspended()
         except TwitterEmailNotConfirmed:
             pass
+        except PageNotReadyState as e:
+            raise e
         except Exception, e:
             self.logger.exception('Login on twitter error')
             self.take_screenshot('login_failure', force_take=True)
@@ -155,7 +159,7 @@ class TwitterScrapper(Scrapper):
 
         self.user.mark_as_suspended()
         self.click(self.get_css_element('#account-suspended a'))
-        self.wait_to_page_loaded()
+        self.wait_to_page_readystate()
         cr = DeathByCaptchaResolver(self)
         if self.check_visibility('#checkbox_discontinue'):
             self.click('#checkbox_discontinue')

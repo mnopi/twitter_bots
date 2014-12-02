@@ -124,3 +124,10 @@ class EmailAccountNotFound(Exception):
         scrapper.take_screenshot('wrong_email_account')
         scrapper.logger.warning('Wrong email account')
         scrapper.close_browser()
+
+
+class PageNotReadyState(Exception):
+    def __init__(self, scrapper):
+        scrapper.take_screenshot('page_not_readystate')
+        scrapper.logger.error('Exceeded %i secs waiting for DOM readystate after loading %s' %
+                                (settings.PAGE_READYSTATE_TIMEOUT, scrapper.browser.current_url))

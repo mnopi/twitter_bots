@@ -3,7 +3,7 @@ from django.db.models import Q
 import feedparser
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-from project.exceptions import NoMoreAvailableProxiesForRegistration, BotHasNoProxiesForUsage, SuspendedBotWithoutProxy, \
+from project.exceptions import NoMoreAvailableProxiesForRegistration, BotHasNoProxiesForUsage, SuspendedBotHasNoProxiesForUsage, \
     TweetCreationException
 from scrapper.accounts.hotmail import HotmailScrapper
 from scrapper.exceptions import TwitterEmailNotFound, \
@@ -144,9 +144,14 @@ class TwitterBot(models.Model):
         Scrapper(self).check_proxy_works_ok()
 
     def assign_proxy(self):
-        """Al bot se le asigna un proxy disponible según tenga cuentas ya creadas o no"""
+        """
+            Al bot se le asigna un proxy disponible según tenga cuentas ya creadas o no
+        """
+
         def assign_proxy_for_registration():
-            """Asignamos proxy para registro, el cual será el mismo que para el uso"""
+            """
+                Asignamos proxy para registro, el cual será el mismo que para el uso
+            """
             available_proxies_for_reg = Proxy.objects.available_for_registration()
             if not available_proxies_for_reg.exists():
                 raise NoMoreAvailableProxiesForRegistration()
@@ -165,23 +170,35 @@ class TwitterBot(models.Model):
 
         def assign_new_proxy_for_usage():
             """
-            Asignamos proxy entre los disponibles para el grupo del bot.
+                Asignamos proxy entre los disponibles para el grupo del bot.
             """
-            new_proxies_available = Proxy.objects.for_group(self.get_group()).available_for_usage()
-            if not new_proxies_available.exists():
-                raise BotHasNoProxiesForUsage(self)
-            else:
-                self.proxy_for_usage = new_proxies_available.order_by('?')[0]
+            proxies = Proxy.objects.for_group(self.get_group()).available_for_usage()
 
-        if not self.was_suspended():
-            if self.has_to_register_twitter():
-                assign_proxy_for_registration()
+            if self.was_suspended():
+                # si fue suspendido le intentamos colar un proxy con bots también suspendidos
+                proxies_available_with_suspended_bots = proxies.with_some_suspended_bot()
+                if proxies_available_with_suspended_bots.exists():
+                    self.proxy_for_usage = proxies_available_with_suspended_bots.order_by('?')[0]
+                else:
+                    # si no hay proxies disponibles que tengan bots suspendidos entonces sacamos los demás,
+                    # incluídos los suspendidos si en el grupo se indicó reusar los proxies con robots suspendidos
+                    proxies_available = proxies.filter_suspended_bots()
+                    if proxies_available.exists():
+                        self.proxy_for_usage = proxies_available.order_by('?')[0]
+                    else:
+                        raise SuspendedBotHasNoProxiesForUsage(self)
             else:
-                # a la hora de asignar un nuevo proxy para el uso miramos que sea de su mismo grupo
-                assign_new_proxy_for_usage()
-            self.save()
+                proxies_available = proxies.filter_suspended_bots()
+                if proxies_available.exists():
+                    self.proxy_for_usage = proxies_available.order_by('?')[0]
+                else:
+                    raise BotHasNoProxiesForUsage(self)
+
+        if self.has_to_register_twitter():
+            assign_proxy_for_registration()
         else:
-            raise SuspendedBotWithoutProxy(self)
+            assign_new_proxy_for_usage()
+        self.save()
 
     def get_email_scrapper(self):
         email_domain = self.get_email_account_domain()
@@ -274,7 +291,7 @@ class TwitterBot(models.Model):
                 else:
                     settings.LOGGER.info('Bot "%s" completed sucessfully in %s seconds' % (self.username, diff_secs))
 
-            except (SuspendedBotWithoutProxy,
+            except (SuspendedBotHasNoProxiesForUsage,
                     BotHasNoProxiesForUsage,
                     ProfileStillNotCompleted,
                     NoMoreAvailableProxiesForRegistration,

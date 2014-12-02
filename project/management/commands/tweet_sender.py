@@ -16,9 +16,9 @@ class Command(BaseCommand):
         set_logger(__name__)
         settings.LOGGER.info('-- INITIALIZED %s --' % MODULE_NAME)
 
-        Tweet.objects.put_sending_to_not_sending()
-
         try:
+            Tweet.objects.put_sending_to_not_sending()
+
             if args and '1' in args:
                 TwitterBot.objects.send_tweet_from_pending_queue()
             else:

@@ -15,7 +15,7 @@ import socket
 import telnetlib
 from .delay import Delay
 from .exceptions import RequestAttemptsExceededException, ProxyConnectionError, ProxyTimeoutError, \
-    InternetConnectionError, ProxyUrlRequestError, IncompatibleUserAgent
+    InternetConnectionError, ProxyUrlRequestError, IncompatibleUserAgent, PageNotReadyState
 import my_phantomjs_webdriver
 from project.models import ProxiesGroup
 from twitter_bots.settings import set_logger
@@ -339,9 +339,15 @@ class Scrapper(object):
         if not state and not city:
             return get_random()
 
-    def wait_to_page_loaded(self):
-        wait_condition(lambda: self.browser.execute_script("return document.readyState;") == 'complete', timeout=200)
-        self.take_screenshot('page_loaded')
+    def wait_to_page_readystate(self):
+        try:
+            wait_condition(
+                lambda: self.browser.execute_script("return document.readyState;") == 'complete',
+                timeout=settings.PAGE_READYSTATE_TIMEOUT
+            )
+            self.take_screenshot('page_readystate')
+        except:
+            raise PageNotReadyState(self)
 
     def switch_to_frame(self, frame, timeout=20):
         wait_start = utc_now()
@@ -525,7 +531,7 @@ class Scrapper(object):
                 names.get_full_name(gender=self.user.get_gender_display())
             )
             g_scrapper.send_special_key(Keys.ENTER)
-            g_scrapper.wait_to_page_loaded()
+            g_scrapper.wait_to_page_readystate()
             g_scrapper.delay.seconds(3)
 
             if g_scrapper.check_visibility('#rg_s .rg_di'):
@@ -567,10 +573,10 @@ class Scrapper(object):
                 g_scrapper.click(g_scrapper.browser.find_element_by_partial_link_text('Images'))
                 img = get_img()
                 g_scrapper.click(img)
-                g_scrapper.wait_to_page_loaded()
+                g_scrapper.wait_to_page_readystate()
                 img_button = g_scrapper.browser.find_element_by_partial_link_text('View image')
                 g_scrapper.click(img_button)
-                g_scrapper.wait_to_page_loaded()
+                g_scrapper.wait_to_page_readystate()
                 g_scrapper.delay.seconds(10)  # para que dé tiempo a cargar la página final con la imágen
                 urllib.urlretrieve(g_scrapper.browser.current_url, avatar_path)
                 import imghdr

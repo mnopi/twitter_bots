@@ -36,8 +36,9 @@ class TweetManager(models.Manager):
         settings.LOGGER.info('Deleted previous sending tweets')
 
     def put_sending_to_not_sending(self):
-        self.filter(sending=True).update(sending=False)
-        settings.LOGGER.info('All previous sending tweets were set to not sending')
+        if self.exists():
+            self.filter(sending=True).update(sending=False)
+            settings.LOGGER.info('All previous sending tweets were set to not sending')
 
     def get_tweet_ready_to_send(self):
         """Saca de la cola los tweets que se puedan enviar

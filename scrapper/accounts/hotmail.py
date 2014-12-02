@@ -173,7 +173,7 @@ class HotmailScrapper(Scrapper):
                 self.fill_input_text('#idDiv_PWD_PasswordTb input', self.user.password_email)
                 self.click('#idChkBx_PWD_KMSI0Pwd')  # para mantener la sesión si cierro navegador
                 submit_form()
-                self.wait_to_page_loaded()
+                self.wait_to_page_readystate()
             self._quit_inbox_shit()
             self.check_account_suspended()
             self.logger.info('Logged in hotmail ok')
@@ -188,7 +188,7 @@ class HotmailScrapper(Scrapper):
             self.browser.find_element_by_partial_link_text('continue to your inbox').click()
 
         # si nos salta el mensaje de bienvenida
-        self.wait_to_page_loaded()
+        self.wait_to_page_readystate()
         if self.check_visibility('#notificationContainer button', timeout=10):
             self.click('#notificationContainer button')
 
@@ -203,12 +203,12 @@ class HotmailScrapper(Scrapper):
         twitter_email_title = get_element(lambda: self.browser.find_element_by_partial_link_text('Twitter account'))
         if twitter_email_title:
             self.click(twitter_email_title)
-            self.wait_to_page_loaded()
+            self.wait_to_page_readystate()
             confirm_btn = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm'))
             self.click(confirm_btn)
             self.delay.seconds(3)
             self.switch_to_window(-1)
-            self.wait_to_page_loaded()
+            self.wait_to_page_readystate()
             self.delay.seconds(3)
 
             # por si nos pide meter usuario y contraseña

@@ -68,9 +68,17 @@ class BotHasNoProxiesForUsage(Exception):
             settings.LOGGER.error('No more available proxies for use bot %s' % bot.username)
 
 
-class SuspendedBotWithoutProxy(Exception):
+class SuspendedBotHasNoProxiesForUsage(Exception):
     def __init__(self, bot):
-        settings.LOGGER.warning('Could not assign new proxy to bot %s because was suspended' % bot.username)
+        bot_group = bot.get_group()
+        if not bot_group.is_bot_usage_enabled:
+            settings.LOGGER.warning('Bot %s has assigned group "%s" with bot usage disabled' %
+                                    (bot.username, bot_group.__unicode__()))
+        elif not bot_group.reuse_proxies_with_suspended_bots:
+            settings.LOGGER.warning('Suspended bot %s has assigned group "%s" with reuse_proxies_with_suspended_bots disabled' %
+                                    (bot.username, bot_group.__unicode__()))
+        else:
+            settings.LOGGER.error('No more available proxies for use bot %s' % bot.username)
 
 
 class FatalError(Exception):

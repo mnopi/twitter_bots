@@ -106,9 +106,10 @@ class TwitterBotManager(models.Manager):
     def send_tweet_from_pending_queue(self):
         """Escoge un tweet pendiente de enviar cuyo robot no esté enviando actualmente"""
         from project.models import Tweet
+
+        tweet_to_send = None
         try:
             connection.close()
-            tweet_to_send = None
             try:
                 mutex.acquire()
 

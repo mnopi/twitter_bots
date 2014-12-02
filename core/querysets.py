@@ -183,7 +183,6 @@ class ProxyQuerySet(MyQuerySet):
         #   - que no tengan ningún robot muerto
         #   - que tengan un número de bots para uso inferior al límite marcado por su grupo
         proxies_with_bots = proxies_base\
-            .filter_suspended_bots()\
             .with_enough_space_for_usage()
         available_proxies_for_usage_ids.extend([result['id'] for result in proxies_with_bots.values('id')])
 
