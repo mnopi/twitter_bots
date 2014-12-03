@@ -97,10 +97,12 @@ class TwitterBotAdmin(admin.ModelAdmin):
         ValidBotListFilter,
         'proxy_for_usage__proxies_group__webdriver',
         'proxy_for_usage__proxies_group',
+        'proxy_for_usage__is_in_proxies_txts',
         'date',
         'is_dead',
         'is_suspended',
         'is_suspended_email',
+        'twitter_registered_ok',
     )
     ordering = ('-date',)
     list_display_links = (
@@ -109,19 +111,20 @@ class TwitterBotAdmin(admin.ModelAdmin):
 
     actions = [
         'open_browser_instance',
-        'login_email_account',
-        'login_twitter_account',
+        # 'login_email_account',
+        # 'login_twitter_account',
         'complete_creation',
-        'set_twitter_profile',
-        'confirm_twitter_email',
+        # 'set_twitter_profile',
+        # 'confirm_twitter_email',
         'send_tweet_from_selected_bot',
         # 'send_mention',
         # 'send_mention_from_any_valid_bot',
         # 'send_mentions_from_any_valid_bot',
-        'create_bot_from_fixed_ip',
+        # 'create_bot_from_fixed_ip',
         'send_pending_tweets',
         'send_pending_tweet_from_selected_bot',
         'make_feed_tweet_to_send_for_selected_bot',
+        'assign_proxies_group',
     ]
 
     def open_browser_instance(self, request, queryset):
@@ -243,6 +246,9 @@ class TwitterBotAdmin(admin.ModelAdmin):
         else:
             self.message_user(request, "Only select one user for this action", level=messages.WARNING)
     make_feed_tweet_to_send_for_selected_bot.short_description = "Make feed tweet for selected bot"
+
+    def assign_proxies_group(self, request, queryset):
+        return assign_proxies_group(self, request, queryset)
 
     raw_id_fields = (
         'proxy_for_registration',
@@ -414,38 +420,57 @@ class ProxyAdmin(admin.ModelAdmin):
     ]
 
     def assign_proxies_group(self, request, queryset):
-        # http://www.jpichon.net/blog/2010/08/django-admin-actions-and-intermediate-pages/
-        # http://sysmagazine.com/posts/140409/
-        from django import forms
-        class AssignProxiesForm(forms.Form):
-            _selected_action = forms.CharField(widget=forms.MultipleHiddenInput)
-            action = forms.CharField(widget=forms.HiddenInput)
-            proxies_group = forms.ModelChoiceField(queryset=ProxiesGroup.objects.all(), required=False)
+        return assign_proxies_group(self, request, queryset)
 
-        if 'apply' in request.POST:
-            form = AssignProxiesForm(request.POST)
 
-            if form.is_valid():
-                proxies_group = form.cleaned_data['proxies_group']
+def assign_proxies_group(admin_obj, request, queryset):
+    # http://www.jpichon.net/blog/2010/08/django-admin-actions-and-intermediate-pages/
+    # http://sysmagazine.com/posts/140409/
+    from django import forms
+    from querysets import TwitterBotQuerySet
+    class AssignProxiesForm(forms.Form):
+        _selected_action = forms.CharField(widget=forms.MultipleHiddenInput)
+        action = forms.CharField(widget=forms.HiddenInput)
+        proxies_group = forms.ModelChoiceField(queryset=ProxiesGroup.objects.all(), required=False)
 
-                count = 0
-                for proxy in queryset:
-                    proxy.proxies_group = proxies_group
-                    proxy.save()
-                    count += 1
-
-                self.message_user(request, 'Successfully assigned proxies_group "%s" to %d proxies' % (proxies_group, count))
-                return HttpResponseRedirect(request.get_full_path())
+    def get_proxy_queryset():
+        if type(queryset) is TwitterBotQuerySet:
+            proxies_pks = queryset.values_list('proxy_for_usage__pk', flat=True)
+            return Proxy.objects.filter(pk__in=proxies_pks)
         else:
-            ctx = {
-                'proxies_group_form': AssignProxiesForm(
-                    initial={
-                        '_selected_action': [obj.pk for obj in queryset],
-                        'action': request.POST.get('action'),
-                    }
-                )
-            }
-            return render_to_response('core/assign_proxies_group.html', context_instance=RequestContext(request, ctx))
+            return queryset
+
+    def sucessfull_msg():
+        if type(queryset) is TwitterBotQuerySet:
+            return 'Successfully assigned proxies_group "%s" to %d proxies (%d bots were reassigned)' % \
+                   (proxies_group, count, TwitterBot.objects.using_proxies_group(proxies_group).count())
+        else:
+            return 'Successfully assigned proxies_group "%s" to %d proxies' % (proxies_group, count)
+
+    if 'apply' in request.POST:
+        form = AssignProxiesForm(request.POST)
+
+        if form.is_valid():
+            proxies_group = form.cleaned_data['proxies_group']
+
+            count = 0
+            for proxy in get_proxy_queryset():
+                proxy.proxies_group = proxies_group
+                proxy.save()
+                count += 1
+
+            admin_obj.message_user(request, sucessfull_msg())
+            return HttpResponseRedirect(request.get_full_path())
+    else:
+        ctx = {
+            'proxies_group_form': AssignProxiesForm(
+                initial={
+                    '_selected_action': [obj.pk for obj in queryset],
+                    'action': request.POST.get('action'),
+                }
+            )
+        }
+        return render_to_response('core/assign_proxies_group.html', context_instance=RequestContext(request, ctx))
 
 
 admin.site.register(User, MyUserAdmin)
