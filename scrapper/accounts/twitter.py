@@ -5,7 +5,7 @@ from selenium.common.exceptions import MoveTargetOutOfBoundsException
 from scrapper.scrapper import Scrapper
 from scrapper.exceptions import BotMustVerifyPhone, TwitterBotDontExistsOnTwitterException, \
     FailureSendingTweetException, TwitterEmailNotConfirmed, TwitterAccountDead, ProfileStillNotCompleted, \
-    PageNotReadyState
+    PageNotReadyState, TwitterAccountSuspended, TwitterAccountSuspendedAfterTryingUnsuspend
 from scrapper.utils import *
 from twitter_bots import settings
 
@@ -140,7 +140,10 @@ class TwitterScrapper(Scrapper):
         # intentamos levantar suspensión
         def submit_unsuspension(attempt):
             if attempt == 5:
-                raise TwitterAccountDead(self)
+                if settings.MARK_BOT_AS_DEATH_AFTER_TRYING_LIFTING_SUSPENSION:
+                    raise TwitterAccountDead(self)
+                else:
+                    raise TwitterAccountSuspendedAfterTryingUnsuspend(self)
             else:
                 self.logger.info('Lifting twitter account suspension (attempt %i)..' % attempt)
                 cr.resolve_captcha(
@@ -163,7 +166,8 @@ class TwitterScrapper(Scrapper):
         cr = DeathByCaptchaResolver(self)
         if self.check_visibility('#checkbox_discontinue'):
             self.click('#checkbox_discontinue')
-        self.click('#checkbox_permanent')
+        if self.check_visibility('#checkbox_permanent'):
+            self.click('#checkbox_permanent')
         submit_unsuspension(attempt=0)
 
     def check_account_suspended(self):

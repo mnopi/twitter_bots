@@ -15,7 +15,7 @@ import socket
 import telnetlib
 from .delay import Delay
 from .exceptions import RequestAttemptsExceededException, ProxyConnectionError, ProxyTimeoutError, \
-    InternetConnectionError, ProxyUrlRequestError, IncompatibleUserAgent, PageNotReadyState
+    InternetConnectionError, ProxyUrlRequestError, IncompatibleUserAgent, PageNotReadyState, NoElementToClick
 import my_phantomjs_webdriver
 from project.models import ProxiesGroup
 from twitter_bots.settings import set_logger
@@ -471,27 +471,30 @@ class Scrapper(object):
             el_str = el
             el = self.get_css_element(el)
 
-        if settings.RANDOM_OFFSETS_ON_EL_CLICK:
-            x_bound = el.size['width'] - 1  # el límite hasta donde se puede offsetear el click es el ancho
-            y_bound = el.size['height'] - 1
-
-            x_offset = random.randint(1, x_bound)
-            y_offset = random.randint(1, y_bound)
-            ActionChains(self.browser).move_to_element_with_offset(el, x_offset, y_offset).click().perform()
-        else:
-            ActionChains(self.browser).move_to_element(el).click().perform()
-
-        self.delay.box_switch()
-
-        # sacamos el elemento por logger y captura de pantalla
+        # si el elemento sobre el que se hace click no es un string css sino un objeto..
         if not el_str:
             try:
-                el_str = el.text
+                el_str = el.text or 'without_text_el'
             except:
                 try:
                     el_str = el.tag_name
                 except:
                     el_str = 'unnamed_el'
+
+        try:
+            if settings.RANDOM_OFFSETS_ON_EL_CLICK:
+                x_bound = el.size['width'] - 1  # el límite hasta donde se puede offsetear el click es el ancho
+                y_bound = el.size['height'] - 1
+
+                x_offset = random.randint(1, x_bound)
+                y_offset = random.randint(1, y_bound)
+                ActionChains(self.browser).move_to_element_with_offset(el, x_offset, y_offset).click().perform()
+            else:
+                ActionChains(self.browser).move_to_element(el).click().perform()
+        except AttributeError:
+            raise NoElementToClick(self, el_str)
+
+        self.delay.box_switch()
 
         msg = 'click >> %s' % el_str
         self.take_screenshot(msg)

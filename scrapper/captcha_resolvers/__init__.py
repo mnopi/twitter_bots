@@ -81,7 +81,7 @@ class DeathByCaptchaResolver(CaptchaResolver):
                         if uploaded_captcha['text'] and uploaded_captcha['is_correct']:
                             self.scrapper.captcha_res = uploaded_captcha
             except Exception as ex:
-                self.scrapper.exception('Failed uploading CAPTCHA, response:\n\t%s' % r.content)
+                self.scrapper.logger.exception('Failed uploading CAPTCHA, response:\n\t%s' % r.content)
                 self.scrapper.captcha_res = None
                 raise ex
 
@@ -106,9 +106,10 @@ class DeathByCaptchaResolver(CaptchaResolver):
         try:
             client = deathbycaptcha.SocketClient(settings.DEATHBYCAPTCHA_USER, settings.DEATHBYCAPTCHA_PASSWORD)
             client.report(self.scrapper.captcha_res['captcha'])
-        except Exception, e:
-            self.scrapper.logger.exception('Failed reporting wrong CAPTCHA')
-
+            self.scrapper.take_screenshot('wrong_captcha')
+            self.scrapper.logger.warning('wrong captcha reported')
+        except Exception:
+            self.scrapper.logger.error('Failed reporting wrong CAPTCHA')
 
     # usando la api de esta gente no funciona..
 

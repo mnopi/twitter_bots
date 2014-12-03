@@ -22,6 +22,11 @@ class TwitterAccountSuspended(Exception):
         scrapper.logger.warning('Twitter account suspended')
 
 
+class TwitterAccountSuspendedAfterTryingUnsuspend(Exception):
+    def __init__(self, scrapper):
+        scrapper.logger.error('Twitter account still suspended after trying lifting suspension')
+
+
 class TwitterAccountDead(Exception):
     def __init__(self, scrapper):
         scrapper.user.is_dead = True
@@ -131,3 +136,10 @@ class PageNotReadyState(Exception):
         scrapper.take_screenshot('page_not_readystate')
         scrapper.logger.error('Exceeded %i secs waiting for DOM readystate after loading %s' %
                                 (settings.PAGE_READYSTATE_TIMEOUT, scrapper.browser.current_url))
+
+
+class NoElementToClick(Exception):
+    def __init__(self, scrapper, el_str):
+        scrapper.take_screenshot('click_error__%s' % el_str, force_take=True)
+        scrapper.logger.error('no element %s present on %s, so can\'t be clicked' %
+                              (el_str, scrapper.browser.current_url))
