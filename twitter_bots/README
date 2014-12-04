@@ -1,0 +1,11 @@
+1. Si se cambian los booleanos de un proxy_group(has_image, has_link...) o se asocia un proyecto nuevo a uno
+hay que meterse en cada proyecto a los que esta asociado el grupo y darle a "guardar" para que se
+validen de nuevo todos los campos, teniendo en cuenta las condiciones del nuevo proxy_group
+
+2. Un proxy_group puede tener cualquiera de estos elementos combinados:
+   - tweet_msg, link, tweet_img, mentions
+   - page_announced, mentions, tweet_img
+
+3. El idioma del tweet se añade en el tweet_msg y las menciones las filtra por el idioma del twitter_user
+
+4. Imágenes en las publicaciones (tweets): 520 x 260 pixeles. Sino las imágenes salen cortadas y no tendrán el mismo impacto!

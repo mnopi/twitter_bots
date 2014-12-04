@@ -315,7 +315,7 @@ class Tweet(models.Model):
         if self.tweet_msg:
             total_length += len(self.tweet_msg.text)
         if self.link:
-            total_length += 1 + len(self.link.url)
+            total_length += 1 + 22
         if self.tweet_img:
             total_length += 23
         if self.page_announced:
@@ -859,7 +859,7 @@ class PageLinkHashtag(models.Model):
 
 class PageLink(models.Model):
     page_title = models.CharField(max_length=150, null=True, blank=True)
-    page_link = models.URLField(null=False)
+    page_link = models.URLField(null=False, blank=False)
     project = models.ForeignKey(Project, null=False, blank=False)
     is_active = models.BooleanField(default=True)
     hashtag = models.ForeignKey(PageLinkHashtag, null=True, blank=True, related_name="page_links")
@@ -868,13 +868,12 @@ class PageLink(models.Model):
         return self.page_title
 
     def page_link_length(self):
-        page_link_length = len(self.page_link)
+        page_link_length = 22
         if self.page_title:
             page_link_length += 1 + len(self.page_title)
         if self.hashtag:
             page_link_length += 1 + len(self.hashtag.name)
         return page_link_length
-
 
 
 class ProxiesGroup(models.Model):

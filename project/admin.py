@@ -38,22 +38,84 @@ class TargetUserAdmin(admin.ModelAdmin):
 # PROJECT ADMIN
 
 # tabular inlines
+class PageLinkInlineFormset(forms.models.BaseInlineFormSet):
+    def clean(self):
+        if self.forms:
+            project = self.instance
+            if project.pk:
+                for group in project.proxies_groups.all():
+                    tweet_length = 0
+                    error_msg = 'The group: ' + group.name + ' can\'t create tweet composed by'
+                    if group.has_page_announced:
+                        for form in self.forms:
+                            if form.cleaned_data:
+                                if form.cleaned_data['DELETE']:
+                                    form.instance.page_title = ''
+                                    form.instance.hastag = None
+                        longest_page_link = max(self.forms, key = lambda p: p.instance.page_link_length()).instance
+                        tweet_length += longest_page_link.page_link_length()
+                        error_msg += ' page_announced: ' + longest_page_link.page_title + ','
+                    if group.has_mentions:
+                        mentions_length = 17 * group.max_num_mentions_per_tweet
+                        tweet_length += mentions_length
+                        error_msg += ' ' + str(group.max_num_mentions_per_tweet) + ' mentions,'
+                    if group.has_tweet_img:
+                        if project.tweet_imgs:
+                            img_length = 23
+                            tweet_length += img_length
+                            error_msg += " and image"
+                    if tweet_length > 140:
+                        error_msg += ' because is too long (' + str(tweet_length) + ')'
+                        raise ValidationError(error_msg)
+        super(PageLinkInlineFormset, self).clean()
+
+class PageLinkAdmin(admin.ModelAdmin):
+    list_display = (
+        'page_link',
+        'page_title',
+        'project',
+        'is_active',
+        'hastag',
+    )
+
+    list_filter = (
+        'project',
+    )
+
+
 class TweetMsgInlineFormset(forms.models.BaseInlineFormSet):
     def clean(self):
         if self.forms:
-            longest_msg = max(self.forms, key = lambda p: len(p.instance.text) and p.cleaned_data['DELETE'] == False).instance
-        # delete_checked = False
-        #
-        # for form in self.forms:
-        #     try:
-        #         if form.cleaned_data:
-        #             if form.cleaned_data['DELETE']:
-        #                 delete_checked = True
-        #
-        #     except AttributeError:
-        #         pass
-        #
-        # if delete_checked:
+            project = self.instance
+            if project.pk:
+                for group in project.proxies_groups.all():
+                    tweet_length = 0
+                    error_msg = 'The group: ' + group.name + ' can\'t create tweet composed by'
+                    if group.has_tweet_msg:
+                        for form in self.forms:
+                            if form.cleaned_data:
+                                if form.cleaned_data['DELETE']:
+                                    form.instance.text = ''
+                        longest_msg = max(self.forms, key = lambda p: len(p.instance.text)).instance
+                        tweet_length += len(longest_msg.text)
+                        error_msg += " tweet_msg: " + longest_msg.text + ','
+                    if group.has_link:
+                        if project.links.all():
+                            longest_link = 22
+                            tweet_length += longest_link + 1
+                            error_msg += " link: igoo.co/x " + ','
+                    if group.has_mentions:
+                        mentions_length = 17 * group.max_num_mentions_per_tweet
+                        tweet_length += mentions_length
+                        error_msg += ' ' + str(group.max_num_mentions_per_tweet) + ' mentions,'
+                    if group.has_tweet_img:
+                        if project.tweet_imgs:
+                            img_length = 23
+                            tweet_length += img_length
+                            error_msg += " and image"
+                    if tweet_length > 140:
+                        error_msg += ' because is too long (' + str(tweet_length) + ')'
+                        raise ValidationError(error_msg)
         super(TweetMsgInlineFormset, self).clean()
 
 class TweetMsgAdmin(admin.ModelAdmin):
@@ -71,7 +133,6 @@ class TweetMsgAdmin(admin.ModelAdmin):
 class ProjectAdminForm(forms.ModelForm):
     class Meta:
         model = Project
-
     def clean(self):
         project = self.instance
         if project.pk:
@@ -85,9 +146,9 @@ class ProjectAdminForm(forms.ModelForm):
                         error_msg += " tweet_msg: " + longest_msg.text + ','
                 if group.has_link:
                     if project.links.all():
-                        longest_link = max(project.links.all(), key = lambda  q: len(q.url))
-                        tweet_length += len(longest_link.url) + 1
-                        error_msg += " link: " + longest_link.url + ','
+                        longest_link = 22
+                        tweet_length += longest_link + 1
+                        error_msg += " link: igoo.co/x " + ','
                 if group.has_page_announced:
                     if project.pagelink_set.all():
                         longest_page = max(project.pagelink_set.all(), key = lambda r: r.page_link_length())
@@ -125,6 +186,7 @@ class ProjectTweetImgInline(admin.TabularInline):
 
 class ProjectPageLinkInline(admin.TabularInline):
     model = PageLink
+    formset = PageLinkInlineFormset
 
 class ProjectAdmin(admin.ModelAdmin):
     list_display = (
@@ -248,20 +310,6 @@ class ExtractorAdmin(admin.ModelAdmin):
 
 class SubLinkInline(admin.TabularInline):
     model = Sublink
-
-
-class PageLinkAdmin(admin.ModelAdmin):
-    list_display = (
-        'page_title',
-        'page_link',
-        'project',
-        'is_active',
-        'hastag',
-    )
-
-    list_filter = (
-        'project',
-    )
 
 
 class LinkAdmin(admin.ModelAdmin):
