@@ -147,6 +147,7 @@ class TwitterBot(models.Model):
         """
             Al bot se le asigna un proxy disponible según tenga cuentas ya creadas o no
         """
+        from project.models import Project
 
         def assign_proxy_for_registration():
             """
@@ -161,7 +162,8 @@ class TwitterBot(models.Model):
                     if proxies_running.exists():
                         self.proxy_for_registration = proxies_running.order_by('?')[0]
                     else:
-                        settings.LOGGER.warning('There is no more proxies assignable for registration on running projects')
+                        settings.LOGGER.warning('No proxies assignable for registration on %d running projects' %
+                                                Project.objects.running().count())
                         self.proxy_for_registration = available_proxies_for_reg.order_by('?')[0]
                 else:
                     self.proxy_for_registration = available_proxies_for_reg.order_by('?')[0]
@@ -539,3 +541,12 @@ class Proxy(models.Model):
 
     def get_dead_bots(self):
         return self.twitter_bots_using.filter(is_dead=True).distinct()
+
+    def get_ip(self):
+        return self.proxy.split(':')[0]
+
+    def get_port(self):
+        return self.proxy.split(':')[1]
+
+    def get_subnet_24(self):
+        return '.'.join(self.get_ip().split('.')[:3])

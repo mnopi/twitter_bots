@@ -204,7 +204,9 @@ class ProxyQuerySet(MyQuerySet):
                 is_in_proxies_txts=True,
                 is_unavailable_for_registration=False,  # registro de email
                 is_unavailable_for_use=False,
-            )
+            )\
+            .with_enough_time_ago_for_last_registration_under_subnets_24()
+
         if not settings.REUSE_PROXIES_REQUIRING_PHONE_VERIFICATION:
             proxies_base = proxies_base.filter(is_phone_required=False)
 
@@ -217,7 +219,7 @@ class ProxyQuerySet(MyQuerySet):
         # de los proxies con bots cogemos los que cumplan todas estas características:
         #   - que no tengan ningún robot muerto
         #   - que tengan asignado una cantidad de bots inferior al límite para el registro
-        #   - que el bot más recientemente creado sea igual o más antiguo que la fecha de ahora menos los días dados
+        #   - que el bot más recientemente creado bajo su subnet /24 sea igual o más antiguo que la fecha de ahora menos los días dados
         proxies_with_bots = proxies_base\
             .filter_suspended_bots()\
             .with_enough_space_for_registration()\
@@ -325,6 +327,40 @@ class ProxyQuerySet(MyQuerySet):
             else:
                 # si el proxy no tiene bots, obviamente es válido
                 proxies_with_enought_time_ago_pks.append(proxy.pk)
+
+        return self.filter(pk__in=proxies_with_enought_time_ago_pks)
+
+    def with_subnet_24(self, subnet_24):
+        return self.filter(proxy__startswith=subnet_24)
+
+    def with_enough_time_ago_for_last_registration_under_subnets_24(self):
+        """Saca los proxies de cada subnet /24 donde el último registro se realizó hace el tiempo
+        suficiente para registrar bots en nuevos proxies bajo esa misma subnet.
+
+        Por ejemplo, si tenemos 40 proxies bajo la subnet s1 y el último bot de ahí
+        se registró hace 5 minutos, entonces no escogeremos ningún proxy de esa subnet
+        """
+        from core.models import Proxy, TwitterBot
+
+        proxies_with_enought_time_ago_pks = []
+
+        subnets = Proxy.objects.get_subnets_24(self)
+        for subnet in subnets:
+            proxies_in_subnet = self.with_subnet_24(subnet)
+            bots_registered_in_subnet = TwitterBot.objects.filter(proxy_for_registration__in=proxies_in_subnet)
+            if bots_registered_in_subnet:
+                # si la subnet tiene algún proxy con bot registrado, comprobamos que la última
+                # fecha de registro tenga la antiguedad mínima necesaria
+                last_bot_registered = bots_registered_in_subnet.latest('date')
+                last_bot_is_old_enough = is_lte_than_days_ago(
+                    last_bot_registered.date,
+                    last_bot_registered.get_group().min_days_between_registrations_per_proxy_under_same_subnet
+                )
+                if last_bot_is_old_enough:
+                    proxies_with_enought_time_ago_pks.extend(proxies_in_subnet.values_list('pk', flat=True))
+            else:
+                # si la subnet no tiene ningún proxy que tenga un bot registrado, entonces agregamos todos sus proxies
+                proxies_with_enought_time_ago_pks.extend(proxies_in_subnet.values_list('pk', flat=True))
 
         return self.filter(pk__in=proxies_with_enought_time_ago_pks)
 

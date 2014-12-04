@@ -168,6 +168,7 @@ class HotmailScrapper(Scrapper):
 
         try:
             self.go_to(settings.URLS['hotmail_login'])
+            self.wait_to_page_readystate()
             if self.check_visibility('#idDiv_PWD_UsernameTb'):
                 self.fill_input_text('#idDiv_PWD_UsernameTb input', self.user.email)
                 self.fill_input_text('#idDiv_PWD_PasswordTb input', self.user.password_email)
@@ -177,6 +178,7 @@ class HotmailScrapper(Scrapper):
             self._quit_inbox_shit()
             self.check_account_suspended()
             self.logger.info('Logged in hotmail ok')
+            self.wait_to_page_readystate()
         except Exception as ex:
             self.logger.exception('Error login into hotmail')
             raise ex
@@ -199,25 +201,27 @@ class HotmailScrapper(Scrapper):
         if not self.check_visibility('#pageInbox'):
             self.take_screenshot('not_really_on_inbox_page')
             raise Exception('%s is not really on inbox page after login' % self.user.email)
-
-        twitter_email_title = get_element(lambda: self.browser.find_element_by_partial_link_text('Twitter account'))
-        if twitter_email_title:
-            self.click(twitter_email_title)
-            self.wait_to_page_readystate()
-            confirm_btn = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm'))
-            self.click(confirm_btn)
-            self.delay.seconds(3)
-            self.switch_to_window(-1)
-            self.wait_to_page_readystate()
-            self.delay.seconds(3)
-
-            # por si nos pide meter usuario y contraseña
-            if not self.check_visibility('#global-new-tweet-button'):
-                self.send_keys(self.user.username)
-                self.send_special_key(Keys.TAB)
-                self.send_keys(self.user.password_twitter)
-                self.send_special_key(Keys.ENTER)
-                self.delay.seconds(7)
         else:
-            self.logger.warning('No twitter email arrived, resending twitter email..')
-            raise TwitterEmailNotFound()
+            self.take_screenshot('on_inbox_page')
+
+            twitter_email_title = get_element(lambda: self.browser.find_element_by_partial_link_text('Twitter account'))
+            if twitter_email_title:
+                self.click(twitter_email_title)
+                self.wait_to_page_readystate()
+                confirm_btn = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm'))
+                self.click(confirm_btn)
+                self.delay.seconds(3)
+                self.switch_to_window(-1)
+                self.wait_to_page_readystate()
+                self.delay.seconds(3)
+
+                # por si nos pide meter usuario y contraseña
+                if not self.check_visibility('#global-new-tweet-button'):
+                    self.send_keys(self.user.username)
+                    self.send_special_key(Keys.TAB)
+                    self.send_keys(self.user.password_twitter)
+                    self.send_special_key(Keys.ENTER)
+                    self.delay.seconds(7)
+            else:
+                self.logger.warning('No twitter email arrived, resending twitter email..')
+                raise TwitterEmailNotFound()

@@ -73,7 +73,7 @@ class TwitterScrapper(Scrapper):
             self.fill_input_text('#username', self.user.username)
             check_username()
 
-            self.click('input[name="submit_button"]')
+            self.try_to_click('input[name="submit_button"]', 'input#submit_button')
             self.delay.seconds(10)
 
             # le damos al botón 'next' que sale en la bienvenida

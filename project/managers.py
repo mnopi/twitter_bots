@@ -188,12 +188,20 @@ class ExtractorManager(MyManager):
 
 
 class ProxiesGroupManager(MyManager):
-    def log_groups_with_creation_disabled(self):
+    def log_groups(self, groups, with_field):
+        if groups.exists():
+            groups_str = ', '.join([group.name for group in groups])
+            settings.LOGGER.info('%d groups with %s: %s' %
+                                    (groups.count(), with_field, groups_str))
+        else:
+            settings.LOGGER.info('No groups with %s' % with_field)
+
+    def log_groups_with_creation_enabled_disabled(self):
+        groups_with_creation_enabled = self.filter(is_bot_creation_enabled=True)
+        self.log_groups(groups_with_creation_enabled, 'bot creation enabled')
+
         groups_with_creation_disabled = self.filter(is_bot_creation_enabled=False)
-        if groups_with_creation_disabled.exists():
-            groups_str = ', '.join([group.name for group in groups_with_creation_disabled])
-            settings.LOGGER.warning('There are %d groups that have bot creation disabled: %s' %
-                                    (groups_with_creation_disabled.count(), groups_str))
+        self.log_groups(groups_with_creation_disabled, 'bot creation disabled')
 
     def log_groups_with_usage_disabled(self):
         groups_with_usage_disabled = self.filter(is_bot_usage_enabled=False)

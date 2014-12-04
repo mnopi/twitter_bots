@@ -334,6 +334,7 @@ class Tweet(models.Model):
 
     def has_image(self):
         return self.tweet_img != None
+    has_image.boolean = True
 
     def is_available(self):
         return not self.sending and not self.sent_ok
@@ -883,6 +884,7 @@ class ProxiesGroup(models.Model):
     is_bot_creation_enabled = models.BooleanField(default=False)
     max_tw_bots_per_proxy_for_registration = models.PositiveIntegerField(null=False, blank=False, default=6)
     min_days_between_registrations_per_proxy = models.PositiveIntegerField(null=False, blank=False, default=5)
+    min_days_between_registrations_per_proxy_under_same_subnet = models.PositiveIntegerField(null=False, blank=False, default=5)
 
     # indica si vamos a reutilizar proxies con bots chungos (por ejemplo para grupos de prueba etc)
     reuse_proxies_with_suspended_bots = models.BooleanField(default=False)

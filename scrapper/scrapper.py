@@ -500,6 +500,12 @@ class Scrapper(object):
         self.take_screenshot(msg)
         self.logger.debug(msg)
 
+    def try_to_click(self, *css_elements):
+        for el in css_elements:
+            if self.check_visibility(el):
+                self.click(el)
+                break
+
     def _quit_focus_from_address_bar(self):
         self.send_special_key(Keys.TAB)
         self.delay.key_stroke()

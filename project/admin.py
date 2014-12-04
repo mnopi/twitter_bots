@@ -243,14 +243,20 @@ class TweetAdmin(admin.ModelAdmin):
 
     search_fields = (
         'bot_used__username',
-        'compose',
+        'bot_used__proxy_for_usage__proxy',
+        'tweet_msg__text',
+        'link__url',
+        'page_announced__page_title',
+        'page_announced__page_link',
+        'mentioned_users__username',
     )
+
     list_filter = (
         'sending',
         'sent_ok',
         'date_created',
         'date_sent',
-       # 'link__platform'
+        'project',
     )
     # ordering = ('-date',)
     # list_display_links = ('username',)

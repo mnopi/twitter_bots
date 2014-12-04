@@ -163,7 +163,7 @@ class TwitterBotManager(models.Manager):
         else:
             settings.LOGGER.info('There is no more pendant bots to complete. Sleeping %d seconds for respawn..' %
                                  settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
-            ProxiesGroup.objects.log_groups_with_creation_disabled()
+            ProxiesGroup.objects.log_groups_with_creation_enabled_disabled()
             time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
 
     #
@@ -288,6 +288,10 @@ class ProxyManager(MyManager):
         valid_proxies = self.valid_for_assign_proxies_group()
         if valid_proxies.exists():
             settings.LOGGER.warning('There are %d proxies available for group assignation' % valid_proxies.count())
+
+    def get_subnets_24(self, proxies):
+        """Devuelve las subredes /24 a las que pertenecen los proxies pasados por parámetro"""
+        return list(set([proxy.get_subnet_24() for proxy in proxies.all()]))
 
     #
     # PROXY QUERYSET

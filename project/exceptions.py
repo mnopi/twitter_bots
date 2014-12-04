@@ -53,7 +53,7 @@ class NoMoreAvailableProxiesForRegistration(Exception):
 
         settings.LOGGER.error('No available proxies for creating new bots. Sleeping %d seconds..' %
                               settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATOR)
-        ProxiesGroup.objects.log_groups_with_creation_disabled()
+        ProxiesGroup.objects.log_groups_with_creation_enabled_disabled()
         Proxy.objects.log_proxies_valid_for_assign_group()
         time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATOR)
 
