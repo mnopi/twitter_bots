@@ -74,10 +74,18 @@ class TwitterBotManager(models.Manager):
 
         proxies = Proxy.objects.available_for_registration()
         if proxies.exists():
-            settings.LOGGER.info('Found %i available proxies to create bots' % proxies.count())
+            subnets_24_count = len(Proxy.objects.get_subnets_24(proxies))
+
+            if num_bots and num_bots > subnets_24_count:
+                settings.LOGGER.warning('The num_bots specified to create is higher than total /24 available subnets')
+                num_bots = subnets_24_count
+            else:
+                num_bots = num_bots or subnets_24_count
+
+            settings.LOGGER.info('There is %i available /24 subnets to create bots' % subnets_24_count)
 
             pool = ThreadPool(settings.MAX_THREADS_CREATING_BOTS)
-            num_bots = num_bots or proxies.count()
+            settings.LOGGER.info('Creating %d twitter bots..' % num_bots)
             for task_num in range(num_bots):
                 settings.LOGGER.info('Adding task %i' % task_num)
                 pool.add_task(self.create_bot)

@@ -196,16 +196,17 @@ class ProxyQuerySet(MyQuerySet):
         Devuelve proxies disponibles para crear un bot
         """
 
-        # base de proxies aptos para el registro. Quitamos los que tengan bots suspendidos o muertos
+        # base de proxies aptos para el registro. Quitamos los que tengan bots suspendidos o muertos.
+        # Primero colocamos el filtro de la subnet /24 por si se cambiaron los proxies recientemente
         proxies_base = self\
-            .with_proxies_group_assigned()\
-            .with_proxies_group_enabling_bot_creation()\
+            .with_enough_time_ago_for_last_registration_under_subnets_24()\
             .filter(
                 is_in_proxies_txts=True,
                 is_unavailable_for_registration=False,  # registro de email
                 is_unavailable_for_use=False,
             )\
-            .with_enough_time_ago_for_last_registration_under_subnets_24()
+            .with_proxies_group_assigned()\
+            .with_proxies_group_enabling_bot_creation()
 
         if not settings.REUSE_PROXIES_REQUIRING_PHONE_VERIFICATION:
             proxies_base = proxies_base.filter(is_phone_required=False)
