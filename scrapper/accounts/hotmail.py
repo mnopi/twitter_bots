@@ -199,7 +199,7 @@ class HotmailScrapper(Scrapper):
 
         # vemos si realmente estamos en la bandeja de entrada
         if not self.check_visibility('#pageInbox'):
-            self.take_screenshot('not_really_on_inbox_page')
+            self.take_screenshot('not_really_on_inbox_page', force_take=True)
             raise Exception('%s is not really on inbox page after login' % self.user.email)
         else:
             self.take_screenshot('on_inbox_page')
