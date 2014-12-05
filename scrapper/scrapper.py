@@ -121,16 +121,7 @@ class Scrapper(object):
         #
         # seteamos el correspondiente proxy en el caso de usar proxy
         if settings.USE_PROXY:
-            if self.user.proxy_for_usage:
-                # si ya estaba usando un proxy comprobamos si el proxy aún sigue en los txts, si no se le asigna uno de los nuevos SIEMPRE QUE
-                # el bot no haya sido suspendido
-                if not self.user.proxy_for_usage.is_in_proxies_txts:
-                    self.logger.info('Proxy %s is no longer on txts. Trying to assign new one..' %
-                                     self.user.proxy_for_usage.__unicode__())
-                    self.user.assign_proxy()
-            else:
-                # si no tiene proxy se le asigna uno
-                self.user.assign_proxy()
+            self.user.check_proxy_ok()
 
             proxy_ip = self.user.proxy_for_usage.proxy.split(':')[0]
             proxy_port = int(self.user.proxy_for_usage.proxy.split(':')[1])

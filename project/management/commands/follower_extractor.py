@@ -16,7 +16,7 @@ class Command(BaseCommand):
 
         try:
             Extractor.objects.extract_followers()
-        except Exception:
-            raise FatalError()
+        except Exception as e:
+            raise FatalError(e)
 
         settings.LOGGER.info('-- FINISHED %s --' % MODULE_NAME)

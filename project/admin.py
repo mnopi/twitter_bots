@@ -1,3 +1,4 @@
+import datetime
 from django import forms
 from django.contrib import admin
 from django.core.exceptions import ValidationError
@@ -11,9 +12,25 @@ class TargetUserAdmin(admin.ModelAdmin):
         'is_active',
         'next_cursor',
         'followers_count',
-        'followers_android',
-        'followers_saved',
+        'followers_saved_today',
+        'followers_saved_total',
+        'followers_mentioned_today',
+        'followers_mentioned_total',
     )
+
+    def followers_saved_today(self, obj):
+        return obj.followers.filter(date_saved__startswith=datetime.date.today()).count()
+
+    def followers_saved_total(self, obj):
+        return obj.followers.count()
+
+    def followers_mentioned_today(self, obj):
+        return obj.get_followers_mentioned()\
+            .filter(twitter_user__mentions__date_sent__startswith=datetime.date.today()).count()
+
+    def followers_mentioned_total(self, obj):
+        return obj.get_followers_mentioned().count()
+
     search_fields = ('username', 'next_cursor')
     list_display_links = ('username',)
 
@@ -192,7 +209,11 @@ class ProjectAdmin(admin.ModelAdmin):
     list_display = (
         'name',
         'is_running',
+        'tweets_sent',
     )
+
+    def tweets_sent(self, obj):
+        return obj.get_tweets_sent().count()
 
     list_editable = (
         'is_running',

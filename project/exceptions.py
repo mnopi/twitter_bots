@@ -82,8 +82,8 @@ class SuspendedBotHasNoProxiesForUsage(Exception):
 
 
 class FatalError(Exception):
-    def __init__(self):
-        settings.LOGGER.error('FATAL ERROR')
+    def __init__(self, e):
+        settings.LOGGER.exception('FATAL ERROR')
         time.sleep(10)
 
 

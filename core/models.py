@@ -209,6 +209,15 @@ class TwitterBot(models.Model):
         else:
             raise Exception(INVALID_EMAIL_DOMAIN_MSG)
 
+    def finish_creation(self):
+        """Hace lo mismo que complete_creation, solo que si falla se duerme un rato"""
+        try:
+            self.complete_creation()
+        except:
+            settings.LOGGER.info('Sleeping %d seconds..' %
+                                 settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
+            time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
+
     def complete_creation(self):
         if self.has_to_complete_creation():
             t1 = utc_now()
@@ -502,6 +511,24 @@ class TwitterBot(models.Model):
     def was_suspended(self):
         return self.is_suspended or self.num_suspensions_lifted > 0
 
+    def proxy_is_ok(self):
+        if not self.proxy_for_usage:
+            settings.LOGGER.warning('Trying to assign proxy for bot %s' % self.__unicode__())
+            return False
+        elif not self.proxy_for_usage.is_in_proxies_txts:
+            settings.LOGGER.warning('Proxy %s is no longer on txts. Trying to assign new one..' %
+                                    self.proxy_for_usage.__unicode__())
+            return False
+        elif self.proxy_for_usage.is_unavailable_for_use:
+            settings.LOGGER.warning('Proxy %s is unavailable for use. Trying to assign new one..' %
+                                    self.proxy_for_usage.__unicode__())
+            return False
+        else:
+            return True
+
+    def check_proxy_ok(self):
+        if not self.proxy_is_ok():
+            self.assign_proxy()
 
 class Proxy(models.Model):
     proxy = models.CharField(max_length=21, null=False, blank=True)

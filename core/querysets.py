@@ -159,17 +159,19 @@ class ProxyQuerySet(MyQuerySet):
         Q(twitter_bots_using__num_suspensions_lifted__gt=0)
     )
 
+    def connection_ok(self):
+        """Saca proxies a los que se puede conectar"""
+        self.filter(is_in_proxies_txts=True, is_unavailable_for_use=False,)
+
     def available_for_usage(self):
         """Devuelve proxies disponibles para iniciar sesión con bot y tuitear etc"""
 
         # base de proxies aptos usar robots ya registrados
         proxies_base = self\
+            .connection_ok()\
             .with_proxies_group_assigned()\
-            .with_proxies_group_enabling_bot_usage()\
-            .filter(
-                is_in_proxies_txts=True,
-                is_unavailable_for_use=False,
-            )
+            .with_proxies_group_enabling_bot_usage()
+
         if not settings.REUSE_PROXIES_REQUIRING_PHONE_VERIFICATION:
             proxies_base = proxies_base.filter(is_phone_required=False)
 
@@ -196,15 +198,18 @@ class ProxyQuerySet(MyQuerySet):
         Devuelve proxies disponibles para crear un bot
         """
 
-        # base de proxies aptos para el registro. Quitamos los que tengan bots suspendidos o muertos.
-        # Primero colocamos el filtro de la subnet /24 por si se cambiaron los proxies recientemente
+        # Base de proxies aptos para el registro. Colocamos filtros en el siguiente orden:
+        #   1.  De subnets /24 disponibles para hacer registros. Lo colocamos primero por si se
+        #       cambiaron los proxies recientemente y habían de la misma subnet.
+        #   2.  Que tengan conectividad ok
+        #   3.  Que permitan el registro de cuentas hotmail/outlook (is_unavailable_for_registration)
+        #   4.  Que tengan asignado un grupo de proxies
+        #   5.  Que su grupo tenga permitida la creación de nuevos bots
+        #
         proxies_base = self\
             .with_enough_time_ago_for_last_registration_under_subnets_24()\
-            .filter(
-                is_in_proxies_txts=True,
-                is_unavailable_for_registration=False,  # registro de email
-                is_unavailable_for_use=False,
-            )\
+            .connection_ok()\
+            .filter(is_unavailable_for_registration=False,)\
             .with_proxies_group_assigned()\
             .with_proxies_group_enabling_bot_creation()
 
@@ -218,9 +223,9 @@ class ProxyQuerySet(MyQuerySet):
         available_proxies_for_reg_ids.extend([result['id'] for result in proxies_without_bots.values('id')])
 
         # de los proxies con bots cogemos los que cumplan todas estas características:
-        #   - que no tengan ningún robot muerto
+        #   - que no tengan ningún robot muerto o suspendido
         #   - que tengan asignado una cantidad de bots inferior al límite para el registro
-        #   - que el bot más recientemente creado bajo su subnet /24 sea igual o más antiguo que la fecha de ahora menos los días dados
+        #   - que su ip tenga un robot registrado como mínimo hace x días (configurado en su grupo)
         proxies_with_bots = proxies_base\
             .filter_suspended_bots()\
             .with_enough_space_for_registration()\
