@@ -151,6 +151,7 @@ class Scrapper(object):
             if not self.browser:
                 self.logger.warning('%s instance was not opened browser' % self.user.get_webdriver())
             else:
+                self.logger.error('Error closing %s browser instance' % self.user.get_webdriver())
                 raise ex
 
     def open_url_in_new_tab(self, url):
