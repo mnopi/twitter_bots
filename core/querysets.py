@@ -161,7 +161,7 @@ class ProxyQuerySet(MyQuerySet):
 
     def connection_ok(self):
         """Saca proxies a los que se puede conectar"""
-        self.filter(is_in_proxies_txts=True, is_unavailable_for_use=False,)
+        return self.filter(is_in_proxies_txts=True, is_unavailable_for_use=False,)
 
     def available_for_usage(self):
         """Devuelve proxies disponibles para iniciar sesión con bot y tuitear etc"""

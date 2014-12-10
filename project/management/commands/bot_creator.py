@@ -24,7 +24,7 @@ class Command(BaseCommand):
                     TwitterBot.objects.create_bots(num_bots=int(args[0]))
                 else:
                     TwitterBot.objects.create_bots()
-        except Exception:
-            raise FatalError()
+        except Exception as e:
+            raise FatalError(e)
 
         settings.LOGGER.info('-- FINISHED BOT CREATOR --')
