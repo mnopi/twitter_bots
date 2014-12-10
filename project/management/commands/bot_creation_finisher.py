@@ -7,6 +7,8 @@ set_logger(__name__)
 
 from django.core.management.base import BaseCommand
 
+settings.TAKE_SCREENSHOTS = True
+
 class Command(BaseCommand):
     help = 'Finish pendant tasks to finish bot creation'
 
@@ -15,7 +17,7 @@ class Command(BaseCommand):
 
         try:
             TwitterBot.objects.finish_creations()
-        except Exception:
-            raise FatalError()
+        except Exception as e:
+            raise FatalError(e)
 
         settings.LOGGER.info('-- FINISHED BOT CREATION FINISHER --')
