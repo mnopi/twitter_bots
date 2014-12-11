@@ -83,13 +83,16 @@ class TwitterBot(models.Model):
         return settings.REGISTER_EMAIL and not self.email_registered_ok
 
     def has_to_register_twitter(self):
-        return not self.twitter_registered_ok
+        return not self.has_to_register_email() and not self.twitter_registered_ok
+
+    def has_to_register_accounts(self):
+        return not self.email_registered_ok and not self.twitter_registered_ok
 
     def has_to_confirm_tw_email(self):
-        return not self.twitter_confirmed_email_ok
+        return not self.has_to_register_twitter() and not self.twitter_confirmed_email_ok
 
     def has_to_complete_tw_profile(self):
-        return not self.has_tw_profile_completed()
+        return not self.has_to_confirm_tw_email() and not self.has_tw_profile_completed()
 
     def has_to_set_tw_avatar(self):
         return not self.twitter_avatar_completed and settings.TW_SET_AVATAR
@@ -196,7 +199,7 @@ class TwitterBot(models.Model):
                 else:
                     raise BotHasNoProxiesForUsage(self)
 
-        if self.has_to_register_twitter():
+        if self.has_to_register_accounts():
             assign_proxy_for_registration()
         else:
             assign_new_proxy_for_usage()
@@ -208,15 +211,6 @@ class TwitterBot(models.Model):
             return HotmailScrapper(self)
         else:
             raise Exception(INVALID_EMAIL_DOMAIN_MSG)
-
-    def finish_creation(self):
-        """Hace lo mismo que complete_creation, solo que si falla se duerme un rato"""
-        try:
-            self.complete_creation()
-        except:
-            settings.LOGGER.info('Sleeping %d seconds..' %
-                                 settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
-            time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
 
     def complete_creation(self):
         if self.has_to_complete_creation():
@@ -285,7 +279,7 @@ class TwitterBot(models.Model):
                         raise ex
 
                 # 4_profile_completion
-                if not self.has_to_confirm_tw_email() and self.has_to_complete_tw_profile():
+                if self.has_to_complete_tw_profile():
                     self.twitter_scr.set_screenshots_dir('4_tw_profile_completion')
                     self.twitter_scr.set_profile()
 

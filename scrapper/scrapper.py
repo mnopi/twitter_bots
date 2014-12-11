@@ -723,6 +723,9 @@ class Scrapper(object):
         self.send_special_key(Keys.ARROW_DOWN)
         self.send_special_key(Keys.ENTER)
 
+    def dump_page_source(self):
+        with open(os.path.join(settings.BASE_DIR, 'scrapper', 'page_source.html'), 'w') as f:
+            f.write(self.browser.page_source.encode('utf-8'))
 
 class ScrapperLogger(object):
         def __init__(self, scrapper):

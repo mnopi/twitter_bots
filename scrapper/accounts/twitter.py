@@ -231,7 +231,7 @@ class TwitterScrapper(Scrapper):
 
         def set_bio():
             try:
-                self.logger.info('Setting bio for %s' % self.user.username)
+                self.logger.info('Setting twitter bio..')
                 self.fill_input_text('#user_description', self.get_quote())
                 return True
             except Exception:

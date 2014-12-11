@@ -4,6 +4,7 @@ from twitter_bots import settings
 from twitter_bots.settings import set_logger
 
 set_logger(__name__)
+settings.TAKE_SCREENSHOTS = True
 
 from django.core.management.base import BaseCommand
 

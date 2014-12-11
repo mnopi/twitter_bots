@@ -195,6 +195,18 @@ class HotmailScrapper(Scrapper):
             self.click('#notificationContainer button')
 
     def confirm_tw_email(self):
+
+        def skip_confirmation_shit():
+            if self.check_visibility('#idDiv_PWD_PasswordExample'):
+                self.fill_input_text('#idDiv_PWD_PasswordExample', self.user.password_email)
+                self.click('#idSIButton9')
+                self.wait_to_page_readystate()
+                self.click('#idBtn_SAOTCS_Cancel')
+                self.wait_to_page_readystate()
+            elif self.check_visibility('#idBtn_SAOTCS_Cancel'):
+                self.click('#idBtn_SAOTCS_Cancel')
+                self.wait_to_page_readystate()
+
         self.login()
 
         # vemos si realmente estamos en la bandeja de entrada
@@ -204,12 +216,37 @@ class HotmailScrapper(Scrapper):
         # else:
         self.take_screenshot('on_inbox_page')
 
-        twitter_email_title = get_element(lambda: self.browser.find_element_by_partial_link_text('Twitter account'))
-        if twitter_email_title:
+        self.try_to_click('#skipLink')
+
+        inbox_msgs_css = '.InboxTable ul.InboxTableBody li'
+        emails = self.get_css_elements(inbox_msgs_css)
+        if not emails:
+            skip_confirmation_shit()
+            emails = self.get_css_elements(inbox_msgs_css)
+
+        if len(emails) < 2:
+            self.logger.warning('No twitter email arrived, resending twitter email..')
+            raise TwitterEmailNotFound()
+        else:
+            #twitter_email_title = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm'))
+            try:
+                twitter_email_title = emails[0].find_element_by_css_selector('.Sb')
+            except:
+                skip_confirmation_shit()
+                emails = self.get_css_elements(inbox_msgs_css)
+                twitter_email_title = emails[0].find_element_by_css_selector('.Sb')
+
             self.click(twitter_email_title)
             self.wait_to_page_readystate()
-            confirm_btn = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm'))
-            self.click(confirm_btn)
+            skip_confirmation_shit()
+
+            confirm_btn_btn_el_css_path = '.button > table:nth-child(1) > tbody:nth-child(1) > tr:nth-child(1) > td:nth-child(2) > a:nth-child(1)'
+            if self.check_visibility(confirm_btn_btn_el_css_path):
+                self.click(confirm_btn_btn_el_css_path)
+            else:
+                confirm_btn = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm'))
+                self.click(confirm_btn)
+
             self.delay.seconds(3)
             self.switch_to_window(-1)
             self.wait_to_page_readystate()
@@ -222,6 +259,3 @@ class HotmailScrapper(Scrapper):
                 self.send_keys(self.user.password_twitter)
                 self.send_special_key(Keys.ENTER)
                 self.delay.seconds(7)
-        else:
-            self.logger.warning('No twitter email arrived, resending twitter email..')
-            raise TwitterEmailNotFound()

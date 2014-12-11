@@ -166,8 +166,12 @@ class TwitterBotManager(models.Manager):
         if bots_to_finish_creation.exists():
             pool = ThreadPool(settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
             for bot in bots_to_finish_creation:
-                pool.add_task(bot.finish_creation)
+                pool.add_task(bot.complete_creation)
             pool.wait_completion()
+
+            settings.LOGGER.info('Sleeping %d seconds to respawn bot_creation_finisher again..' %
+                                 settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
+            time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
         else:
             settings.LOGGER.info('There is no more pendant bots to complete. Sleeping %d seconds for respawn..' %
                                  settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
