@@ -21,6 +21,8 @@ class Project(models.Model):
     # RELATIONSHIPS
     target_users = models.ManyToManyField('TargetUser', related_name='projects', blank=True)
     hashtags = models.ManyToManyField('Hashtag', related_name='projects', blank=True)
+    tu_group = models.ManyToManyField('TUGroup', related_name='tu_group', null=True, blank=True)
+    hashtag_group = models.ManyToManyField('HashtagGroup', related_name='hashtag_group', null=True, blank=True)
 
     objects = ProjectManager()
 
@@ -825,6 +827,36 @@ class Hashtag(models.Model):
         return self.q
 
 
+class TUGroup(models.Model):
+    name = models.CharField(max_length=140, null=False, blank=False)
+    target_users = models.ManyToManyField(TargetUser, null=False, blank=False)
+    projects = models.ManyToManyField(Project, related_name='projects_tu_group', null=False, blank=False)
+
+    def __unicode__(self):
+        tu_group_string = ' -'
+        for tu in self.target_users.all():
+            tu_group_string += ' @' + tu.username
+        return self.name + tu_group_string
+
+
+class HashtagGroup(models.Model):
+    name = models.CharField(max_length=140, null=False, blank=False)
+    hashtags = models.ManyToManyField(Hashtag, null=False, blank=False)
+    projects = models.ManyToManyField(Project, related_name='projects_hashtag_group', null=False, blank=False)
+
+    def __unicode__(self):
+        hashtag_group_string = ' -'
+        for ht in self.hashtags.all():
+            hashtag_group_string += ' ' + ht.q
+        return self.name + hashtag_group_string
+
+# class TargetUser_TUGroup:
+#     target_user = models.ForeignKey(TargetUser, null=False, blank=False, related_name='target_user')
+#     tu_group = models.ForeignKey(TUGroup, null=False, blank=False, related_name='tu_group')
+#
+#     def __unicode__(self):
+#         return '%s %s' % (self.target_user.username, self.tu_group.name)
+
 class TwitterUserHasHashtag(models.Model):
     hashtag = models.ForeignKey(Hashtag, related_name='hashtag_users', null=False)
     twitter_user = models.ForeignKey(TwitterUser, related_name='hashtag_users', null=False)
@@ -862,17 +894,26 @@ class PageLink(models.Model):
     page_link = models.URLField(null=False, blank=False)
     project = models.ForeignKey(Project, null=False, blank=False)
     is_active = models.BooleanField(default=True)
-    hashtag = models.ForeignKey(PageLinkHashtag, null=True, blank=True, related_name="page_links")
+    hashtags = models.ManyToManyField(PageLinkHashtag, null=True, blank=True, related_name="page_links")
+    image = models.ForeignKey(TweetImg, null=True, blank=True, related_name="page_img")
+    language = models.CharField(max_length=2, null=True, blank=True)
 
     def __unicode__(self):
         return self.page_title
 
-    def page_link_length(self):
+    def page_link_length(self, p=None):
         page_link_length = 22
         if self.page_title:
             page_link_length += 1 + len(self.page_title)
-        if self.hashtag:
-            page_link_length += 1 + len(self.hashtag.name)
+        try:
+            if p.cleaned_data:
+                if p.cleaned_data['hashtags']:
+                    for hastag in p.cleaned_data['hashtags']:
+                        page_link_length += 1 + len(hastag.name)
+        except:
+            pass
+        if self.image:
+            page_link_length += 23
         return page_link_length
 
 

@@ -215,6 +215,7 @@ class TwitterUserManager(MyManager):
         :param limit: máximo de usuarios que queremos sacar en la consulta
         :return: queryset con los objetos twitteruser
         """
+
         return self.raw_as_qs("""
             SELECT total_project_users.id
             FROM
