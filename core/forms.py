@@ -1,7 +1,7 @@
 from django.contrib.auth.forms import UserChangeForm
 from django.forms import ModelForm
 from core.models import User, TwitterBot
-from scrapper.utils import *
+from core.scrapper.utils import *
 import random
 
 

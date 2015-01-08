@@ -21,6 +21,6 @@ class Command(BaseCommand):
             time.sleep(10)
         except Exception as e:
             if type(e) is not TwitteableBotsNotFound:
-                raise FatalError()
+                raise FatalError(e)
 
         settings.LOGGER.info('-- FINISHED %s --' % MODULE_NAME)

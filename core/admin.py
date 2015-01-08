@@ -7,10 +7,23 @@ from django.template import RequestContext
 from core.forms import MyUserChangeForm
 from core.models import User, TwitterBot, Proxy
 from project.models import ProxiesGroup
-from scrapper.scrapper import Scrapper
+from core.scrapper.scrapper import Scrapper
 from django.contrib import messages
-from scrapper.accounts.twitter import TwitterScrapper
+from core.scrapper.accounts.twitter import TwitterScrapper
 from twitter_bots import settings
+
+class YesNoFilter(admin.SimpleListFilter):
+    def lookups(self, request, model_admin):
+        return (
+            ('1', 'Yes',),
+            ('0', 'No',),
+        )
+
+    def yes(self):
+        return self.value() == '1'
+
+    def no(self):
+        return self.value() == '0'
 
 
 class MyUserAdmin(UserAdmin):
@@ -55,46 +68,40 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'proxy_for_usage__proxy_provider',
     )
 
-    class ValidBotListFilter(admin.SimpleListFilter):
-        title = 'Bot type'
-        parameter_name = 'bot_type'
-
-        def lookups(self, request, model_admin):
-            return (
-                ('completed', 'completed'),
-                ('uncompleted', 'uncompleted'),  # pendientes de finalizar los registros (confirmar email, levantar suspension, etc)
-                ('without_any_account_registered', 'without_any_account_registered'),
-            )
+    class BotCompletedFilter(YesNoFilter):
+        title = 'Is completed'
+        parameter_name = 'is_completed'
 
         def queryset(self, request, queryset):
-            if self.value() == 'uncompleted':
-                return queryset.uncompleted()
-            if self.value() == 'completed':
+            if self.yes():
                 return queryset.completed()
-            if self.value() == 'without_any_account_registered':
+            elif self.no():
+                return queryset.uncompleted()
+
+    class HasSomeAccountFilter(YesNoFilter):
+        title = 'Has some account'
+        parameter_name = 'has_some_account'
+
+        def queryset(self, request, queryset):
+            if self.yes():
+                return queryset.with_some_account_registered()
+            elif self.no():
                 return queryset.without_any_account_registered()
 
-    # todo: poder filtrar por proxy_provider tanto para proxies de registro como de uso
-    # class ProxyProviderListFilter(admin.SimpleListFilter):
-    #     title = 'Proxy provider'
-    #     parameter_name = 'proxy_provider'
-    #
-    #     def lookups(self, request, model_admin):
-    #         return ((provider, provider) for provider in Proxy.objects.get_providers())
-    #
-    #     def queryset(self, request, queryset):
-    #         provider_name = self.value()
-    #         return queryset.
-    #         for provider_name in Proxy.objects.get_providers():
-    #             if self.value() == provider_name:
-    #                 return queryset.uncompleted()
-    #         if self.value() == 'completed':
-    #             return queryset.completed()
-    #         if self.value() == 'unregistered':
-    #             return queryset.unregistered()
+    class HasProxyWorkingFilter(YesNoFilter):
+        title = 'Has proxy working'
+        parameter_name = 'has_proxy_working'
+
+        def queryset(self, request, queryset):
+            if self.yes():
+                return queryset.with_valid_proxy_for_usage()
+            elif self.no():
+                return queryset.with_invalid_proxy_for_usage()
 
     list_filter = (
-        ValidBotListFilter,
+        BotCompletedFilter,
+        HasSomeAccountFilter,
+        HasProxyWorkingFilter,
         'proxy_for_usage__proxies_group__webdriver',
         'proxy_for_usage__proxies_group',
         'proxy_for_usage__is_in_proxies_txts',
@@ -309,19 +316,6 @@ class ProxyAdmin(admin.ModelAdmin):
     ordering = ('-date_added',)
 
     # FILTERS
-
-    class YesNoFilter(admin.SimpleListFilter):
-        def lookups(self, request, model_admin):
-            return (
-                ('1', 'Yes',),
-                ('0', 'No',),
-            )
-
-        def yes(self):
-            return self.value() == '1'
-
-        def no(self):
-            return self.value() == '0'
 
     class ValidForBotRegistrationListFilter(YesNoFilter):
         title = 'Valid for bot registration'

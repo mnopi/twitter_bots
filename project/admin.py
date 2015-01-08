@@ -190,20 +190,25 @@ class ProjectAdminForm(forms.ModelForm):
 
 class ProjectProxiesGroupInline(admin.TabularInline):
     model = ProxiesGroup.projects.through
+    extra = 0
 
 class ProjectTweetMsgInline(admin.TabularInline):
     model = TweetMsg
     formset = TweetMsgInlineFormset
+    extra = 0
 
 class ProjectLinkInline(admin.TabularInline):
     model = Link
+    extra = 0
 
 class ProjectTweetImgInline(admin.TabularInline):
     model = TweetImg
+    extra = 0
 
 class ProjectPageLinkInline(admin.TabularInline):
     model = PageLink
     formset = PageLinkInlineFormset
+    extra = 0
 
 class ProjectAdmin(admin.ModelAdmin):
     list_display = (
@@ -224,7 +229,6 @@ class ProjectAdmin(admin.ModelAdmin):
     search_fields = ('name',)
     list_display_links = ('name',)
 
-
     inlines = [
         ProjectProxiesGroupInline,
         ProjectLinkInline,
@@ -242,17 +246,19 @@ class PageLinkHashtagAdmin(admin.ModelAdmin):
 
 class TweetAdmin(admin.ModelAdmin):
     list_display = (
+        'bot_used',
         'compose',
         'length',
         'date_created',
         'date_sent',
         'sending',
         'sent_ok',
-        'bot_used',
         'page_announced',
         'project',
         'has_image',
     )
+
+    list_display_links = ('compose',)
 
     ordering = ('-sending', '-sent_ok')
 
@@ -272,7 +278,24 @@ class TweetAdmin(admin.ModelAdmin):
         'mentioned_users__username',
     )
 
+    class DestinationFilter(admin.SimpleListFilter):
+        title = 'Destination'
+        parameter_name = 'destination'
+
+        def lookups(self, request, model_admin):
+            return (
+                ('bots', 'Bots',),
+                ('twitterusers', 'Twitter Users',),
+            )
+
+        def queryset(self, request, queryset):
+            if self.value() == 'bots':
+                return queryset.filter(mentioned_users__isnull=True, mentioned_bots__isnull=False)
+            elif self.value() == 'twitterusers':
+                return queryset.filter(mentioned_users__isnull=False, mentioned_bots__isnull=True)
+
     list_filter = (
+        DestinationFilter,
         'sending',
         'sent_ok',
         'date_created',
@@ -281,6 +304,25 @@ class TweetAdmin(admin.ModelAdmin):
     )
     # ordering = ('-date',)
     # list_display_links = ('username',)
+
+    actions = (
+        'send_selected_tweets',
+    )
+
+    def send_selected_tweets(self, request, queryset):
+        sent_ok_count = 0
+        for tweet_to_send in queryset:
+            tweet_to_send.sending = False
+            tweet_to_send.save()
+            if tweet_to_send.can_be_sent():
+                tweet_to_send.sending = True
+                tweet_to_send.save()
+                tweet_to_send.send()
+                sent_ok_count += 1
+            else:
+                self.message_user(request, 'Tweet %i can\'t be sent now' % tweet_to_send.pk, level=messages.WARNING)
+        self.message_user(request, "%i tweets sent ok" % sent_ok_count)
+    send_selected_tweets.short_description = "Send selected tweets"
 
 
 class FollowerAdmin(admin.ModelAdmin):
@@ -352,7 +394,8 @@ class LinkAdmin(admin.ModelAdmin):
     )
 
     inlines = [
-        SubLinkInline]
+        SubLinkInline
+    ]
 
 
 class ProxiesGroupAdmin(admin.ModelAdmin):
@@ -420,6 +463,44 @@ class ProxiesGroupAdmin(admin.ModelAdmin):
     ]
 
 
+class TweetCheckingMentionAdmin(admin.ModelAdmin):
+    list_display = (
+        'compose',
+        'destination_bot_is_checking_mention',
+        'destination_bot_checked_mention',
+        'destination_bot_checked_mention_date',
+        'mentioning_works',
+        # 'date_sent',
+        # 'bot_used',
+    )
+
+    def compose(self, obj):
+        return '%s -> %s' % (obj.tweet.bot_used.username, obj.tweet.compose())
+
+    def date_sent(self, obj):
+        return obj.tweet.date_sent
+
+    def bot_used(self, obj):
+        return obj.tweet.bot_used
+
+    search_fields = (
+        'tweet__bot_used__username',
+        'tweet__tweet_msg__text',
+        'tweet__link__url',
+        'tweet__page_announced__page_title',
+        'tweet__page_announced__page_link',
+        'tweet__mentioned_bots__username',
+    )
+
+    list_filter = (
+        'mentioning_works',
+    )
+
+    raw_id_fields = (
+        'tweet',
+    )
+
+
 # Register your models here.
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(TweetMsg, TweetMsgAdmin)
@@ -435,6 +516,11 @@ admin.site.register(TweetImg)
 admin.site.register(ProxiesGroup, ProxiesGroupAdmin)
 admin.site.register(PageLink)
 admin.site.register(PageLinkHashtag)
+admin.site.register(TweetCheckingMention, TweetCheckingMentionAdmin)
+
+admin.site.register(Feed)
+admin.site.register(FeedsGroup)
+admin.site.register(FeedItem)
 
 
 

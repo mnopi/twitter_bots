@@ -56,8 +56,19 @@ class TweetQuerySet(QuerySet):
     def sent_ok(self):
         return self.filter(sent_ok=True)
 
-    def queued_to_send(self):
-        return self.filter(sending=False, sent_ok=False)
+    def by_bot(self, bot):
+        return self.filter(bot_used=bot)
+
+    def mentioning_bots(self):
+        return self.filter(mentioned_bots__isnull=False)
+
+    def not_checked_if_mention_arrives_ok(self):
+        """Devuelve aquellos tweets de verificación que no tengan registro de verificación o bien el bot
+        destino aún no comprobó si le llegó dicho tweet"""
+        return self.filter(
+            Q(tweet_checking_mention=None) |
+            Q(tweet_checking_mention__destination_bot_checked_mention=False)
+        )
 
 
 class MyQuerySet(QuerySet):

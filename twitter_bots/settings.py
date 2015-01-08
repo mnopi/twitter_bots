@@ -61,18 +61,18 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
 
-        # "NAME": "twitter_bots_dev",
-        # "USER": "root",
-        # "PASSWORD": "",
-        # "HOST": "127.0.0.1",
-        # "PORT": "3306",
-
         "NAME": "twitter_bots_prod",
-        "USER": "mnopi",
-        "PASSWORD": "1aragon1",
-        "HOST": "192.168.1.115",
-        # "HOST": "88.26.212.82",
+        "USER": "root",
+        "PASSWORD": "",
+        "HOST": "127.0.0.1",
         "PORT": "3306",
+
+        # "NAME": "twitter_bots_prod",
+        # "USER": "mnopi",
+        # "PASSWORD": "1aragon1",
+        # # "HOST": "192.168.1.115",
+        # "HOST": "88.26.212.82",
+        # "PORT": "3306",
     }
 }
 
@@ -115,7 +115,7 @@ LOGGING = {
     'formatters': {
         'verbose': {
             # 'format': '%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s'
-            'format': "[%(asctime)s] %(threadName)s  %(levelname)s\t\t%(message)s",
+            'format': "[%(asctime)s] %(module)s:%(lineno)d\t %(levelname)s\t\t%(threadName)s - %(message)s",
             'datefmt': "%d/%b/%Y %H:%M:%S"
         },
         'simple': {
@@ -140,10 +140,18 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose'
         },
-        'management_logs_file': {
+        'management_logs_file_debug': {
             'level':'DEBUG',
             'class':'logging.handlers.RotatingFileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs/{log_filename}.log'),
+            'filename': os.path.join(BASE_DIR, 'logs/{log_filename}.debug.log'),
+            'maxBytes': 1024*1024*5, # 5 MB
+            'backupCount': 5,
+            'formatter':'verbose',
+        },
+        'management_logs_file_info': {
+            'level':'INFO',
+            'class':'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs/{log_filename}.info.log'),
             'maxBytes': 1024*1024*5, # 5 MB
             'backupCount': 5,
             'formatter':'verbose',
@@ -151,7 +159,12 @@ LOGGING = {
     },
     'loggers': {
         'project.management.commands': {
-            'handlers': ['console_info', 'console_error', 'management_logs_file'],
+            'handlers': [
+                'console_info',
+                'console_error',
+                'management_logs_file_info',
+                'management_logs_file_debug'
+            ],
             'level': 'DEBUG',
             'propagate': True,
         },
@@ -171,7 +184,7 @@ PROXY_PROVIDERS_ACCOUNTS = {
     'myprivateproxy': 'jpuert:4RpB8rhn',
 }
 
-from scrapper.settings import *
+from core.scrapper.settings import *
 
 def set_logger(name):
     # import copy

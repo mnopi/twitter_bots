@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Count, Q, Max, Manager
 from django.db.models.query import QuerySet
 import os
@@ -6,9 +7,10 @@ import time
 
 from django.db import models, connection
 from core.querysets import TwitterBotQuerySet, ProxyQuerySet
-from project.exceptions import NoMoreAvailableProxiesForRegistration
-from scrapper.thread_pool import ThreadPool
-from scrapper.utils import utc_now
+from project.exceptions import NoMoreAvailableProxiesForRegistration, AllBotsInUse, NoTweetsOnQueue, CantRetrieveMoreItemsFromFeeds, BotHasToSendMcTweet, \
+    DestinationBotHasToVerifyMcTweet
+from core.scrapper.thread_pool import ThreadPool
+from core.scrapper.utils import utc_now
 from twitter_bots import settings
 from threading import Lock
 mutex = Lock()
@@ -109,35 +111,43 @@ class TwitterBotManager(models.Manager):
             unregistered.delete()
 
     def put_previous_being_created_to_false(self):
-        self.filter(is_being_created=True).update(is_being_created=False)
+            self.filter(is_being_created=True).update(is_being_created=False)
 
-    def send_tweet_from_pending_queue(self):
+    def send_tweet_from_pending_queue(self, bot=None):
         """Escoge un tweet pendiente de enviar cuyo robot no esté enviando actualmente"""
         from project.models import Tweet
 
-        tweet_to_send = None
         try:
             connection.close()
-            try:
-                mutex.acquire()
+            tweet_to_send = Tweet.objects.get_tweet_ready_to_send(bot=bot)
+            tweet_to_send.send()
 
-                tweet_to_send = Tweet.objects.get_tweet_ready_to_send()
-                tweet_to_send.sending = True
-                tweet_to_send.save()
-            finally:
-                mutex.release()
+        except (AllBotsInUse,
+                NoTweetsOnQueue):
+            # si no se puede enviar nada ponemos la hebra a esperar un momento
+            settings.LOGGER.debug('Sleeping %d seconds..' % settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET)
+            time.sleep(settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET)
 
-            if tweet_to_send:
-                tweet_to_send.send()
-        except Exception as e:
+        except BotHasToSendMcTweet as e:
+            e.mc_tweet.send()
+
+        except DestinationBotHasToVerifyMcTweet as e:
+            mentioned_bot = e.mc_tweet.mentioned_bots.all()[0]
+            mentioned_bot.check_if_tweet_received_ok(e.mc_tweet)
+
+        except (CantRetrieveMoreItemsFromFeeds, Exception) as e:
+            settings.LOGGER.exception('Error sending tweet')
             raise e
 
-    def send_pending_tweets(self):
-        pool = ThreadPool(settings.MAX_THREADS_SENDING_TWEETS)
+    def send_pending_tweets(self, bot=None, num_threads=None, num_tasks=None):
+        if num_threads == 1:
+            self.send_tweet_from_pending_queue(bot)
+        else:
+            pool = ThreadPool(num_threads or settings.MAX_THREADS_SENDING_TWEETS)
 
-        for task_num in range(settings.TOTAL_TASKS_SENDING_TWEETS):
-            pool.add_task(self.send_tweet_from_pending_queue)
-        pool.wait_completion()
+            for task_num in range(num_tasks or settings.TOTAL_TASKS_SENDING_TWEETS):
+                pool.add_task(self.send_tweet_from_pending_queue, bot)
+            pool.wait_completion()
 
         # manager = multiprocessing.Manager()
         # lock = manager.Lock()
@@ -158,13 +168,14 @@ class TwitterBotManager(models.Manager):
         # for thread in threads:
         #     thread.join()
 
-    def finish_creations(self):
+    def finish_creations(self, num_bots=None):
         """Mira qué robots aparecen incompletos y termina de hacer en cada uno lo que quede"""
         from project.models import ProxiesGroup
 
         bots_to_finish_creation = self.pendant_to_finish_creation()  # sólo se eligen bots de grupos activos
         if bots_to_finish_creation.exists():
             pool = ThreadPool(settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
+            bots_to_finish_creation = bots_to_finish_creation[:num_bots] if num_bots else bots_to_finish_creation
             for bot in bots_to_finish_creation:
                 pool.add_task(bot.complete_creation)
             pool.wait_completion()
@@ -230,6 +241,12 @@ class TwitterBotManager(models.Manager):
     def pendant_to_finish_creation(self):
         return self.get_queryset().pendant_to_finish_creation()
 
+    def mentioned_by_bot(self, bot):
+        return self.get_queryset().mentioned_by_bot(bot)
+
+    def unmentioned_by_bot(self, bot):
+        return self.get_queryset().unmentioned_by_bot(bot)
+
 
 class ProxyManager(MyManager):
     def get_txt_proxies(self):
@@ -266,12 +283,15 @@ class ProxyManager(MyManager):
 
             settings.LOGGER.info('Checking proxies in txts..')
             not_in_txts_proxies_count = 0  # cuenta el número de proxies que no aparecen en los txts
+            in_txts_proxies_count = 0  # cuenta el número de proxies que no aparecen en los txts
             db_proxies = self.all()
             for db_proxy in db_proxies:
                 if is_on_txt(db_proxy):
                     db_proxy.is_in_proxies_txts = True
                     db_proxy.date_not_in_proxies_txts = None
                     db_proxy.save()
+                    in_txts_proxies_count += 1
+                    settings.LOGGER.info('Proxy %s remarked as appeared in proxies txts' % (db_proxy.__unicode__()))
                 elif db_proxy.is_in_proxies_txts:
                     # si no está en los txt y estaba marcado como que estaba lo cambiamos
                     db_proxy.is_in_proxies_txts = False
@@ -280,6 +300,7 @@ class ProxyManager(MyManager):
                     not_in_txts_proxies_count += 1
                     settings.LOGGER.info('Proxy %s @ %s marked as not appeared in proxies txts' % (db_proxy.proxy, db_proxy.proxy_provider))
 
+            settings.LOGGER.info('%i proxies marked as appeared in proxies txts' % in_txts_proxies_count)
             settings.LOGGER.info('%i proxies marked as not appeared in proxies txts' % not_in_txts_proxies_count)
 
         def add_new_proxies():

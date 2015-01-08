@@ -4,15 +4,17 @@ import feedparser
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from project.exceptions import NoMoreAvailableProxiesForRegistration, BotHasNoProxiesForUsage, SuspendedBotHasNoProxiesForUsage, \
-    TweetCreationException
-from scrapper.accounts.hotmail import HotmailScrapper
-from scrapper.exceptions import TwitterEmailNotFound, \
+    TweetCreationException, BotHasToCheckIfMentioningWorks, CantRetrieveMoreItemsFromFeeds, BotHasToSendMcTweet, \
+    DestinationBotHasToVerifyMcTweet
+from core.scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
+from core.scrapper.accounts.hotmail import HotmailScrapper
+from core.scrapper.accounts.twitter import TwitterScrapper
+from core.scrapper.exceptions import TwitterEmailNotFound, \
     TwitterAccountDead, TwitterAccountSuspended, ProfileStillNotCompleted
-from scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
-from scrapper.accounts.twitter import TwitterScrapper
-from core.managers import TwitterBotManager, ProxyManager
+from core.scrapper.utils import *
+from core.managers import TwitterBotManager, ProxyManager, mutex
 from twitter_bots import settings
-from scrapper.utils import *
+from django.core.exceptions import ObjectDoesNotExist
 
 
 class User(AbstractUser):
@@ -80,7 +82,7 @@ class TwitterBot(models.Model):
         return not self.email_registered_ok and not self.twitter_registered_ok
 
     def has_to_register_email(self):
-        return settings.REGISTER_EMAIL and not self.email_registered_ok
+        return not self.email_registered_ok
 
     def has_to_register_twitter(self):
         return not self.has_to_register_email() and not self.twitter_registered_ok
@@ -102,10 +104,10 @@ class TwitterBot(models.Model):
 
     def has_to_complete_creation(self):
         return self.is_suspended or\
-               not self.email_registered_ok or \
-               not self.twitter_registered_ok or \
-               not self.twitter_confirmed_email_ok or \
-               not self.has_tw_profile_completed()
+               self.has_to_register_email() or \
+               self.has_to_register_twitter() or \
+               self.has_to_confirm_tw_email() or \
+               self.has_to_complete_tw_profile()
 
     def has_tw_profile_completed(self):
         return not self.has_to_set_tw_avatar() and not self.has_to_set_tw_bio()
@@ -199,6 +201,8 @@ class TwitterBot(models.Model):
                 else:
                     raise BotHasNoProxiesForUsage(self)
 
+            settings.LOGGER.info('Assigned proxy for usage %s to bot %s' % (self.proxy_for_usage, self.username))
+
         if self.has_to_register_accounts():
             assign_proxy_for_registration()
         else:
@@ -230,7 +234,7 @@ class TwitterBot(models.Model):
                 self.twitter_scr = TwitterScrapper(self)
                 self.twitter_scr.open_browser()
 
-                if self.has_to_register_email() or self.has_to_confirm_tw_email():
+                if self.has_to_register_email() or self.has_to_register_twitter() or self.has_to_confirm_tw_email():
                     self.twitter_scr.check_proxy_works_ok()
                     self.email_scr = self.get_email_scrapper()
                     self.email_scr.open_browser()
@@ -272,6 +276,7 @@ class TwitterBot(models.Model):
                         self.email_scr.confirm_tw_email()
                         self.twitter_confirmed_email_ok = True
                         self.save()
+                        settings.LOGGER.info('Confirmed twitter email %s for user %s after resending confirmation' % (self.email, self.username))
                     except Exception as ex:
                         settings.LOGGER.exception('Error on bot %s confirming email %s' %
                                                   (self.username, self.email))
@@ -389,7 +394,7 @@ class TwitterBot(models.Model):
         bot_tweets = self.get_sent_ok_tweets()
         if bot_tweets:
             last_tweet = bot_tweets.latest('date_sent')
-            random_seconds = random.randint(60*settings.TIME_BETWEEN_TWEETS[0], 60*settings.TIME_BETWEEN_TWEETS[1])  # entre 2 y 7 minutos por tweet
+            random_seconds = generate_random_secs_from_minute_interval(self.get_group().time_between_tweets)
             return (utc_now() - last_tweet.date_sent).seconds >= random_seconds
         else:
             # si el bot no tuiteo nunca evidentemente el tiempo no tiene nada que ver
@@ -399,18 +404,35 @@ class TwitterBot(models.Model):
         from project.models import Tweet
         return Tweet.objects.filter(bot_used=self, sending=True).exists()
 
-    def can_tweet(self):
-        """
-        Devuelve si el bot puede tuitear, cumpliendo:
-            - que no este el robot sending otro tweet
-            - que no haya tuiteado entre random de 2 y 7 min (time_ok)
-        """
-        if not self.is_already_sending_tweet():
-            return self.tweeting_time_interval_lapsed()
+    def is_already_checking_mention(self):
+        from project.models import TweetCheckingMention
+        return TweetCheckingMention.objects.filter(
+            destination_bot_is_checking_mention=True,
+            tweet__mentioned_bots=self
+        ).exists()
+
+    def is_being_used(self):
+        if self.is_already_sending_tweet() or self.is_already_checking_mention():
+            settings.LOGGER.debug('Bot %s is already being used' % self.username)
+            return True
         else:
             return False
 
-    def make_tweet_to_send(self, retry_counter=0):
+    def can_tweet(self):
+        """Nos dice si el bot puede tuitear"""
+
+        # no podrá tuitear si está siendo usado
+        if self.is_being_used():
+            return False
+
+        # tampoco si no pasó el tiempo suficiente desde que envió el último tweet
+        elif not self.has_enough_time_passed_since_his_last_tweet():
+            return False
+
+        else:
+            return True
+
+    def make_tweet_to_send(self, from_feeds=False, only_mention_bots=False):
         """Crea un tweet con mención pendiente de enviar"""
         from project.models import Tweet, TwitterUser
 
@@ -432,18 +454,23 @@ class TwitterBot(models.Model):
 
                     if bot_group.has_tweet_msg:
                         tweet_to_send.add_tweet_msg(project)
-                        tweet_to_send.save()
                     if bot_group.has_link:
                         tweet_to_send.add_link(project)
-                        tweet_to_send.save()
                     if bot_group.has_tweet_img:
                         tweet_to_send.add_image(project)
-                        tweet_to_send.save()
                     if bot_group.has_page_announced:
                         tweet_to_send.add_page_announced(project)
-                        tweet_to_send.save()
                     if bot_group.has_mentions:
-                        tweet_to_send.add_mentions(self, project)
+                        if only_mention_bots:
+                            tweet_to_send.add_bots_to_mention()
+                        else:
+                            tweet_to_send.add_mentions()
+
+                    # si mandamos un item de los feeds entonces quitamos tweet_msg y ponemos feed_msg
+                    if from_feeds:
+                        item_to_send = self.get_item_to_send()
+                        tweet_to_send.feed_item = item_to_send
+                        tweet_to_send.save()
 
                     # tras encontrar ese proyecto con el que hemos podido construir el tweet salimos para
                     # dar paso al siguiente bot
@@ -453,27 +480,57 @@ class TwitterBot(models.Model):
         else:
             settings.LOGGER.warning('Bot %s has no running projects assigned at this moment' % self.__unicode__())
 
-    def make_feed_tweet_to_send(self):
+    def get_item_to_send(self):
         "Crea un tweet a partir de algún feed pendiente de enviar"
-        from project.models import Project, Tweet, TweetMsg, Link
 
-        feed = feedparser.parse('http://feeds.feedburner.com/cuantogato?format=xml')
-        entry = random.choice(feed['entries'])
+        from project.models import Project, Tweet, TweetMsg, Link, Feed
 
-        project = Project.objects.first()
-        tweet_msg = TweetMsg.objects.create(text=entry['title'])
-        link = Link.objects.create(url=entry['feedburner_origlink'])
+        # saco un item de los feeds disponibles para el grupo del bot
+        # si ese item ya lo mandó el bot sacamos otro
+        items_not_sent = self.get_feed_items_not_sent_yet()
+        if not items_not_sent.exists():
+            # Si no hay item se consultan todos los feeds hasta que se cree uno nuevo
+            self.save_new_item_from_feeds()
+            items_not_sent = self.get_feed_items_not_sent_yet()
 
-        tweet_to_send = Tweet.objects.create(
-            project=project,
-            tweet_msg=tweet_msg,
-            link=link,
-            bot_used=self,
+        # volvemos a comprobar para ver si se añadió nuevo item desde feed
+        if not items_not_sent.exists():
+            raise CantRetrieveMoreItemsFromFeeds(self)
+        else:
+            return items_not_sent.first()
+
+    def get_feed_items_not_sent_yet(self):
+        """Mira en los feeds asignados al grupo de proxies para el bot e intenta sacar un item
+        que todavía éste no haya enviado."""
+
+        from project.models import FeedItem
+
+        proxies_group_for_bot = self.get_group()
+        pg_items = FeedItem.objects.filter(
+            feed__feeds_groups__proxies_groups=proxies_group_for_bot,
         )
+        items_not_sent_by_bot = pg_items\
+            .exclude(Q(tweets__bot_used=self) & Q(tweets__sent_ok=True))
 
-        settings.LOGGER.info('Queued (project: %s, bot: %s) >> %s' %
-                             (project.__unicode__(), self.__unicode__(), tweet_to_send.compose()))
+        return items_not_sent_by_bot
 
+    def save_new_item_from_feeds(self):
+        """Consulta en todos los feeds para el bot cual item no está en BD y lo guarda"""
+
+        for feed in self.get_feeds().order_by('?'):
+            new_item = feed.get_new_item()
+            if new_item:
+                new_item.save()
+                break
+
+    def get_feeds(self):
+        """Saca los feeds disponibles para el bot"""
+
+        from project.models import Feed
+
+        return Feed.objects.filter(
+            feeds_groups__proxies_groups=self.get_group(),
+        )
 
     def send_tweet(self, tweet):
         try:
@@ -524,6 +581,311 @@ class TwitterBot(models.Model):
         if not self.proxy_is_ok():
             self.assign_proxy()
 
+    def get_last_tweet_mentioning_bots(self):
+        """Saca el último tweet lanzado por el bot que menciona a otros bots"""
+
+        ment_bots_tweets = self.tweets.sent_ok()\
+            .filter(mentioned_bots__isnull=False)
+        if ment_bots_tweets.exists():
+            return ment_bots_tweets.latest('date_sent')
+        else:
+            return None
+
+    def get_consecutive_tweets_mentioning_twitterusers(self):
+        last_tweet_mentioning_bots = self.get_last_tweet_mentioning_bots()
+        if last_tweet_mentioning_bots:
+            return self.tweets.sent_ok().filter(date_sent__gt=last_tweet_mentioning_bots.date_sent)
+        else:
+            return self.tweets.sent_ok()
+
+    def has_reached_consecutive_mentions_to_twitterusers(self):
+        """Mira si el robot ya superó el límite de menciones consecutivas sin comprobar si siguen
+        funcionando las menciones"""
+
+        return self.get_consecutive_tweets_mentioning_twitterusers().count() >= \
+               self.get_group().num_consecutive_mentions_for_check_mentioning_works
+
+    def clear_not_sent_ok_mc_tweets(self):
+        """Se eliminan todos los mc tweets que el bot no haya enviado ok"""
+
+        from project.models import Tweet
+
+        Tweet.objects.filter(
+            mentioned_bots__isnull=False,
+            bot_used=self,
+            sent_ok=False,
+        ).delete()
+
+    def get_or_create_mc_tweet(self):
+        """El bot busca su tweet de verificación (mentioning check tweet). Si no existe crea uno"""
+
+        from project.models import Tweet
+
+        # vemos si hay algún tweet de verificación pendiente de comprobar
+        mc_tweet_not_checked = Tweet.objects.mentioning_bots().by_bot(self).not_checked_if_mention_arrives_ok()
+        if mc_tweet_not_checked.exists():
+            if mc_tweet_not_checked.count() > 1:
+                settings.LOGGER.warning('There were found multiple mentioning check tweets pending to send from '
+                                      'bot %s and will be deleted' % self.username)
+                self.clear_not_sent_ok_mc_tweets()
+                self.make_tweet_to_send(from_feeds=True, only_mention_bots=True)
+        else:
+            # si no existe dicho tweet de verificación el bot lo crea
+            self.make_tweet_to_send(from_feeds=True, only_mention_bots=True)
+
+        return mc_tweet_not_checked.first()
+
+    def get_rest_of_completed_bots_under_same_group(self):
+        """Devuelve una lista con los bots completos bajo el mismo grupo del bot dado. Ordenados
+        poniendo primero los que el bot tuiteó hace más tiempo"""
+        bots = TwitterBot.objects\
+            .using_proxies_group(self.get_group())\
+            .completed()\
+            .exclude(pk=self.pk)
+
+        # sacamos bots ordenamos de más antiguo a más nuevo mencionado por el bot, los bots que aún no hayan sido
+        # mencionados por el bot los ponemos al principio
+        bots = list(bots)
+        without_mention_received = []
+        with_mention_received = []
+
+        for b in bots:
+            mentions_to_b = b.mentions.filter(bot_used=self)
+            if mentions_to_b.exists():
+                b.last_mention_received_by_bot_date = mentions_to_b.latest('date_sent').date_sent
+                with_mention_received.append(b)
+            else:
+                without_mention_received.append(b)
+
+        with_mention_received.sort(key=lambda b: b.last_mention_received_by_bot_date, reverse=False)
+        return without_mention_received + with_mention_received
+
+    def order_by__oldest_mentioned_by_bot(self, bot):
+        """Ordena los bots de menor a mayor veces mencionado por el bot dado"""
+
+        bots = list(self)
+        for b in bots:
+            b.last_mention_received_by_bot_date = b.mentions.filter(bot_used=bot).latest('date_sent')
+
+        bots.sort(key=lambda x: x.last_mention_received_by_bot_date, reverse=False)
+
+        pk_list = [b.pk for b in bots]
+
+        return self.filter(pk__in=[b.pk for b in bots])
+
+    def can_mention_twitterusers(self):
+        """Nos dice si el bot puede mencionar usuarios de twitter"""
+
+        def has_passed_mention_fail_time_window():
+            """Nos dice si el bot ha superado el tiempo ventana para poder mencionar tras no funcionarle la mención"""
+
+            mention_verification = last_tweet_mentioning_bots.tweet_checking_mention
+            return has_elapsed_secs_since_time_ago(
+                mention_verification.destination_bot_checked_mention_date,
+                generate_random_secs_from_minute_interval(self.get_group().mention_fail_time_window)
+            )
+
+        def has_not_reached_consecutive_mentions_limit():
+            # comprobamos si excedió el número consecutivo de menciones a usuarios de twitter
+            if self.has_reached_consecutive_mentions_to_twitterusers():
+                log_reason_to_not_send_mention('has reached consecutive mentions sent to twitterusers')
+                try_to_send_mctweet()
+            else:
+                # si aún no superó el límite de menciones consecutivas entonces de momento
+                # lo damos por que funciona. Esto es, si por ejemplo el límite es 3 y el bot
+                # va por 2, entonces de momento no hay problema
+                return True
+
+        def log_reason_to_not_send_mention(reason):
+            settings.LOGGER.debug('Bot %s can\'t mention twitter users because %s' % (self.username, reason))
+
+        def try_to_verify_mctweet():
+            """Se intenta verificar mctweet desde su bot destino.
+
+            Si está ocupado enviando un tweet, verificando otro mctweet, o aún hay que esperar el periodo ventana
+            para la verificación, entonces devolvemos false.
+
+            De lo contrario, lanzamos excepción DestinationBotHasToVerifyMcTweet para que salga del mutex
+            y se ponga a verificar.
+            """
+
+            from project.models import TweetCheckingMention
+
+            # comprobamos que el bot destino no esté siendo usando
+            destination_bot = mc_tweet.mentioned_bots.first()
+            if not destination_bot.is_being_used():
+                tcm = TweetCheckingMention.objects.get_or_create(tweet=mc_tweet)[0]
+
+                destination_bot_checking_time_window = self.get_group().destination_bot_checking_time_window
+                time_window_passed = has_elapsed_secs_since_time_ago(
+                    mc_tweet.date_sent,
+                    generate_random_secs_from_minute_interval(destination_bot_checking_time_window)
+                )
+                if time_window_passed:
+                    tcm.destination_bot_is_checking_mention = True
+                    tcm.save()
+                    raise DestinationBotHasToVerifyMcTweet(mc_tweet)
+                else:
+                    settings.LOGGER.debug('Destination bot %s has to wait more time (between %s minutes) to verify '
+                                          'mctweet sent at %s' %
+                                          (destination_bot.username,
+                                           destination_bot_checking_time_window,
+                                           mc_tweet.date_sent))
+                    return False
+            else:
+                settings.LOGGER.debug('Destination bot %s can\'t verify mctweet from %s because is being used' %
+                                      (destination_bot.username, self.username))
+                return False
+
+        def try_to_send_mctweet():
+            from project.models import TweetCheckingMention
+
+            settings.LOGGER.debug('Bot %s trying to send mctweet..' % self.username)
+
+            if self.can_tweet():
+                mc_tweet = self.get_or_create_mc_tweet()
+                mc_tweet.sending = True
+                mc_tweet.save()
+                raise BotHasToSendMcTweet(mc_tweet)
+
+            # si el bot no está verificando mctweet en otra hebra buscamos un mctweet
+            # pendiente de verificar por ese bot
+            else:
+                settings.LOGGER.debug('Bot %s trying to verify mctweet..' % self.username)
+
+                if not self.is_already_checking_mention():
+                    tcms_to_verify = TweetCheckingMention.objects.filter(
+                        tweet__mentioned_bots=self,
+                        destination_bot_checked_mention=False
+                    )
+                    if tcms_to_verify.exists():
+                        raise DestinationBotHasToVerifyMcTweet(tcms_to_verify.first().tweet)
+                    else:
+                        settings.LOGGER.debug('Bot %s has no mctweets to verify' % self.username)
+
+
+        # el mctweet es el último tweet que lanzó el bot mencionando otro bot
+        last_tweet_mentioning_bots = self.get_last_tweet_mentioning_bots()
+        mc_tweet = last_tweet_mentioning_bots
+
+        # si ya existe su mctweet..
+        if mc_tweet:
+            try:
+                # miramos el registro de verificación de ese tweet, si no existe lanzará excepción que
+                # trataremos más abajo
+                tcm = mc_tweet.tweet_checking_mention
+
+                # si el bot destino está verificando otro mctweet entonces no podremos hacer nada
+                if tcm.destination_bot_is_checking_mention:
+                    log_reason_to_not_send_mention('destination bot is checking if mc_tweet arrived from him')
+                    return False
+
+                # si aún no se verificó el mctweet
+                elif not tcm.destination_bot_checked_mention:
+                    destination_bot = last_tweet_mentioning_bots.mentioned_bots.first()
+                    log_reason_to_not_send_mention('his mc_tweet sent to %s has to be verified first' %
+                                                   destination_bot.username)
+                    return try_to_verify_mctweet()
+
+                # si se verificó el mctweet, comprobamos que aún no alcanzamos el límite de menciones consecutivas
+                # a usuarios de twitter
+                elif tcm.mentioning_works:
+                    return has_not_reached_consecutive_mentions_limit() and self.can_tweet()
+
+                # si se superó el periodo ventana tras último mctweet fallido, volvemos a enviar otro mctweet
+                elif has_passed_mention_fail_time_window():
+                    log_reason_to_not_send_mention('destination bot has failed last mc_tweet verification')
+                    try_to_send_mctweet()
+
+                else:
+                    settings.LOGGER.warning('Bot %s can\'t send mentions to twitter users. '
+                                            'Last failed verification was at %s' %
+                                            (self.username, tcm.destination_bot_checked_mention_date))
+                    return False
+
+            except ObjectDoesNotExist:
+                # si no existe tcm es que falta verificar el mctweet
+                return try_to_verify_mctweet()
+        else:
+            # si no existe mctweet comprobamos si se sobrepasaron las menciones consecutivas a usuarios de twitter
+            # esto se hace sólo una vez por bot ya que evalúa el inicio, cuando aún no existe ningún mctweet
+            # para él
+            return has_not_reached_consecutive_mentions_limit() and self.can_tweet()
+
+    def can_mention_bots(self):
+        pass
+
+    def has_enough_time_passed_since_his_last_tweet(self):
+        """Nos dice si pasó el suficiente tiempo desde que el robot tuiteó por última vez a un usuario"""
+        last_tweet_sent = self.get_last_tweet_sent()
+        if not last_tweet_sent or not last_tweet_sent.date_sent:
+            return True
+        else:
+            # si el bot ya envió algún tweet se comprueba que el último se haya enviado
+            # antes o igual a la fecha de ahora menos el tiempo aleatorio entre tweets por bot
+            random_seconds_ago = generate_random_secs_from_minute_interval(self.get_group().time_between_tweets)
+            if is_lte_than_seconds_ago(last_tweet_sent.date_sent, random_seconds_ago):
+                return True
+            else:
+                settings.LOGGER.debug('Bot %s has not enough time passed (between %s minutes) '
+                                      'since his last tweet sent (at %s)' %
+                                      (self.username, self.get_group().time_between_tweets, last_tweet_sent.date_sent))
+                return False
+
+    def check_if_tweet_received_ok(self, tweet):
+        """Comprueba si le llegó ok la mención del tweet dado por parámetro"""
+
+        from project.models import TweetCheckingMention
+
+        if not tweet.mentioned_bots.exists():
+            raise Exception('You can\'t check mention over tweet %i without bot mentions' % tweet.pk)
+        else:
+            tcm = TweetCheckingMention.objects.get(tweet=tweet)
+            try:
+                # nos logueamos con el bot destino y comprobamos
+                mentioned_bot = tweet.mentioned_bots.all()[0]
+                settings.LOGGER.info('Bot %s checking if mention from %s arrived ok..' %
+                                     (mentioned_bot.username, tweet.bot_used.username))
+                mentioned_bot.scrapper.set_screenshots_dir('checking_mention_%s_from_%s' % (tweet.pk, tweet.bot_used.username))
+                mentioned_bot.scrapper.open_browser()
+                mentioned_bot.scrapper.login()
+                mentioned_bot.scrapper.click('li.notifications')
+                mentioned_bot.scrapper.click('a[href="/mentions"]')
+                mention_received_ok = False
+
+                mentions_timeline_el = mentioned_bot.scrapper.get_css_elements('#stream-items-id > li')
+                for mention_el in mentions_timeline_el:
+                    # buscamos en la lista el último tweet enviado por ese bot
+                    user_mentioning = mention_el.find_element_by_css_selector('.username.js-action-profile-name').text.strip('@')
+                    user_mentioning_is_bot = TwitterBot.objects.filter(username=user_mentioning).exists()
+
+                    if user_mentioning_is_bot:
+                        if user_mentioning == tweet.bot_used.username:
+                            # una vez que encontramos el último tweet enviado por ese bot vemos si coincide con el
+                            # tweet que dice nuestra BD que se le mandó, sin contar con el link
+                            mention_text = mention_el.find_element_by_css_selector('.js-tweet-text').text.strip()
+                            mention_received_ok = tweet.compose(for_verif_mctweets=True) in mention_text
+                            break
+                        else:
+                            continue
+
+                if mention_received_ok:
+                    tcm.mentioning_works = True
+                    mentioned_bot.scrapper.take_screenshot('mention_arrived_ok')
+                    settings.LOGGER.info('Bot %s received mention ok from %s' %
+                                         (mentioned_bot.username, tweet.bot_used.username))
+                else:
+                    tcm.mentioning_works = False
+                    mentioned_bot.scrapper.take_screenshot('mention_not_arrived')
+                    settings.LOGGER.error('Bot %s not received mention from %s tweeting: %s' %
+                                          (mentioned_bot.username, tweet.bot_used.username, tweet.compose()))
+
+                tcm.destination_bot_checked_mention = True
+                tcm.destination_bot_checked_mention_date = utc_now()
+            finally:
+                tcm.destination_bot_is_checking_mention = False
+                tcm.save()
+
 class Proxy(models.Model):
     proxy = models.CharField(max_length=21, null=False, blank=True)
     proxy_provider = models.CharField(max_length=50, null=False, blank=True)
@@ -543,7 +905,7 @@ class Proxy(models.Model):
     date_phone_required = models.DateTimeField(null=True, blank=True)
 
     # RELATIONSHIPS
-    proxies_group = models.ForeignKey('project.ProxiesGroup', related_name='proxies', null=True, blank=True)
+    proxies_group = models.ForeignKey('project.ProxiesGroup', related_name='proxies', null=True, blank=True, on_delete=models.SET_NULL)
 
     objects = ProxyManager()
 
@@ -571,3 +933,10 @@ class Proxy(models.Model):
 
     def get_subnet_24(self):
         return '.'.join(self.get_ip().split('.')[:3])
+
+    def mark_as_unavailable_for_use(self):
+        if settings.MARK_PROXIES_AS_UNAVAILABLE_FOR_USE:
+            self.is_unavailable_for_use = True
+            self.date_unavailable_for_use = utc_now()
+            self.save()
+            settings.LOGGER.warning('Proxy %s marked as unavailable for use' % self.__unicode__())

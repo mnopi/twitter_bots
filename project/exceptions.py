@@ -1,6 +1,7 @@
-import threading
-import datetime
-from scrapper.utils import get_thread_name
+# -*- coding: utf-8 -*-
+
+from core.scrapper.utils import get_thread_name, has_elapsed_secs_since_time_ago, \
+    generate_random_secs_from_minute_interval
 from twitter_bots import settings
 import time
 
@@ -33,17 +34,17 @@ class TwitteableBotsNotFound(Exception):
 
 
 class AllBotsInUse(Exception):
+    """Esto se lanza cuando la hebra no detecta bots que puedan hacer nada, bien por estar usándose en otra
+    hebra o por tener que esperar algún periodo ventana"""
+
     def __init__(self):
-        settings.LOGGER.warning('%s All bots in use. Retrying in %i seconds' %
-                                (get_thread_name(), settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET))
-        time.sleep(settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET)
+        settings.LOGGER.warning('All bots are already in use or waiting time windows.')
 
 
 class NoTweetsOnQueue(Exception):
-    def __init__(self):
-        settings.LOGGER.warning('%s No tweets on queue. Retrying in %s seconds' %
-                                (get_thread_name(), settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET))
-        time.sleep(settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET)
+    def __init__(self, bot=None):
+        for_bot_msg = '' if not bot else ' to send by bot %s' % bot.username
+        settings.LOGGER.warning('%s No tweets on queue%s.' % (get_thread_name(), for_bot_msg))
 
 
 class NoMoreAvailableProxiesForRegistration(Exception):
@@ -91,3 +92,30 @@ class TweetCreationException(Exception):
     def __init__(self, tweet):
         settings.LOGGER.warning('Error creating tweet %i and will be deleted' % tweet.pk)
         tweet.delete()
+
+
+class BotHasToCheckIfMentioningWorks(Exception):
+    """Al mirar en la cola si un tweet se puede enviar puede que se lanze esta excepción cuando se tenga que
+    verificar si el bot que lo envía puede seguir mencionando a usuarios de twitter.
+    """
+
+    def __init__(self, mc_tweet):
+        # le metemos el mc_tweet a la excepción para que luego fuera del mutex se envíe
+        self.mc_tweet = mc_tweet
+
+
+class BotHasToSendMcTweet(Exception):
+    def __init__(self, mc_tweet):
+        self.mc_tweet = mc_tweet
+
+
+class DestinationBotHasToVerifyMcTweet(Exception):
+    def __init__(self, mc_tweet):
+        self.mc_tweet = mc_tweet
+
+
+class CantRetrieveMoreItemsFromFeeds(Exception):
+    def __init__(self, bot):
+        settings.LOGGER.error('Bot %s can\'t retrieve new items from his feeds. All were already sent! You need '
+                              'to add more feeds for his group "%s"' %
+                              (bot.username, bot.get_group().__unicode__()))

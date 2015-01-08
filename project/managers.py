@@ -3,11 +3,11 @@
 import time
 import random
 from tweepy import TweepError
+from core.decorators import mlocked
 from core.managers import MyManager
 from project.exceptions import RateLimitedException, AllFollowersExtracted, AllBotsInUse, \
     NoTweetsOnQueue
 from project.querysets import ProjectQuerySet, TwitterUserQuerySet, TweetQuerySet, ExtractorQuerySet, TargetUserQuerySet
-from scrapper.utils import get_thread_name, is_lte_than_seconds_ago
 from twitter_bots import settings
 from django.db import models
 
@@ -40,33 +40,51 @@ class TweetManager(models.Manager):
             self.filter(sending=True).update(sending=False)
             settings.LOGGER.info('All previous sending tweets were set to not sending')
 
-    def get_tweet_ready_to_send(self):
-        """Saca de la cola los tweets que se puedan enviar
-            -   los que su robot no esté actualmente enviando tweet
-            -   los que su robot haya tuiteado por última hace x minutos
-
-        Se queda esperando a que
-        """
-        try:
-            pending_tweets = self.queued_to_send()
-
-            if pending_tweets:
-                for tweet in pending_tweets:
-                    if tweet.can_be_sent():
-                        return tweet
-
-                raise AllBotsInUse
+    def remove_wrong_constructed(self):
+        """Elimina los tweets que estén mal construidos, por ejemplo aquellos en que su bot ha de mencionar
+        pero no contienen mención alguna"""
+        not_sended = self.filter(sent_ok=False)
+        for tweet in not_sended:
+            tweet_has_no_mention = tweet.bot_used.get_group().has_mentions and not tweet.has_mentions()
+            if tweet_has_no_mention:
+                settings.LOGGER.warning('Tweet without mentions will be deleted: %s' % tweet.compose())
+                tweet.delete()
             else:
-                raise NoTweetsOnQueue
-        except Exception as e:
-            if type(e) is AllBotsInUse or type(e) is NoTweetsOnQueue:
-                self.get_tweet_ready_to_send()
+                mctweet_is_wrong = tweet.mentions_twitter_bots() and not tweet.feed_item
+                if mctweet_is_wrong:
+                    settings.LOGGER.warning('mctweet without feed_item will be deleted: %s' % tweet.compose())
+                    tweet.delete()
+
+    @mlocked()
+    def get_tweet_ready_to_send(self, bot=None):
+        """Mira en la cola y devuelve un tweet que se pueda enviar. Todo este método se ejecuta en exclusión
+        mutua gracias al decorador @mlocked"""
+
+        pending_tweets = self.get_queued_to_send(by_bot=bot)
+        if pending_tweets:
+            tweet_ready_to_send = None
+
+            for tweet in pending_tweets:
+                if tweet.can_be_sent():
+                    tweet.sending = True
+                    tweet.save()
+                    tweet_ready_to_send = tweet
+                    break
+
+            if tweet_ready_to_send:
+                return tweet_ready_to_send
             else:
-                settings.LOGGER.exception('%s Error getting tweet available to send' % get_thread_name())
-                raise e
+                # por si se eliminaron tweets mal construídos volvemos a comprobar si la cola está o no vacía
+                if not self.get_queued_to_send():
+                    raise NoTweetsOnQueue(bot=bot)
+                else:
+                    raise AllBotsInUse
+        else:
+            raise NoTweetsOnQueue(bot=bot)
 
     def create_tweets_to_send(self):
         """Crea los tweets a encolar para cada bot disponible"""
+
         from project.models import Project
         from core.models import TwitterBot
 
@@ -88,6 +106,33 @@ class TweetManager(models.Manager):
         else:
             settings.LOGGER.warning('No projects running at this moment')
 
+    def get_queued_to_send(self, by_bot=None):
+        """Devuelve los tweets encolados pendientes de enviar a los twitter users. Si salen varios tweets por bots
+        dejamos sólo 1 por bot, ya que no puede enviar varios a la vez"""
+
+        def bot_already_exists_on_final_queue(tweet):
+            for f_tweet in final_queue:
+                if f_tweet.bot_used == tweet.bot_used:
+                    return True
+
+            return False
+
+        all_in_queue = self.filter(sending=False, sent_ok=False, mentioned_users__isnull=False)
+
+        if by_bot:
+            all_in_queue = all_in_queue.by_bot(by_bot)
+
+        # esta será la cola final con 1 tweet por bot
+        final_queue = []
+
+        for tweet in all_in_queue:
+            if not bot_already_exists_on_final_queue(tweet):
+                final_queue.append(tweet)
+            else:
+                continue
+
+        return final_queue
+
     #
     # proxy queryset methods
     #
@@ -98,8 +143,14 @@ class TweetManager(models.Manager):
     def sent_ok(self):
         return self.get_queryset().sent_ok()
 
-    def queued_to_send(self):
-        return self.get_queryset().queued_to_send()
+    def by_bot(self, bot):
+        return self.get_queryset().by_bot(bot)
+
+    def mentioning_bots(self):
+        return self.get_queryset().mentioning_bots()
+
+    def not_checked_if_mention_arrives_ok(self):
+        return self.get_queryset().not_checked_if_mention_arrives_ok()
 
 
 class ProjectManager(models.Manager):
@@ -288,3 +339,10 @@ class TwitterUserManager(MyManager):
 
     def mentioned_by_bot_on_project(self, *args):
         return self.get_queryset().mentioned_by_bot_on_project(*args)
+
+
+class TweetCheckingMentionManager(MyManager):
+    def put_checking_to_not_checking(self):
+        if self.exists():
+            self.filter(destination_bot_is_checking_mention=True).update(destination_bot_is_checking_mention=False)
+            settings.LOGGER.info('All previous verifying mctweets were set to not verifying')

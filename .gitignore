@@ -177,8 +177,9 @@ test_db
 logs/
 nohup.out
 
-scrapper/screenshots/
+core/scrapper/screenshots/
+core/scrapper/webdrivers/phantomjs/cookies/
+core/scrapper/avatars/
+core/scrapper/captchas/
 *.log
-scrapper/webdrivers/phantomjs/cookies/*
-scrapper/avatars/*
 *_captcha.png

@@ -16,7 +16,7 @@ class Command(BaseCommand):
         settings.LOGGER.info('-- INITIALIZED BOT CREATION FINISHER --')
 
         try:
-            TwitterBot.objects.finish_creations()
+            TwitterBot.objects.finish_creations(num_bots=int(args[0]) if args else None)
         except Exception as e:
             raise FatalError(e)
 

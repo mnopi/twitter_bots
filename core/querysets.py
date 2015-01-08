@@ -2,11 +2,14 @@
 from django.db.models import Q, Count, Max
 from django.db.models.query import QuerySet
 from project.querysets import MyQuerySet
-from scrapper.utils import is_lte_than_days_ago
+from core.scrapper.utils import is_lte_than_days_ago
 from twitter_bots import settings
 
 
 class TwitterBotQuerySet(QuerySet):
+    def with_some_account_registered(self):
+        return self.filter(Q(email_registered_ok=True) | Q(twitter_registered_ok=True))
+
     def without_any_account_registered(self):
         return self.filter(email_registered_ok=False, twitter_registered_ok=False)
 
@@ -31,12 +34,10 @@ class TwitterBotQuerySet(QuerySet):
         .with_valid_proxy_for_registration()
 
     def with_valid_proxy_for_registration(self):
-        qs = self.filter(
+        qs = self.with_valid_proxy_for_usage()\
+            .filter(
                 proxy_for_usage__is_unavailable_for_registration=False,
-                proxy_for_usage__is_unavailable_for_use=False,
-            )\
-            .exclude(proxy_for_registration__proxy='tor')\
-            .exclude(proxy_for_usage__proxy='tor')
+            )
 
         if not settings.REUSE_PROXIES_REQUIRING_PHONE_VERIFICATION:
             qs = qs.filter(proxy_for_usage__is_phone_required=False)
@@ -44,15 +45,21 @@ class TwitterBotQuerySet(QuerySet):
         return qs
 
     def with_valid_proxy_for_usage(self):
+        """Filtra por los bots que tengan sus proxies funcionando correctamente"""
         return self.filter(
-                proxy_for_usage__is_unavailable_for_use=False,
-            )\
-            .exclude(proxy_for_registration__proxy='tor')\
-            .exclude(proxy_for_usage__proxy='tor')
+            proxy_for_usage__is_unavailable_for_use=False,
+            proxy_for_usage__is_in_proxies_txts=True,
+        )
+
+    def with_invalid_proxy_for_usage(self):
+        return self.filter(
+            Q(proxy_for_usage__is_unavailable_for_use=True) |
+            Q(proxy_for_usage__is_in_proxies_txts=False)
+        )
 
     def uncompleted(self):
         """Devuelve todos los robots pendientes de terminar registros, perfil, etc"""
-        uncompleted = self.registrable()\
+        return self.registrable()\
             .filter(
                 Q(twitter_registered_ok=False) |
                 Q(twitter_confirmed_email_ok=False) |
@@ -60,18 +67,11 @@ class TwitterBotQuerySet(QuerySet):
                 Q(twitter_bio_completed=False) |
                 Q(is_suspended=True)
             )\
-            .filter_suspended_bots()
-
-        if settings.PRIORIZE_RUNNING_PROJECTS_FOR_BOT_CREATION:
-            uncompleted = uncompleted.order_by__priorizing_running_projects()
-
-        return uncompleted.distinct()
+            .filter_suspended_bots()\
+            .distinct()
 
     def on_running_projects(self):
         return self.filter(proxy_for_usage__proxies_group__projects__is_running=True)
-
-    def order_by__priorizing_running_projects(self):
-        return self.order_by('-proxy_for_usage__proxies_group__projects__is_running')
 
     def completed(self):
         """De los bots que toma devuelve sólo aquellos que estén completamente creados"""
@@ -151,6 +151,12 @@ class TwitterBotQuerySet(QuerySet):
             )
         )\
         .distinct()
+
+    def mentioned_by_bot(self, bot):
+        return self.filter(mentions__bot_used=bot)
+
+    def unmentioned_by_bot(self, bot):
+        return self.exclude(mentions__bot_used=bot)
 
 
 class ProxyQuerySet(MyQuerySet):

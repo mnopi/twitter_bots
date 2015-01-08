@@ -1,5 +1,9 @@
+# -*- coding: utf-8 -*-
+
+from optparse import make_option
+import time
 from core.models import TwitterBot
-from project.models import Tweet
+from project.models import Tweet, TweetCheckingMention
 from project.exceptions import FatalError
 from twitter_bots import settings
 from django.core.management.base import BaseCommand
@@ -12,19 +16,33 @@ MODULE_NAME = __name__.split('.')[-1]
 class Command(BaseCommand):
     help = 'Send pending tweets'
 
+    option_list = BaseCommand.option_list + (
+        make_option('--bot',
+            dest='bot',
+            help='Send pending tweets only from given bot'),
+        )
+
     def handle(self, *args, **options):
         set_logger(__name__)
         settings.LOGGER.info('-- INITIALIZED %s --' % MODULE_NAME)
 
         try:
+            # hacemos esto para que no salgan los robots como ocupados (enviando tweet, comprobando mención..)
             Tweet.objects.put_sending_to_not_sending()
+            TweetCheckingMention.objects.put_checking_to_not_checking()
+            Tweet.objects.remove_wrong_constructed()
 
-            if args and '1' in args:
-                TwitterBot.objects.send_tweet_from_pending_queue()
-            else:
-                TwitterBot.objects.send_pending_tweets()
-        except Exception:
-            raise FatalError()
+            bot = TwitterBot.objects.get(username=options['bot']) \
+                if 'bot' in options and options['bot'] \
+                else None
+
+            num_threads = int(args[0]) if args else None
+
+            TwitterBot.objects.send_pending_tweets(bot=bot, num_threads=num_threads)
+
+            time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER)
+        except Exception as e:
+            raise FatalError(e)
 
         settings.LOGGER.info('-- FINISHED %s --' % MODULE_NAME)
 

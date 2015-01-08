@@ -3,14 +3,19 @@ import random
 
 from django.db import models
 from django.db.models import Count, Q
+import feedparser
 import simplejson
-import tweepy
 import time
+import tweepy
+from core.managers import mutex
+from core.scrapper.exceptions import ConnectionError
 from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted, TweetCreationException
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
-    TwitterUserManager
-from scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago, naive_to_utc
+    TwitterUserManager, TweetCheckingMentionManager
+from core.scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago, naive_to_utc, \
+    generate_random_secs_from_minute_interval
 from twitter_bots import settings
+from twitter_bots.settings import set_logger
 
 
 class Project(models.Model):
@@ -284,48 +289,80 @@ class Tweet(models.Model):
     date_created = models.DateTimeField(auto_now_add=True)  # la fecha en la que se crea y se mete en la cola
     date_sent = models.DateTimeField(null=True, blank=True)
     sending = models.BooleanField(default=False)
+
+    # esto nos dice si el robot escribió bien el tweet en su timeline. Otra cosa es que aparezca
+    # en los resultados de búsqueda de twitter..
     sent_ok = models.BooleanField(default=False)
 
     # RELATIONSHIPS
-    tweet_msg = models.ForeignKey(TweetMsg, null=True)
-    link = models.ForeignKey('Link', null=True, blank=True, related_name='tweets')
-    page_announced = models.ForeignKey('PageLink', null=True, blank=True, related_name='tweets')
-    bot_used = models.ForeignKey('core.TwitterBot', related_name='tweets', null=True)
-    mentioned_users = models.ManyToManyField(TwitterUser, related_name='mentions', null=True, blank=True)
-    project = models.ForeignKey(Project, null=True, blank=True, related_name="tweets")
-    tweet_img = models.ForeignKey('TweetImg', null=True, blank=True)
+    tweet_msg = models.ForeignKey('TweetMsg', null=True, blank=True)
+    link = models.ForeignKey('Link', related_name='tweets', null=True, blank=True)
+    page_announced = models.ForeignKey('PageLink', related_name='tweets', null=True, blank=True)
+    bot_used = models.ForeignKey('core.TwitterBot', related_name='tweets', null=True, blank=True)
+    mentioned_users = models.ManyToManyField('TwitterUser', related_name='mentions', null=True, blank=True)
+    mentioned_bots = models.ManyToManyField('core.TwitterBot', related_name='mentions', null=True, blank=True)
+    project = models.ForeignKey('Project', related_name='tweets', null=True, blank=True)
+    tweet_img = models.ForeignKey('TweetImg', related_name='tweets', null=True, blank=True)
+    feed_item = models.ForeignKey('FeedItem', related_name='tweets', null=True, blank=True)
 
     objects = TweetManager()
 
     def __unicode__(self):
         return self.compose()
 
-    def compose(self):
-        compose_txt = ''
-        if self.mentioned_users:
+    def compose(self, for_verif_mctweets=False):
+        def compose_for_twitterusers():
+            compose_txt = ''
             mu_txt = ''
-        # solo se podrá consultar los usuarios mencionados si antes se guardó la instancia del tweet en BD
+            # solo se podrá consultar los usuarios mencionados si antes se guardó la instancia del tweet en BD
             for mu in self.mentioned_users.all():
                 mu_txt += '@%s ' % mu.username
             compose_txt += mu_txt
-        if self.tweet_msg:
-            compose_txt += self.tweet_msg.text
-        if self.link:
-            compose_txt += ' ' + self.link.url if self.link else ''
-        if self.page_announced:
-            pa = self.page_announced
-            if self.tweet_msg or self.link:
-                compose_txt += ' '
-            if pa.page_title and pa.hashtag:
-                compose_txt += pa.page_title + ' ' + pa.page_link + ' ' + pa.hashtag.name
-            elif pa.page_title:
-                compose_txt += pa.page_title + ' ' + pa.page_link
-            elif pa.hashtag:
-                compose_txt += pa.page_link + ' ' + pa.hashtag.name
-            else:
-                compose_txt += pa.page_link
 
-        return compose_txt
+            if self.tweet_msg:
+                compose_txt += self.tweet_msg.text
+
+            if self.link:
+                compose_txt += ' ' + self.link.url if self.link else ''
+
+            if self.page_announced:
+                pa = self.page_announced
+                if self.tweet_msg or self.link:
+                    compose_txt += ' '
+                if pa.page_title and pa.hashtag:
+                    compose_txt += pa.page_title + ' ' + pa.page_link + ' ' + pa.hashtag.name
+                elif pa.page_title:
+                    compose_txt += pa.page_title + ' ' + pa.page_link
+                elif pa.hashtag:
+                    compose_txt += pa.page_link + ' ' + pa.hashtag.name
+                else:
+                    compose_txt += pa.page_link
+
+            return compose_txt
+
+        def compose_for_bots():
+            compose_txt = ''
+            mb_txt = ''
+            for mb in self.mentioned_bots.all():
+                mb_txt += '@%s ' % mb.username
+            compose_txt += mb_txt
+
+            # después de las menciones va el texto del feed_item
+            compose_txt += self.feed_item.text if self.feed_item else '<<no feed item>>'
+
+            # si el tweet tiene link o pagelink entonces se lo ponemos. de lo contrario ponemos el link del feed
+            if not for_verif_mctweets:
+                if self.link:
+                    compose_txt += ' ' + self.link
+                elif self.page_announced and self.page_announced.page_link:
+                    compose_txt += ' ' + self.page_announced.page_link
+
+            return compose_txt
+
+        if self.mentioned_users.exists():
+            return compose_for_twitterusers()
+        elif self.mentioned_bots.exists():
+            return compose_for_bots()
 
     def length(self):
         def mentioned_users_space():
@@ -364,15 +401,34 @@ class Tweet(models.Model):
     def is_available(self):
         return not self.sending and not self.sent_ok
 
-    def add_mentions(self, bot_used, project):
+    def add_bots_to_mention(self):
+        """Añade sobre el tweet los bots que se puedan mencionar"""
+
+        from core.models import TwitterBot
+
+        bot_used_group = self.bot_used.get_group()
+
+        mentionable_bots = self.bot_used.get_rest_of_completed_bots_under_same_group()
+        if mentionable_bots:
+            for bot_to_mention in mentionable_bots[:bot_used_group.max_num_mentions_per_tweet]:
+                if self.length() + len(bot_to_mention.username) + 2 <= 140:
+                    self.mentioned_bots.add(bot_to_mention)
+                else:
+                    break
+        else:
+            settings.LOGGER.warning('Bot %s has not bots to mention for group %s' %
+                                    (self.bot_used.username, bot_used_group.__unicode__()))
+            raise TweetCreationException(self)
+
+    def add_mentions(self):
         if self.tweet_msg:
             language = self.tweet_msg.language
         else:
             language = None
 
         unmentioned_for_tweet_to_send = TwitterUser.objects.get_unmentioned_on_project(
-                    project,
-                    limit=bot_used.get_group().max_num_mentions_per_tweet,
+                    self.project,
+                    limit=self.bot_used.get_group().max_num_mentions_per_tweet,
                     language=language
                 )
 
@@ -384,71 +440,90 @@ class Tweet(models.Model):
                     break
 
             settings.LOGGER.info('Queued [proj: %s | bot: %s] >> %s' %
-                                 (project.__unicode__(), bot_used.__unicode__(), self.compose()))
+                                 (self.project.__unicode__(), self.bot_used.__unicode__(), self.compose()))
             # break
         else:
             settings.LOGGER.warning('Bot %s has not more users to mention for project %s' %
-                                    (bot_used.username, project.name))
+                                    (self.bot_used.username, self.project.name))
             raise TweetCreationException(self)
 
     def add_tweet_msg(self, project):
         tweet_message = project.tweet_msgs.order_by('?')[0]
         if self.length() + len(tweet_message.text) <= 140:
             self.tweet_msg = tweet_message
+            self.save()
         else:
             settings.LOGGER.warning('Tweet %s is too long to add custom message %s' %
                                     (self, tweet_message))
 
     def add_page_announced(self, project):
-        page_announced = project.pagelink_set.order_by('?')[0]
-        if self.length() + page_announced.page_link_length() <= 140:
-            self.page_announced = page_announced
+        if project.pagelink_set.exists():
+            page_announced = project.pagelink_set.order_by('?')[0]
+            if self.length() + page_announced.page_link_length() <= 140:
+                self.page_announced = page_announced
+                self.save()
+            else:
+                settings.LOGGER.warning('Tweet %s is too long to add page link %s' %
+                                        (self, page_announced))
         else:
-            settings.LOGGER.warning('Tweet %s is too long to add page link %s' %
-                                    (self, page_announced))
+            raise Exception('Project %s has no pagelinks' % project.__unicode__())
 
     def add_image(self, project):
-        if self.length() + 23 <= 140:
-            self.tweet_img = project.tweet_imgs.order_by('?')[0]
+        if project.tweet_imgs.exists():
+            if self.length() + 23 <= 140:
+                self.tweet_img = project.tweet_imgs.order_by('?')[0]
+                self.save()
+            else:
+                settings.LOGGER.warning('Tweet %s is too long to add image' %
+                                        (self))
         else:
-            settings.LOGGER.warning('Tweet %s is too long to add image' %
-                                    (self))
+            settings.LOGGER.warning('Project %s has no images' % project.__unicode__())
 
     def add_link(self, project):
         link = project.links.get(is_active=True)
         if self.length() + len(link.url) + 1 <= 140:
             self.link = link
+            self.save()
         else:
             settings.LOGGER.warning('Tweet %s is too long to add link %s' %
                                     (self, link))
 
     def send(self):
+        if not settings.LOGGER:
+            set_logger('tweet_sender')
+
         try:
-            settings.LOGGER.info('Bot %s sending tweet %i: >> %s' %
-                                 (self.bot_used.__unicode__(), self.pk, self.compose()))
-            self.bot_used.scrapper.set_screenshots_dir(str(self.pk))
+            settings.LOGGER.info('Bot %s sending tweet %i%s: >> %s' %
+                                 (self.bot_used.__unicode__(),
+                                  self.pk,
+                                  ' [CHECKING MENTION]' if self.mentioned_bots.exists() else '',
+                                  self.compose())
+            )
+            screenshots_dir = str(self.pk) + '_mentioning_bot' if self.mentioned_bots.exists() \
+                else str(self.pk)
+            self.bot_used.scrapper.set_screenshots_dir(screenshots_dir)
             self.bot_used.scrapper.open_browser()
             self.bot_used.scrapper.login()
             self.bot_used.scrapper.send_tweet(self)
-            self.sent_ok = True
-            self.date_sent = utc_now()
-            self.save()
+        except ConnectionError:
+            pass
         except Exception as e:
-            settings.LOGGER.exception('Error sending tweet (id: %i, bot: %s - %s)' %
-                                      (self.pk, self.bot_used.username, self.bot_used.real_name))
+            settings.LOGGER.exception('Error on bot %s (%s) sending tweet with id=%i)' %
+                                      (self.bot_used.username, self.bot_used.real_name, self.pk))
+            # self.delete()
             raise e
         finally:
             # si el tweet sigue en BD se desmarca como enviando
             if Tweet.objects.filter(pk=self.pk).exists():
-                self.sending = False
-                self.save()
+                try:
+                    mutex.acquire()
+                    self.sending = False
+                    self.save()
+                finally:
+                    mutex.release()
             self.bot_used.scrapper.close_browser()
 
-    def has_bot_sending_another(self):
-        """Comprueba si el bot asignado para el tweet ya está enviando otro"""
-        return Tweet.objects.filter(sending=True, bot_used=self.bot_used).exists()
-
-    def has_enough_time_spend_before_sending(self):
+    def enough_time_passed_since_last(self):
         """
             Indica si ha pasado el suficientemente tiempo para poder lanzarse este tweet tras el último
             que lanzó su robot. Por ejemplo, si su robot pertenece a un grupo de intervalo '2-7' minutos,
@@ -460,15 +535,56 @@ class Tweet(models.Model):
         else:
             # si el bot ya envió algún tweet se comprueba que el último se haya enviado
             # antes o igual a la fecha de ahora menos el tiempo aleatorio entre tweets por bot
-            time_between_tweets = self.bot_used.get_group().time_between_tweets.split('-')
-            random_seconds_ago = random.randint(60*int(time_between_tweets[0]), 60*int(time_between_tweets[1]))
+            random_seconds_ago = generate_random_secs_from_minute_interval(self.bot_used.get_group().time_between_tweets)
             if is_lte_than_seconds_ago(last_tweet_sent.date_sent, random_seconds_ago):
                 return True
             else:
                 return False
 
     def can_be_sent(self):
-        return not self.has_bot_sending_another() and self.has_enough_time_spend_before_sending()
+        """Nos dice si el tweet en cuestión, tomado desde la cola de tweets, puede enviarse o no"""
+
+        # si el bot tiene que mencionar y el tweet que manda no contiene menciones
+        tweet_has_no_mention = self.bot_used.get_group().has_mentions and not self.has_mentions()
+        if tweet_has_no_mention:
+            settings.LOGGER.warning('Tweet without mentions will be deleted: %s' % self.compose())
+            self.delete()
+            return False
+
+        # si en caso de mencionar twitterusers su bot pueda mencionar twitterusers
+        elif self.mentions_twitter_users() and not self.bot_used.can_mention_twitterusers():
+            return False
+
+        elif not self.bot_used.can_tweet():
+            return False
+
+        else:
+            return True
+
+    def check_mentions(self):
+        pass
+
+    def mentions_twitter_users(self):
+        return self.mentioned_users.exists()
+
+    def mentions_twitter_bots(self):
+        return self.mentioned_bots.exists()
+
+    def has_mentions(self):
+        return self.mentions_twitter_users() or self.mentions_twitter_bots()
+
+
+class TweetCheckingMention(models.Model):
+    tweet = models.OneToOneField('Tweet', related_name='tweet_checking_mention', null=False, blank=False)
+    destination_bot_is_checking_mention = models.BooleanField(default=False)
+    destination_bot_checked_mention = models.BooleanField(default=False)
+    destination_bot_checked_mention_date = models.DateTimeField(null=True, blank=True)
+    mentioning_works = models.BooleanField(default=False)
+
+    objects = TweetCheckingMentionManager()
+
+    class Meta:
+        verbose_name_plural = 'Tweets checking mention'
 
 
 class Link(models.Model):
@@ -899,26 +1015,46 @@ class PageLink(models.Model):
 class ProxiesGroup(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False)
 
-    # bot registration
+    # bot registration behaviour
     is_bot_creation_enabled = models.BooleanField(default=False)
     max_tw_bots_per_proxy_for_registration = models.PositiveIntegerField(null=False, blank=False, default=6)
     min_days_between_registrations_per_proxy = models.PositiveIntegerField(null=False, blank=False, default=5)
-    min_days_between_registrations_per_proxy_under_same_subnet = models.PositiveIntegerField(null=False, blank=False, default=5)
+    min_days_between_registrations_per_proxy_under_same_subnet = models.PositiveIntegerField(null=False, blank=False, default=2)
 
     # indica si vamos a reutilizar proxies con bots chungos (por ejemplo para grupos de prueba etc)
     reuse_proxies_with_suspended_bots = models.BooleanField(default=False)
 
-    # bot usage
+    # bot usage behaviour
     is_bot_usage_enabled = models.BooleanField(default=False)
     max_tw_bots_per_proxy_for_usage = models.PositiveIntegerField(null=False, blank=False, default=12)
-    time_between_tweets = models.CharField(max_length=10, null=False, blank=False, default='2-5')  # '2-5' -> entre 2 y 5 minutos
-    max_num_mentions_per_tweet = models.PositiveIntegerField(null=False, blank=False, default=1)
 
+    # tweet behaviour
+    time_between_tweets = models.CharField(max_length=10, null=False, blank=False, default='2-5')  # '2-5' -> entre 2 y 5 minutos
     has_tweet_msg = models.BooleanField(default=False)
     has_link = models.BooleanField(default=False)
     has_tweet_img = models.BooleanField(default=False)
     has_page_announced = models.BooleanField(default=False)
     has_mentions = models.BooleanField(default=False)
+    max_num_mentions_per_tweet = models.PositiveIntegerField(null=False, blank=False, default=1)
+
+    #
+    # mentioning check behaviour
+    #
+
+    #  cada x menciones consecutivas se manda un tweet a otro bot de su mismo grupo para ver si sigue funcionando
+    num_consecutive_mentions_for_check_mentioning_works = models.PositiveIntegerField(null=False, blank=False, default=5)
+
+    # time window para no volver a mencionar con el mismo robot después de que la comprobación haya ido mal
+    mention_fail_time_window = models.CharField(max_length=10, null=False, blank=False, default='10-40')
+
+    # time window desde que se envía el mc_tweet hasta que el bot destino lo verifica en su panel de notificaciones
+    destination_bot_checking_time_window = models.CharField(max_length=10, null=False, blank=False, default='2-5')
+
+    # para no volver a mencionar al mismo robot con mismo tweet
+    mention_same_bot_same_tweet_time_window = models.CharField(max_length=10, null=False, blank=False, default='80-200')
+
+    # para no volver a mencionar al mismo robot con distinto tweet
+    mention_same_bot_distinct_tweet_time_window = models.CharField(max_length=10, null=False, blank=False, default='30-90')
 
     # webdriver
     FIREFOX = 'FI'
@@ -935,6 +1071,46 @@ class ProxiesGroup(models.Model):
     projects = models.ManyToManyField(Project, related_name='proxies_groups', null=True, blank=True)
 
     objects = ProxiesGroupManager()
+
+    def __unicode__(self):
+        return self.name
+
+
+class Feed(models.Model):
+    name = models.CharField(max_length=100, null=False, blank=False, default='_unnamed')
+    url = models.URLField(null=False, blank=False)
+
+    def __unicode__(self):
+        return self.name
+
+    def get_new_item(self):
+        """Saca un item del feed que todavía no esté guardado en tabla FeedItem de nuestra BD"""
+        feed = feedparser.parse(self.url)
+        for entry in feed['entries']:
+            entry_text = entry['title']
+            entry_link = entry['link']
+
+            text_is_short_enough = len(entry_text) <= 101
+            text_is_new = not FeedItem.objects.filter(text__icontains=entry_text).exists()
+
+            if text_is_short_enough and text_is_new:
+                return FeedItem(feed=self, text=entry_text, link=entry_link)
+
+        return None
+
+
+class FeedItem(models.Model):
+    feed = models.ForeignKey(Feed, null=False, blank=False)
+    text = models.CharField(max_length=101, null=False, blank=False)
+    link = models.URLField(null=True, blank=True)
+
+    def __unicode__(self):
+        return self.text
+
+class FeedsGroup(models.Model):
+    name = models.CharField(max_length=100, null=False, blank=False)
+    feeds = models.ManyToManyField(Feed, related_name='feeds_groups', null=True, blank=True)
+    proxies_groups = models.ManyToManyField(ProxiesGroup, related_name='feeds_groups', null=True, blank=True)
 
     def __unicode__(self):
         return self.name
