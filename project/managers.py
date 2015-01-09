@@ -239,6 +239,30 @@ class TwitterUserManager(MyManager):
                         LEFT OUTER JOIN project_project_hashtags ON (project_hashtag.id = project_project_hashtags.hashtag_id)
                         WHERE project_project_hashtags.project_id = %(project_pk)d
                     )
+                    union
+                    (
+						select project_twitteruser.id, project_twitteruser.last_tweet_date
+						%(language_field)s
+						from project_twitteruser
+						LEFT OUTER JOIN project_follower ON (project_twitteruser.id = project_follower.twitter_user_id)
+						LEFT OUTER JOIN project_targetuser ON (project_follower.target_user_id = project_targetuser.id)
+						LEFT OUTER JOIN project_tugroup_target_users ON (project_targetuser.id = project_tugroup_target_users.targetuser_id)
+						LEFT OUTER JOIN project_tugroup ON (project_tugroup_target_users.tugroup_id = project_tugroup.id)
+						LEFT OUTER JOIN project_project_tu_group ON (project_tugroup.id = project_project_tu_group.tugroup_id)
+						WHERE project_project_tu_group.project_id = %(project_pk)d
+                    )
+                    union
+                    (
+						select project_twitteruser.id, project_twitteruser.last_tweet_date
+						%(language_field)s
+						from project_twitteruser
+						LEFT OUTER JOIN project_twitteruserhashashtag ON (project_twitteruser.id = project_twitteruserhashashtag.twitter_user_id)
+						LEFT OUTER JOIN project_hashtag ON (project_twitteruserhashashtag.hashtag_id = project_hashtag.id)
+						LEFT OUTER JOIN project_hashtaggroup_hashtags ON (project_hashtag.id = project_hashtaggroup_hashtags.hashtag_id)
+						LEFT OUTER JOIN project_hashtaggroup ON (project_hashtaggroup_hashtags.hashtaggroup_id = project_hashtaggroup.id)
+						LEFT OUTER JOIN project_project_hashtag_group ON (project_hashtaggroup.id = project_project_hashtag_group.hashtaggroup_id)
+						WHERE project_project_hashtag_group.project_id = %(project_pk)d
+                    )
                 ) total_project_users
             LEFT OUTER JOIN project_tweet_mentioned_users ON (total_project_users.id = project_tweet_mentioned_users.twitteruser_id)
             WHERE project_tweet_mentioned_users.tweet_id IS NULL
