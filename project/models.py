@@ -9,11 +9,14 @@ import time
 import tweepy
 from core.managers import mutex
 from core.scrapper.exceptions import ConnectionError
-from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted, TweetCreationException
+from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted, TweetCreationException, \
+    TweetWithoutRecipientsError, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
+    TweetHasToBeVerified, BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, \
+    DestinationBotIsBeingUsed, BotHasToSendMcTweet
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
     TwitterUserManager, TweetCheckingMentionManager
 from core.scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago, naive_to_utc, \
-    generate_random_secs_from_minute_interval
+    generate_random_secs_from_minute_interval, has_elapsed_secs_since_time_ago
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
 
@@ -541,28 +544,49 @@ class Tweet(models.Model):
             else:
                 return False
 
-    def can_be_sent(self):
-        """Nos dice si el tweet en cuestión, tomado desde la cola de tweets, puede enviarse o no"""
+    def log_reason_to_not_send(self, reason):
 
-        # si el bot tiene que mencionar y el tweet que manda no contiene menciones
-        tweet_has_no_mention = self.bot_used.get_group().has_mentions and not self.has_mentions()
-        if tweet_has_no_mention:
-            settings.LOGGER.warning('Tweet without mentions will be deleted: %s' % self.compose())
-            self.delete()
-            return False
-
-        # si en caso de mencionar twitterusers su bot pueda mencionar twitterusers
-        elif self.mentions_twitter_users() and not self.bot_used.can_mention_twitterusers():
-            return False
-
-        elif not self.bot_used.can_tweet():
-            return False
-
+        if self.mentions_twitter_users():
+            do = 'mention twitter users'
+        elif self.mentions_twitter_bots():
+            do = 'mention twitter bots'
         else:
-            return True
+            do = 'tweet'
 
-    def check_mentions(self):
-        pass
+        settings.LOGGER.debug('Bot %s can\'t %s because %s' % (self.bot_used.username, do, reason))
+
+    def check_if_can_be_sent(self):
+        """Comprueba si el tweet puede enviarse o no"""
+
+        self._check_if_errors_on_construction()
+
+        sender_bot = self.bot_used
+
+        if not self.bot_used.has_enough_time_passed_since_his_last_tweet():
+            raise BotHasNotEnoughTimePassedToTweetAgain(sender_bot)
+
+        if sender_bot.is_already_being_used():
+            raise BotIsAlreadyBeingUsed(sender_bot)
+
+        if self.mentions_twitter_users() \
+                and sender_bot.has_reached_consecutive_twitteruser_mentions():
+            raise BotHasReachedConsecutiveTUMentions(sender_bot)
+
+    def _check_if_errors_on_construction(self):
+        """Nos dice si el tweet está bien construído"""
+
+        # comprobamos que menciona a alguien en caso de que el bot que lo envía esté marcado como que
+        # tiene que mencionar (has_mentions)
+        no_recipients_error = self.bot_used.get_group().has_mentions and not self.has_mentions()
+        if no_recipients_error:
+            raise TweetWithoutRecipientsError(self)
+
+    def _has_errors(self):
+        try:
+            self._check_if_errors_on_construction()
+            return True
+        except TweetConstructionError:
+            return False
 
     def mentions_twitter_users(self):
         return self.mentioned_users.exists()
@@ -572,6 +596,38 @@ class Tweet(models.Model):
 
     def has_mentions(self):
         return self.mentions_twitter_users() or self.mentions_twitter_bots()
+
+    def check_if_can_be_verified(self):
+        """Comprueba si el tweet puede ser verificado por bot destino"""
+
+        if self.mentions_twitter_bots():
+            # comprobamos que el bot destino no esté siendo usando
+            destination_bot = self.mentioned_bots.first()
+            if destination_bot.is_already_being_used():
+                raise DestinationBotIsBeingUsed(self)
+            else:
+                # comprobamos que si ya se ha pasado el time window desde que el bot que lanza el tweet
+                # fue detectado que no puede mencionar
+                verif_time_window = self.bot_used.get_group().destination_bot_checking_time_window
+                verif_time_window_is_passed = has_elapsed_secs_since_time_ago(
+                    self.date_sent,
+                    generate_random_secs_from_minute_interval(verif_time_window)
+                )
+                if not verif_time_window_is_passed:
+                    raise VerificationTimeWindowNotPassed(self)
+        else:
+            raise Exception('Tweet verification only applies to tweets mentioning twitterbots')
+
+    def verify(self):
+        """Se intenta verificar el tweet desde su bot destino.
+
+        De lo contrario, lanzamos excepción TweetHasToBeVerified para que salga del mutex
+        y se ponga a verificarse.
+        """
+        self.check_if_can_be_verified()
+        self.tweet_checking_mention.destination_bot_is_checking_mention = True
+        self.tweet_checking_mention.save()
+        raise TweetHasToBeVerified(self)
 
 
 class TweetCheckingMention(models.Model):
@@ -1036,25 +1092,17 @@ class ProxiesGroup(models.Model):
     has_page_announced = models.BooleanField(default=False)
     has_mentions = models.BooleanField(default=False)
     max_num_mentions_per_tweet = models.PositiveIntegerField(null=False, blank=False, default=1)
+    feedtweets_per_twitteruser_mention = models.CharField(max_length=10, null=False, blank=False, default='2-4')
 
     #
     # mentioning check behaviour
     #
-
     #  cada x menciones consecutivas se manda un tweet a otro bot de su mismo grupo para ver si sigue funcionando
     num_consecutive_mentions_for_check_mentioning_works = models.PositiveIntegerField(null=False, blank=False, default=5)
-
     # time window para no volver a mencionar con el mismo robot después de que la comprobación haya ido mal
     mention_fail_time_window = models.CharField(max_length=10, null=False, blank=False, default='10-40')
-
     # time window desde que se envía el mc_tweet hasta que el bot destino lo verifica en su panel de notificaciones
     destination_bot_checking_time_window = models.CharField(max_length=10, null=False, blank=False, default='2-5')
-
-    # para no volver a mencionar al mismo robot con mismo tweet
-    mention_same_bot_same_tweet_time_window = models.CharField(max_length=10, null=False, blank=False, default='80-200')
-
-    # para no volver a mencionar al mismo robot con distinto tweet
-    mention_same_bot_distinct_tweet_time_window = models.CharField(max_length=10, null=False, blank=False, default='30-90')
 
     # webdriver
     FIREFOX = 'FI'
@@ -1114,3 +1162,8 @@ class FeedsGroup(models.Model):
 
     def __unicode__(self):
         return self.name
+
+
+class TweetFromFeed(models.Model):
+    tweet = models.OneToOneField('Tweet', related_name='tweet_from_feed', null=False, blank=False)
+    twitteruser_mention = models.ForeignKey('Tweet', related_name='tweets_from_feed')

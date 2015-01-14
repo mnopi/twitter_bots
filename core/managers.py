@@ -7,8 +7,8 @@ import time
 
 from django.db import models, connection
 from core.querysets import TwitterBotQuerySet, ProxyQuerySet
-from project.exceptions import NoMoreAvailableProxiesForRegistration, AllBotsInUse, NoTweetsOnQueue, CantRetrieveMoreItemsFromFeeds, BotHasToSendMcTweet, \
-    DestinationBotHasToVerifyMcTweet
+from project.exceptions import NoMoreAvailableProxiesForRegistration, NoBotsFoundForSendingMentions, NoTweetsOnMentionQueue, CantRetrieveMoreItemsFromFeeds, BotHasToSendMcTweet, \
+    TweetHasToBeVerified, BotHasReachedConsecutiveTUMentions
 from core.scrapper.thread_pool import ThreadPool
 from core.scrapper.utils import utc_now
 from twitter_bots import settings
@@ -113,17 +113,23 @@ class TwitterBotManager(models.Manager):
     def put_previous_being_created_to_false(self):
             self.filter(is_being_created=True).update(is_being_created=False)
 
-    def send_tweet_from_pending_queue(self, bot=None):
+    def send_twusermention_from_pending_queue(self, bot=None):
         """Escoge un tweet pendiente de enviar cuyo robot no esté enviando actualmente"""
         from project.models import Tweet
 
         try:
             connection.close()
-            tweet_to_send = Tweet.objects.get_tweet_ready_to_send(bot=bot)
+
+            try:
+                mutex.acquire()
+                tweet_to_send = Tweet.objects.get_mention_ready_to_send(bot=bot)
+            finally:
+                mutex.release()
+
             tweet_to_send.send()
 
-        except (AllBotsInUse,
-                NoTweetsOnQueue):
+        except (NoBotsFoundForSendingMentions,
+                NoTweetsOnMentionQueue):
             # si no se puede enviar nada ponemos la hebra a esperar un momento
             settings.LOGGER.debug('Sleeping %d seconds..' % settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET)
             time.sleep(settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET)
@@ -131,22 +137,22 @@ class TwitterBotManager(models.Manager):
         except BotHasToSendMcTweet as e:
             e.mc_tweet.send()
 
-        except DestinationBotHasToVerifyMcTweet as e:
-            mentioned_bot = e.mc_tweet.mentioned_bots.all()[0]
-            mentioned_bot.check_if_tweet_received_ok(e.mc_tweet)
+        except TweetHasToBeVerified as e:
+            mentioned_bot = e.tweet.mentioned_bots.first()
+            mentioned_bot.verify_tweet_if_received_ok(e.tweet)
 
         except (CantRetrieveMoreItemsFromFeeds, Exception) as e:
             settings.LOGGER.exception('Error sending tweet')
             raise e
 
-    def send_pending_tweets(self, bot=None, num_threads=None, num_tasks=None):
+    def send_mentions_from_queue(self, bot=None, num_threads=None, num_tasks=None):
         if num_threads == 1:
-            self.send_tweet_from_pending_queue(bot)
+            self.send_twusermention_from_pending_queue(bot)
         else:
             pool = ThreadPool(num_threads or settings.MAX_THREADS_SENDING_TWEETS)
 
             for task_num in range(num_tasks or settings.TOTAL_TASKS_SENDING_TWEETS):
-                pool.add_task(self.send_tweet_from_pending_queue, bot)
+                pool.add_task(self.send_twusermention_from_pending_queue, bot)
             pool.wait_completion()
 
         # manager = multiprocessing.Manager()

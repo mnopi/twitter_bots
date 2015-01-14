@@ -227,13 +227,13 @@ class TwitterBotAdmin(admin.ModelAdmin):
     create_bot_from_fixed_ip.short_description = "Create 1 bot [from fixed ip]"
 
     def send_tweet_from_pendings(self, request, queryset):
-        TwitterBot.objects.send_tweet_from_pending_queue()
+        TwitterBot.objects.send_twusermention_from_pending_queue()
         self.message_user(request, "Tweet sent sucessfully")
     send_tweet_from_pendings.short_description = "Send pending tweet"
 
     def send_pending_tweets(self, request, queryset):
         try:
-            TwitterBot.objects.send_pending_tweets()
+            TwitterBot.objects.send_mentions_from_queue()
             self.message_user(request, "All pending tweets sent sucessfully")
         except Exception:
             msg = "There were errors sending pending tweets"

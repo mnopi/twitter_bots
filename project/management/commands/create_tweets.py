@@ -17,7 +17,7 @@ class Command(BaseCommand):
         settings.LOGGER.info('-- INITIALIZED %s --' % MODULE_NAME)
 
         try:
-            Tweet.objects.create_tweets_to_send()
+            Tweet.objects.create_mentions_to_send()
             time.sleep(10)
         except Exception as e:
             if type(e) is not TwitteableBotsNotFound:

@@ -5,7 +5,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from project.exceptions import NoMoreAvailableProxiesForRegistration, BotHasNoProxiesForUsage, SuspendedBotHasNoProxiesForUsage, \
     TweetCreationException, BotHasToCheckIfMentioningWorks, CantRetrieveMoreItemsFromFeeds, BotHasToSendMcTweet, \
-    DestinationBotHasToVerifyMcTweet
+    TweetHasToBeVerified, BotCantSendMctweet, LastMctweetFailedTimeWindowNotPassed
 from core.scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from core.scrapper.accounts.hotmail import HotmailScrapper
 from core.scrapper.accounts.twitter import TwitterScrapper
@@ -411,18 +411,14 @@ class TwitterBot(models.Model):
             tweet__mentioned_bots=self
         ).exists()
 
-    def is_being_used(self):
-        if self.is_already_sending_tweet() or self.is_already_checking_mention():
-            settings.LOGGER.debug('Bot %s is already being used' % self.username)
-            return True
-        else:
-            return False
+    def is_already_being_used(self):
+        return self.is_already_sending_tweet() or self.is_already_checking_mention()
 
     def can_tweet(self):
         """Nos dice si el bot puede tuitear"""
 
         # no podrá tuitear si está siendo usado
-        if self.is_being_used():
+        if self.is_already_being_used():
             return False
 
         # tampoco si no pasó el tiempo suficiente desde que envió el último tweet
@@ -581,24 +577,35 @@ class TwitterBot(models.Model):
         if not self.proxy_is_ok():
             self.assign_proxy()
 
-    def get_last_tweet_mentioning_bots(self):
-        """Saca el último tweet lanzado por el bot que menciona a otros bots"""
+    def get_mctweets_created(self):
+        """Saca todos los mctweets creados para el bot"""
+        return self.tweets.filter(mentioned_bots__isnull=False)
 
-        ment_bots_tweets = self.tweets.sent_ok()\
-            .filter(mentioned_bots__isnull=False)
-        if ment_bots_tweets.exists():
-            return ment_bots_tweets.latest('date_sent')
-        else:
-            return None
+    def get_mctweets_verified(self):
+        return self.get_mctweets_created()\
+            .filter(
+                sent_ok=True,
+                tweet_checking_mention__destination_bot_checked_mention=True
+        )
+
+    def get_mctweets_verified_ok(self):
+        """Saca todos los mctweets enviados y verificados ok por el bot destino"""
+        return self.get_mctweets_created()\
+            .filter(
+                sent_ok=True,
+                tweet_checking_mention__mentioning_works=True
+        )
 
     def get_consecutive_tweets_mentioning_twitterusers(self):
-        last_tweet_mentioning_bots = self.get_last_tweet_mentioning_bots()
-        if last_tweet_mentioning_bots:
-            return self.tweets.sent_ok().filter(date_sent__gt=last_tweet_mentioning_bots.date_sent)
+        """Cuenta el número de tweets lanzados a twitterusers desde el último mctweet verificado ok"""
+
+        last_mctweet_ok = self.get_mctweets_verified_ok().last()
+        if last_mctweet_ok:
+            return self.tweets.sent_ok().filter(date_sent__gt=last_mctweet_ok.date_sent)
         else:
             return self.tweets.sent_ok()
 
-    def has_reached_consecutive_mentions_to_twitterusers(self):
+    def has_reached_consecutive_twitteruser_mentions(self):
         """Mira si el robot ya superó el límite de menciones consecutivas sin comprobar si siguen
         funcionando las menciones"""
 
@@ -616,24 +623,32 @@ class TwitterBot(models.Model):
             sent_ok=False,
         ).delete()
 
-    def get_or_create_mc_tweet(self):
+    def get_or_create_mctweet(self):
         """El bot busca su tweet de verificación (mentioning check tweet). Si no existe crea uno"""
 
-        from project.models import Tweet
+        def create_mctweet():
+            self.make_tweet_to_send(from_feeds=True, only_mention_bots=True)
+
+        from project.models import Tweet, TweetCheckingMention
 
         # vemos si hay algún tweet de verificación pendiente de comprobar
-        mc_tweet_not_checked = Tweet.objects.mentioning_bots().by_bot(self).not_checked_if_mention_arrives_ok()
-        if mc_tweet_not_checked.exists():
-            if mc_tweet_not_checked.count() > 1:
+        mctweet_not_checked = Tweet.objects.mentioning_bots().by_bot(self).not_checked_if_mention_arrives_ok()
+        if mctweet_not_checked.exists():
+            if mctweet_not_checked.count() > 1:
                 settings.LOGGER.warning('There were found multiple mentioning check tweets pending to send from '
                                       'bot %s and will be deleted' % self.username)
                 self.clear_not_sent_ok_mc_tweets()
-                self.make_tweet_to_send(from_feeds=True, only_mention_bots=True)
+                create_mctweet()
         else:
             # si no existe dicho tweet de verificación el bot lo crea
-            self.make_tweet_to_send(from_feeds=True, only_mention_bots=True)
+            create_mctweet()
 
-        return mc_tweet_not_checked.first()
+        mctweet = mctweet_not_checked.first()
+
+        # si el mctweet no tiene asociado el registro tcm lo crea
+        TweetCheckingMention.objects.get_or_create(tweet=mctweet)
+
+        return mctweet
 
     def get_rest_of_completed_bots_under_same_group(self):
         """Devuelve una lista con los bots completos bajo el mismo grupo del bot dado. Ordenados
@@ -660,160 +675,23 @@ class TwitterBot(models.Model):
         with_mention_received.sort(key=lambda b: b.last_mention_received_by_bot_date, reverse=False)
         return without_mention_received + with_mention_received
 
-    def order_by__oldest_mentioned_by_bot(self, bot):
-        """Ordena los bots de menor a mayor veces mencionado por el bot dado"""
+    def _verify_received_mctweets(self):
+        """Pone al bot a verificar todos los mctweets que los demás bots le hayan enviado y estén aún sin verificar"""
 
-        bots = list(self)
-        for b in bots:
-            b.last_mention_received_by_bot_date = b.mentions.filter(bot_used=bot).latest('date_sent')
+        from project.models import TweetCheckingMention
 
-        bots.sort(key=lambda x: x.last_mention_received_by_bot_date, reverse=False)
+        tcms_to_verify = TweetCheckingMention.objects.filter(
+            tweet__mentioned_bots=self,
+            destination_bot_checked_mention=False
+        )
+        if tcms_to_verify.exists():
+            settings.LOGGER.debug('Bot %s verifying %d mctweets sent to him..' %
+                                  (self.username, tcms_to_verify.count()))
 
-        pk_list = [b.pk for b in bots]
-
-        return self.filter(pk__in=[b.pk for b in bots])
-
-    def can_mention_twitterusers(self):
-        """Nos dice si el bot puede mencionar usuarios de twitter"""
-
-        def has_passed_mention_fail_time_window():
-            """Nos dice si el bot ha superado el tiempo ventana para poder mencionar tras no funcionarle la mención"""
-
-            mention_verification = last_tweet_mentioning_bots.tweet_checking_mention
-            return has_elapsed_secs_since_time_ago(
-                mention_verification.destination_bot_checked_mention_date,
-                generate_random_secs_from_minute_interval(self.get_group().mention_fail_time_window)
-            )
-
-        def has_not_reached_consecutive_mentions_limit():
-            # comprobamos si excedió el número consecutivo de menciones a usuarios de twitter
-            if self.has_reached_consecutive_mentions_to_twitterusers():
-                log_reason_to_not_send_mention('has reached consecutive mentions sent to twitterusers')
-                try_to_send_mctweet()
-            else:
-                # si aún no superó el límite de menciones consecutivas entonces de momento
-                # lo damos por que funciona. Esto es, si por ejemplo el límite es 3 y el bot
-                # va por 2, entonces de momento no hay problema
-                return True
-
-        def log_reason_to_not_send_mention(reason):
-            settings.LOGGER.debug('Bot %s can\'t mention twitter users because %s' % (self.username, reason))
-
-        def try_to_verify_mctweet():
-            """Se intenta verificar mctweet desde su bot destino.
-
-            Si está ocupado enviando un tweet, verificando otro mctweet, o aún hay que esperar el periodo ventana
-            para la verificación, entonces devolvemos false.
-
-            De lo contrario, lanzamos excepción DestinationBotHasToVerifyMcTweet para que salga del mutex
-            y se ponga a verificar.
-            """
-
-            from project.models import TweetCheckingMention
-
-            # comprobamos que el bot destino no esté siendo usando
-            destination_bot = mc_tweet.mentioned_bots.first()
-            if not destination_bot.is_being_used():
-                tcm = TweetCheckingMention.objects.get_or_create(tweet=mc_tweet)[0]
-
-                destination_bot_checking_time_window = self.get_group().destination_bot_checking_time_window
-                time_window_passed = has_elapsed_secs_since_time_ago(
-                    mc_tweet.date_sent,
-                    generate_random_secs_from_minute_interval(destination_bot_checking_time_window)
-                )
-                if time_window_passed:
-                    tcm.destination_bot_is_checking_mention = True
-                    tcm.save()
-                    raise DestinationBotHasToVerifyMcTweet(mc_tweet)
-                else:
-                    settings.LOGGER.debug('Destination bot %s has to wait more time (between %s minutes) to verify '
-                                          'mctweet sent at %s' %
-                                          (destination_bot.username,
-                                           destination_bot_checking_time_window,
-                                           mc_tweet.date_sent))
-                    return False
-            else:
-                settings.LOGGER.debug('Destination bot %s can\'t verify mctweet from %s because is being used' %
-                                      (destination_bot.username, self.username))
-                return False
-
-        def try_to_send_mctweet():
-            from project.models import TweetCheckingMention
-
-            settings.LOGGER.debug('Bot %s trying to send mctweet..' % self.username)
-
-            if self.can_tweet():
-                mc_tweet = self.get_or_create_mc_tweet()
-                mc_tweet.sending = True
-                mc_tweet.save()
-                raise BotHasToSendMcTweet(mc_tweet)
-
-            # si el bot no está verificando mctweet en otra hebra buscamos un mctweet
-            # pendiente de verificar por ese bot
-            else:
-                settings.LOGGER.debug('Bot %s trying to verify mctweet..' % self.username)
-
-                if not self.is_already_checking_mention():
-                    tcms_to_verify = TweetCheckingMention.objects.filter(
-                        tweet__mentioned_bots=self,
-                        destination_bot_checked_mention=False
-                    )
-                    if tcms_to_verify.exists():
-                        raise DestinationBotHasToVerifyMcTweet(tcms_to_verify.first().tweet)
-                    else:
-                        settings.LOGGER.debug('Bot %s has no mctweets to verify' % self.username)
-
-
-        # el mctweet es el último tweet que lanzó el bot mencionando otro bot
-        last_tweet_mentioning_bots = self.get_last_tweet_mentioning_bots()
-        mc_tweet = last_tweet_mentioning_bots
-
-        # si ya existe su mctweet..
-        if mc_tweet:
-            try:
-                # miramos el registro de verificación de ese tweet, si no existe lanzará excepción que
-                # trataremos más abajo
-                tcm = mc_tweet.tweet_checking_mention
-
-                # si el bot destino está verificando otro mctweet entonces no podremos hacer nada
-                if tcm.destination_bot_is_checking_mention:
-                    log_reason_to_not_send_mention('destination bot is checking if mc_tweet arrived from him')
-                    return False
-
-                # si aún no se verificó el mctweet
-                elif not tcm.destination_bot_checked_mention:
-                    destination_bot = last_tweet_mentioning_bots.mentioned_bots.first()
-                    log_reason_to_not_send_mention('his mc_tweet sent to %s has to be verified first' %
-                                                   destination_bot.username)
-                    return try_to_verify_mctweet()
-
-                # si se verificó el mctweet, comprobamos que aún no alcanzamos el límite de menciones consecutivas
-                # a usuarios de twitter
-                elif tcm.mentioning_works:
-                    return has_not_reached_consecutive_mentions_limit() and self.can_tweet()
-
-                # si se superó el periodo ventana tras último mctweet fallido, volvemos a enviar otro mctweet
-                elif has_passed_mention_fail_time_window():
-                    log_reason_to_not_send_mention('destination bot has failed last mc_tweet verification')
-                    try_to_send_mctweet()
-
-                else:
-                    settings.LOGGER.warning('Bot %s can\'t send mentions to twitter users. '
-                                            'Last failed verification was at %s' %
-                                            (self.username, tcm.destination_bot_checked_mention_date))
-                    return False
-
-            except ObjectDoesNotExist:
-                # si no existe tcm es que falta verificar el mctweet
-                return try_to_verify_mctweet()
+            self.mctweets_to_verify = [tcm.tweet for tcm in tcms_to_verify]
+            raise TweetHasToBeVerified(self)
         else:
-            # si no existe mctweet comprobamos si se sobrepasaron las menciones consecutivas a usuarios de twitter
-            # esto se hace sólo una vez por bot ya que evalúa el inicio, cuando aún no existe ningún mctweet
-            # para él
-            return has_not_reached_consecutive_mentions_limit() and self.can_tweet()
-
-    def can_mention_bots(self):
-        pass
+            settings.LOGGER.debug('Bot %s has no mctweets to verify' % self.username)
 
     def has_enough_time_passed_since_his_last_tweet(self):
         """Nos dice si pasó el suficiente tiempo desde que el robot tuiteó por última vez a un usuario"""
@@ -827,12 +705,22 @@ class TwitterBot(models.Model):
             if is_lte_than_seconds_ago(last_tweet_sent.date_sent, random_seconds_ago):
                 return True
             else:
-                settings.LOGGER.debug('Bot %s has not enough time passed (between %s minutes) '
-                                      'since his last tweet sent (at %s)' %
-                                      (self.username, self.get_group().time_between_tweets, last_tweet_sent.date_sent))
                 return False
 
-    def check_if_tweet_received_ok(self, tweet):
+    def check_if_can_send_mctweet(self):
+        last_verified_mctweet = self.get_mctweets_verified().last()
+        last_verified_mctweet_was_failed = last_verified_mctweet and \
+                                           not last_verified_mctweet.tweet_checking_mention.mentioning_works
+        if last_verified_mctweet_was_failed:
+            # si el último mctweet falló su verificación vemos si pasó el tiempo de espera
+            mentioning_fail_timewindow_is_passed = has_elapsed_secs_since_time_ago(
+                last_verified_mctweet.destination_bot_checked_mention_date,
+                generate_random_secs_from_minute_interval(self.get_group().mention_fail_time_window)
+            )
+            if not mentioning_fail_timewindow_is_passed:
+                raise LastMctweetFailedTimeWindowNotPassed(self)
+
+    def verify_tweet_if_received_ok(self, tweet):
         """Comprueba si le llegó ok la mención del tweet dado por parámetro"""
 
         from project.models import TweetCheckingMention
@@ -844,7 +732,7 @@ class TwitterBot(models.Model):
             try:
                 # nos logueamos con el bot destino y comprobamos
                 mentioned_bot = tweet.mentioned_bots.all()[0]
-                settings.LOGGER.info('Bot %s checking if mention from %s arrived ok..' %
+                settings.LOGGER.info('Bot %s verifying tweet sent from %s..' %
                                      (mentioned_bot.username, tweet.bot_used.username))
                 mentioned_bot.scrapper.set_screenshots_dir('checking_mention_%s_from_%s' % (tweet.pk, tweet.bot_used.username))
                 mentioned_bot.scrapper.open_browser()

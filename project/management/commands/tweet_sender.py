@@ -23,14 +23,19 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+
+        def clean():
+            """hacemos esto para que no salgan los robots como ocupados (enviando tweet, comprobando mención..)"""
+
+            Tweet.objects.put_sending_to_not_sending()
+            TweetCheckingMention.objects.put_checking_to_not_checking()
+            Tweet.objects.remove_wrong_constructed()
+
         set_logger(__name__)
         settings.LOGGER.info('-- INITIALIZED %s --' % MODULE_NAME)
 
         try:
-            # hacemos esto para que no salgan los robots como ocupados (enviando tweet, comprobando mención..)
-            Tweet.objects.put_sending_to_not_sending()
-            TweetCheckingMention.objects.put_checking_to_not_checking()
-            Tweet.objects.remove_wrong_constructed()
+            clean()
 
             bot = TwitterBot.objects.get(username=options['bot']) \
                 if 'bot' in options and options['bot'] \
@@ -38,7 +43,7 @@ class Command(BaseCommand):
 
             num_threads = int(args[0]) if args else None
 
-            TwitterBot.objects.send_pending_tweets(bot=bot, num_threads=num_threads)
+            TwitterBot.objects.send_mentions_from_queue(bot=bot, num_threads=num_threads)
 
             time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER)
         except Exception as e:
