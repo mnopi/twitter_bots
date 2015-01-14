@@ -2,6 +2,7 @@ import datetime
 from django import forms
 from django.contrib import admin
 from django.core.exceptions import ValidationError
+from django.forms import SelectMultiple
 from project.models import *
 from django.contrib import messages
 
@@ -64,14 +65,17 @@ class PageLinkInlineFormset(forms.models.BaseInlineFormSet):
                     tweet_length = 0
                     error_msg = 'The group: ' + group.name + ' can\'t create tweet composed by'
                     if group.has_page_announced:
+                        listForm = []
                         for form in self.forms:
                             if form.cleaned_data:
                                 if form.cleaned_data['DELETE']:
                                     form.instance.page_title = ''
-                                    form.instance.hastag = None
-                        longest_page_link = max(self.forms, key = lambda p: p.instance.page_link_length()).instance
-                        tweet_length += longest_page_link.page_link_length()
-                        error_msg += ' page_announced: ' + longest_page_link.page_title + ','
+                                    form.instance.hastags = None
+                                else:
+                                    listForm.append(form)
+                        longest_page_link = max(listForm, key = lambda p: p.instance.page_link_length(p))
+                        tweet_length += longest_page_link.instance.page_link_length(longest_page_link)
+                        error_msg += ' page_announced: ' + longest_page_link.instance.page_title + ','
                     if group.has_mentions:
                         mentions_length = 17 * group.max_num_mentions_per_tweet
                         tweet_length += mentions_length
@@ -92,7 +96,9 @@ class PageLinkAdmin(admin.ModelAdmin):
         'page_title',
         'project',
         'is_active',
-        'hastag',
+        'hastags',
+        'image',
+        'languaje',
     )
 
     list_filter = (
@@ -166,13 +172,13 @@ class ProjectAdminForm(forms.ModelForm):
                         longest_link = 22
                         tweet_length += longest_link + 1
                         error_msg += " link: igoo.co/x " + ','
-                if group.has_page_announced:
-                    if project.pagelink_set.all():
-                        longest_page = max(project.pagelink_set.all(), key = lambda r: r.page_link_length())
-                        if group.has_tweet_msg or group.has_link:
-                            tweet_length += 1
-                        tweet_length += longest_page.page_link_length()
-                        error_msg += " page_announced: " + longest_page.page_title + ','
+                # if group.has_page_announced:
+                #     if project.pagelink_set.all():
+                #         longest_page = max(project.pagelink_set.all(), key = lambda r: r.page_link_length())
+                #         if group.has_tweet_msg or group.has_link:
+                #             tweet_length += 1
+                #         tweet_length += longest_page.page_link_length()
+                #         error_msg += " page_announced: " + longest_page.page_title + ','
                 if group.has_mentions:
                     mentions_length = 17 * group.max_num_mentions_per_tweet
                     tweet_length += mentions_length
@@ -214,6 +220,8 @@ class ProjectAdmin(admin.ModelAdmin):
     list_display = (
         'name',
         'is_running',
+        # 'tu_group',
+        # 'hashtag_group',
         'tweets_sent',
     )
 
@@ -414,9 +422,10 @@ class ProxiesGroupAdmin(admin.ModelAdmin):
         'has_page_announced',
         'has_mentions',
 
-        'total_bots_count',
-        'bots_registered_count',
-        'bots_using_count',
+        'proxies_num',
+        'proxies_avaiable_for_usage_num',
+        'total_bots_num',
+        'bots_using_num',
 
         'max_tw_bots_per_proxy_for_registration',
         'min_days_between_registrations_per_proxy',
@@ -426,15 +435,17 @@ class ProxiesGroupAdmin(admin.ModelAdmin):
 
     )
 
-    def total_bots_count(self, obj):
+    def proxies_num(self, obj):
+        return obj.proxies.count()
+
+    def proxies_avaiable_for_usage_num(self, obj):
+        return obj.proxies.available_to_assign_bots_for_use().count()
+
+    def total_bots_num(self, obj):
         from core.models import TwitterBot
         return TwitterBot.objects.total_from_proxies_group(obj).count()
 
-    def bots_registered_count(self, obj):
-        from core.models import TwitterBot
-        return TwitterBot.objects.registered_by_proxies_group(obj).count()
-
-    def bots_using_count(self, obj):
+    def bots_using_num(self, obj):
         from core.models import TwitterBot
         return TwitterBot.objects.using_proxies_group(obj).count()
 
@@ -501,6 +512,14 @@ class TweetCheckingMentionAdmin(admin.ModelAdmin):
     )
 
 
+class TUGroupAdmin(admin.ModelAdmin):
+    formfield_overrides = {
+        models.ManyToManyField: {
+            'widget': SelectMultiple(attrs={'size':'30'})
+        },
+    }
+
+
 # Register your models here.
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(TweetMsg, TweetMsgAdmin)
@@ -516,6 +535,8 @@ admin.site.register(TweetImg)
 admin.site.register(ProxiesGroup, ProxiesGroupAdmin)
 admin.site.register(PageLink)
 admin.site.register(PageLinkHashtag)
+admin.site.register(TUGroup, TUGroupAdmin)
+admin.site.register(HashtagGroup)
 admin.site.register(TweetCheckingMention, TweetCheckingMentionAdmin)
 
 admin.site.register(Feed)

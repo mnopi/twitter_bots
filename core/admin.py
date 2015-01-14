@@ -94,9 +94,9 @@ class TwitterBotAdmin(admin.ModelAdmin):
 
         def queryset(self, request, queryset):
             if self.yes():
-                return queryset.with_valid_proxy_for_usage()
+                return queryset.with_proxy_connecting_ok()
             elif self.no():
-                return queryset.with_invalid_proxy_for_usage()
+                return queryset.with_proxy_not_connecting_ok()
 
     list_filter = (
         BotCompletedFilter,
@@ -317,15 +317,25 @@ class ProxyAdmin(admin.ModelAdmin):
 
     # FILTERS
 
+    class IsConnectionOkListFilter(YesNoFilter):
+        title = 'Is connection ok'
+        parameter_name = 'is_connection_ok'
+
+        def queryset(self, request, queryset):
+            if self.yes():
+                return queryset.connection_ok()
+            elif self.no():
+                return queryset.connection_fail()
+
     class ValidForBotRegistrationListFilter(YesNoFilter):
         title = 'Valid for bot registration'
         parameter_name = 'valid_for_bot_registration'
 
         def queryset(self, request, queryset):
             if self.yes():
-                return queryset.available_for_registration()
+                return queryset.available_to_assign_bots_for_registration()
             elif self.no():
-                return queryset.unavailable_for_registration()
+                return queryset.unavailable_to_assign_bots_for_registration()
 
     class ValidForBotUsageListFilter(YesNoFilter):
         title = 'Valid for bot usage'
@@ -333,9 +343,9 @@ class ProxyAdmin(admin.ModelAdmin):
 
         def queryset(self, request, queryset):
             if self.yes():
-                return queryset.available_for_usage()
+                return queryset.available_to_assign_bots_for_use()
             elif self.no():
-                return queryset.unavailable_for_usage()
+                return queryset.unavailable_to_assign_bots_for_use()
 
     class HasCompletedBotsListFilter(YesNoFilter):
         title = 'Has completed bots'
@@ -388,6 +398,7 @@ class ProxyAdmin(admin.ModelAdmin):
                 return queryset.without_any_dead_bot()
 
     list_filter = (
+        IsConnectionOkListFilter,
         ValidForBotRegistrationListFilter,
         ValidForBotUsageListFilter,
         # ValidForAssignGroupListFilter,

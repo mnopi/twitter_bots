@@ -14,11 +14,15 @@ class TwitterBotQuerySet(QuerySet):
         return self.filter(email_registered_ok=False, twitter_registered_ok=False)
 
     def usable(self):
+        """
+        Devuelve bots con capacidad de poder ser usados, independientemente de como esté su proxy
+        """
+
         return self.filter(
                 is_being_created=False,
                 is_dead=False
-            ).\
-            with_valid_proxy_for_usage()
+            )\
+            .completed()
 
     def registrable(self):
         """
@@ -34,7 +38,7 @@ class TwitterBotQuerySet(QuerySet):
         .with_valid_proxy_for_registration()
 
     def with_valid_proxy_for_registration(self):
-        qs = self.with_valid_proxy_for_usage()\
+        qs = self.with_proxy_connecting_ok()\
             .filter(
                 proxy_for_usage__is_unavailable_for_registration=False,
             )
@@ -44,14 +48,14 @@ class TwitterBotQuerySet(QuerySet):
 
         return qs
 
-    def with_valid_proxy_for_usage(self):
+    def with_proxy_connecting_ok(self):
         """Filtra por los bots que tengan sus proxies funcionando correctamente"""
         return self.filter(
             proxy_for_usage__is_unavailable_for_use=False,
             proxy_for_usage__is_in_proxies_txts=True,
         )
 
-    def with_invalid_proxy_for_usage(self):
+    def with_proxy_not_connecting_ok(self):
         return self.filter(
             Q(proxy_for_usage__is_unavailable_for_use=True) |
             Q(proxy_for_usage__is_in_proxies_txts=False)
@@ -75,7 +79,7 @@ class TwitterBotQuerySet(QuerySet):
 
     def completed(self):
         """De los bots que toma devuelve sólo aquellos que estén completamente creados"""
-        return self.usable()\
+        return self \
             .filter(
                 twitter_registered_ok=True,
                 twitter_confirmed_email_ok=True,
@@ -89,7 +93,7 @@ class TwitterBotQuerySet(QuerySet):
         Entre los completamente creados coge los que no sean extractores, para evitar que twitter detecte
         actividad múltiple desde misma cuenta
         """
-        return self.completed().filter(extractor=None)
+        return self.usable().filter(extractor=None)
 
     def _annotate_tweets_queued_to_send(self):
         return self.extra(
@@ -169,8 +173,12 @@ class ProxyQuerySet(MyQuerySet):
         """Saca proxies a los que se puede conectar"""
         return self.filter(is_in_proxies_txts=True, is_unavailable_for_use=False,)
 
-    def available_for_usage(self):
-        """Devuelve proxies disponibles para iniciar sesión con bot y tuitear etc"""
+    def connection_fail(self):
+        """Saca proxies a los que no se puede conectar"""
+        return self.filter(Q(is_in_proxies_txts=False) | Q(is_unavailable_for_use=False))
+
+    def available_to_assign_bots_for_use(self):
+        """Devuelve proxies disponibles para poder asignar a bots y que puedan iniciar sesión, tuitear etc"""
 
         # base de proxies aptos usar robots ya registrados
         proxies_base = self\
@@ -196,10 +204,10 @@ class ProxyQuerySet(MyQuerySet):
 
         return self.filter(id__in=available_proxies_for_usage_ids)
 
-    def unavailable_for_usage(self):
-        return self.subtract(self.available_for_usage())
+    def unavailable_to_assign_bots_for_use(self):
+        return self.subtract(self.available_to_assign_bots_for_use())
 
-    def available_for_registration(self):
+    def available_to_assign_bots_for_registration(self):
         """
         Devuelve proxies disponibles para crear un bot
         """
@@ -240,8 +248,8 @@ class ProxyQuerySet(MyQuerySet):
 
         return self.filter(id__in=available_proxies_for_reg_ids)
 
-    def unavailable_for_registration(self):
-        return self.subtract(self.available_for_registration())
+    def unavailable_to_assign_bots_for_registration(self):
+        return self.subtract(self.available_to_assign_bots_for_registration())
 
     def with_some_registered_bot(self):
         return self.filter(twitter_bots_registered__isnull=False).distinct()
@@ -284,6 +292,10 @@ class ProxyQuerySet(MyQuerySet):
         ).distinct()
 
     def filter_suspended_bots(self):
+        """
+        Según el grupo de proxies tenga marcada la opción de reusar proxies o no
+        devolverá todos los proxies o sólo los que no tengan bots suspendidos
+        """
         return self.filter(
             (
                 Q(proxies_group__reuse_proxies_with_suspended_bots=False) &

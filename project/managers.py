@@ -35,9 +35,19 @@ class TweetManager(models.Manager):
         "Devuelve si en BD todos los tweets están marcados como enviados"
         return self.get_sent_ok().count() == self.all().count()
 
-    def clean_not_sent_ok(self):
-        self.filter(sent_ok=False).delete()
-        settings.LOGGER.info('Deleted previous sending tweets')
+    def clean_not_sent_ok(self, bot_used=None):
+        f = {
+            'sent_ok': False
+        }
+        if bot_used:
+            f.update(bot_used=bot_used)
+
+        tweets_to_delete = self.filter(**f)
+        if tweets_to_delete.exists():
+            tweets_to_delete_count = tweets_to_delete.count()
+            tweets_to_delete.delete()
+            settings.LOGGER.info('Deleted tweets pending to send%s from queue (%d)' %
+                                 (' for bot %s' % bot_used if bot_used else '', tweets_to_delete_count))
 
     def put_sending_to_not_sending(self):
         if self.exists():
@@ -116,7 +126,14 @@ class TweetManager(models.Manager):
 
         if Project.objects.running().exists():
             # dentro de los proyectos en ejecución tomamos sus bots
-            bots_in_running_projects = TwitterBot.objects.twitteable().using_in_running_projects()
+            bots_in_running_projects = TwitterBot.objects\
+                .usable()\
+                .using_in_running_projects()\
+                .with_proxy_connecting_ok()
+
+            # comprobamos sus proxies si siguen funcionando
+            TwitterBot.objects.check_proxies(bots_in_running_projects)
+
             bots_with_free_queue = bots_in_running_projects.without_tweet_to_send_queue_full()
             if bots_with_free_queue.exists():
                 for bot in bots_with_free_queue:
@@ -300,6 +317,7 @@ class TwitterUserManager(MyManager):
         :param limit: máximo de usuarios que queremos sacar en la consulta
         :return: queryset con los objetos twitteruser
         """
+
         return self.raw_as_qs("""
             SELECT total_project_users.id
             FROM
@@ -322,6 +340,30 @@ class TwitterUserManager(MyManager):
                         LEFT OUTER JOIN project_hashtag ON (project_twitteruserhashashtag.hashtag_id = project_hashtag.id)
                         LEFT OUTER JOIN project_project_hashtags ON (project_hashtag.id = project_project_hashtags.hashtag_id)
                         WHERE project_project_hashtags.project_id = %(project_pk)d
+                    )
+                    union
+                    (
+						select project_twitteruser.id, project_twitteruser.last_tweet_date
+						%(language_field)s
+						from project_twitteruser
+						LEFT OUTER JOIN project_follower ON (project_twitteruser.id = project_follower.twitter_user_id)
+						LEFT OUTER JOIN project_targetuser ON (project_follower.target_user_id = project_targetuser.id)
+						LEFT OUTER JOIN project_tugroup_target_users ON (project_targetuser.id = project_tugroup_target_users.targetuser_id)
+						LEFT OUTER JOIN project_tugroup ON (project_tugroup_target_users.tugroup_id = project_tugroup.id)
+						LEFT OUTER JOIN project_project_tu_group ON (project_tugroup.id = project_project_tu_group.tugroup_id)
+						WHERE project_project_tu_group.project_id = %(project_pk)d
+                    )
+                    union
+                    (
+						select project_twitteruser.id, project_twitteruser.last_tweet_date
+						%(language_field)s
+						from project_twitteruser
+						LEFT OUTER JOIN project_twitteruserhashashtag ON (project_twitteruser.id = project_twitteruserhashashtag.twitter_user_id)
+						LEFT OUTER JOIN project_hashtag ON (project_twitteruserhashashtag.hashtag_id = project_hashtag.id)
+						LEFT OUTER JOIN project_hashtaggroup_hashtags ON (project_hashtag.id = project_hashtaggroup_hashtags.hashtag_id)
+						LEFT OUTER JOIN project_hashtaggroup ON (project_hashtaggroup_hashtags.hashtaggroup_id = project_hashtaggroup.id)
+						LEFT OUTER JOIN project_project_hashtag_group ON (project_hashtaggroup.id = project_project_hashtag_group.hashtaggroup_id)
+						WHERE project_project_hashtag_group.project_id = %(project_pk)d
                     )
                 ) total_project_users
             LEFT OUTER JOIN project_tweet_mentioned_users ON (total_project_users.id = project_tweet_mentioned_users.twitteruser_id)

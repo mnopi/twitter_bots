@@ -3,7 +3,7 @@ from django.db.models import Q
 import feedparser
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-from project.exceptions import NoMoreAvailableProxiesForRegistration, BotHasNoProxiesForUsage, SuspendedBotHasNoProxiesForUsage, \
+from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableProxiesToAssignBotsForUse,\
     TweetCreationException, BotHasToCheckIfMentioningWorks, CantRetrieveMoreItemsFromFeeds, BotHasToSendMcTweet, \
     TweetHasToBeVerified, BotCantSendMctweet, LastMctweetFailedTimeWindowNotPassed
 from core.scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
@@ -158,7 +158,7 @@ class TwitterBot(models.Model):
             """
                 Asignamos proxy para registro, el cual será el mismo que para el uso
             """
-            available_proxies_for_reg = Proxy.objects.available_for_registration()
+            available_proxies_for_reg = Proxy.objects.available_to_assign_bots_for_registration()
             if not available_proxies_for_reg.exists():
                 raise NoMoreAvailableProxiesForRegistration()
             else:
@@ -175,38 +175,36 @@ class TwitterBot(models.Model):
 
                 self.proxy_for_usage = self.proxy_for_registration
 
-        def assign_new_proxy_for_usage():
+        def assign_proxy_for_usage():
             """
                 Asignamos proxy entre los disponibles para el grupo del bot.
             """
-            proxies = Proxy.objects.for_group(self.get_group()).available_for_usage()
-
-            if self.was_suspended():
-                # si fue suspendido le intentamos colar un proxy con bots también suspendidos
-                proxies_available_with_suspended_bots = proxies.with_some_suspended_bot()
-                if proxies_available_with_suspended_bots.exists():
-                    self.proxy_for_usage = proxies_available_with_suspended_bots.order_by('?')[0]
-                else:
-                    # si no hay proxies disponibles que tengan bots suspendidos entonces sacamos los demás,
-                    # incluídos los suspendidos si en el grupo se indicó reusar los proxies con robots suspendidos
-                    proxies_available = proxies.filter_suspended_bots()
-                    if proxies_available.exists():
-                        self.proxy_for_usage = proxies_available.order_by('?')[0]
+            proxies = Proxy.objects.for_group(self.get_group()).available_to_assign_bots_for_use()
+            if proxies.exists():
+                if self.was_suspended():
+                    # si el bot fue suspendido le intentamos colar un proxy con bots también suspendidos
+                    proxies_available_with_suspended_bots = proxies.with_some_suspended_bot()
+                    if proxies_available_with_suspended_bots.exists():
+                        self.proxy_for_usage = proxies_available_with_suspended_bots.order_by('?')[0]
                     else:
-                        raise SuspendedBotHasNoProxiesForUsage(self)
-            else:
-                proxies_available = proxies.filter_suspended_bots()
-                if proxies_available.exists():
-                    self.proxy_for_usage = proxies_available.order_by('?')[0]
+                        # si no hay proxies con bots suspendidos entonces lo meteremos en proxies sin suspendidos
+                        # según se indicara en la opción de reusar proxies con bots suspendidos
+                        proxies_f_suspended = proxies.filter_suspended_bots()
+                        if proxies_f_suspended.exists():
+                            self.proxy_for_usage = proxies_f_suspended.order_by('?')[0]
+                        else:
+                            raise NoAvailableProxiesToAssignBotsForUse(self)
                 else:
-                    raise BotHasNoProxiesForUsage(self)
+                    self.proxy_for_usage = proxies.order_by('?')[0]
+            else:
+                raise NoAvailableProxiesToAssignBotsForUse(self)
 
             settings.LOGGER.info('Assigned proxy for usage %s to bot %s' % (self.proxy_for_usage, self.username))
 
         if self.has_to_register_accounts():
             assign_proxy_for_registration()
         else:
-            assign_new_proxy_for_usage()
+            assign_proxy_for_usage()
         self.save()
 
     def get_email_scrapper(self):
@@ -301,8 +299,7 @@ class TwitterBot(models.Model):
                 else:
                     settings.LOGGER.info('Bot "%s" completed sucessfully in %s seconds' % (self.username, diff_secs))
 
-            except (SuspendedBotHasNoProxiesForUsage,
-                    BotHasNoProxiesForUsage,
+            except (NoAvailableProxiesToAssignBotsForUse,
                     ProfileStillNotCompleted,
                     NoMoreAvailableProxiesForRegistration,
                     TwitterAccountDead,
@@ -428,7 +425,7 @@ class TwitterBot(models.Model):
         else:
             return True
 
-    def make_tweet_to_send(self, from_feeds=False, only_mention_bots=False):
+    def make_tweet_to_send(self, add_feed_item=False, only_mention_bots=False):
         """Crea un tweet con mención pendiente de enviar"""
         from project.models import Tweet, TwitterUser
 
@@ -463,7 +460,7 @@ class TwitterBot(models.Model):
                             tweet_to_send.add_mentions()
 
                     # si mandamos un item de los feeds entonces quitamos tweet_msg y ponemos feed_msg
-                    if from_feeds:
+                    if add_feed_item:
                         item_to_send = self.get_item_to_send()
                         tweet_to_send.feed_item = item_to_send
                         tweet_to_send.save()
@@ -477,7 +474,7 @@ class TwitterBot(models.Model):
             settings.LOGGER.warning('Bot %s has no running projects assigned at this moment' % self.__unicode__())
 
     def get_item_to_send(self):
-        "Crea un tweet a partir de algún feed pendiente de enviar"
+        "Escoge algún feed que el bot todavía no haya enviado"
 
         from project.models import Project, Tweet, TweetMsg, Link, Feed
 
@@ -627,7 +624,7 @@ class TwitterBot(models.Model):
         """El bot busca su tweet de verificación (mentioning check tweet). Si no existe crea uno"""
 
         def create_mctweet():
-            self.make_tweet_to_send(from_feeds=True, only_mention_bots=True)
+            self.make_tweet_to_send(add_feed_item=True, only_mention_bots=True)
 
         from project.models import Tweet, TweetCheckingMention
 
@@ -655,7 +652,7 @@ class TwitterBot(models.Model):
         poniendo primero los que el bot tuiteó hace más tiempo"""
         bots = TwitterBot.objects\
             .using_proxies_group(self.get_group())\
-            .completed()\
+            .twitteable()\
             .exclude(pk=self.pk)
 
         # sacamos bots ordenamos de más antiguo a más nuevo mencionado por el bot, los bots que aún no hayan sido
@@ -752,7 +749,7 @@ class TwitterBot(models.Model):
                             # una vez que encontramos el último tweet enviado por ese bot vemos si coincide con el
                             # tweet que dice nuestra BD que se le mandó, sin contar con el link
                             mention_text = mention_el.find_element_by_css_selector('.js-tweet-text').text.strip()
-                            mention_received_ok = tweet.compose(for_verif_mctweets=True) in mention_text
+                            mention_received_ok = tweet.compose(with_links=False) in mention_text
                             break
                         else:
                             continue

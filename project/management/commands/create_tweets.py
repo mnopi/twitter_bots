@@ -1,5 +1,5 @@
 import time
-from project.exceptions import TwitteableBotsNotFound
+from project.exceptions import TwitteableBotsNotFound, NoAvailableProxiesToAssignBotsForUse
 from project.models import Tweet
 from project.exceptions import FatalError
 from twitter_bots import settings
@@ -18,9 +18,12 @@ class Command(BaseCommand):
 
         try:
             Tweet.objects.create_mentions_to_send()
-            time.sleep(10)
+        except (NoAvailableProxiesToAssignBotsForUse,
+                TwitteableBotsNotFound):
+            pass
         except Exception as e:
-            if type(e) is not TwitteableBotsNotFound:
-                raise FatalError(e)
+            raise FatalError(e)
+        finally:
+            time.sleep(10)
 
         settings.LOGGER.info('-- FINISHED %s --' % MODULE_NAME)

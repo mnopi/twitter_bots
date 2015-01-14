@@ -59,27 +59,25 @@ class NoMoreAvailableProxiesForRegistration(Exception):
         time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATOR)
 
 
-class BotHasNoProxiesForUsage(Exception):
+class NoAvailableProxiesToAssignBotsForUse(Exception):
     def __init__(self, bot):
+        """Vemos la razón por la que el bot no tiene proxy para poderselos asignar"""
         bot_group = bot.get_group()
         if not bot_group.is_bot_usage_enabled:
-            settings.LOGGER.warning('Bot %s has assigned group "%s" with bot usage disabled' %
+            settings.LOGGER.warning('Bot %s\'s group "%s" has bot usage disabled' %
                                     (bot.username, bot_group.__unicode__()))
-        else:
-            settings.LOGGER.error('No more available proxies for use bot %s' % bot.username)
+        if bot.was_suspended() and not bot_group.reuse_proxies_with_suspended_bots:
+            settings.LOGGER.warning('Suspended bot %s\'s group "%s" has reuse_proxies_with_suspended_bots disabled' %
+                                    (bot.username, bot_group.__unicode__()))
+        if bot_group.is_full_of_bots_using():
+            settings.LOGGER.warning('Bot %s\'s group "%s" is full of bots assigned to each of their proxies (%d per proxy)' %
+                                    (bot.username, bot_group.__unicode__(), bot_group.max_tw_bots_per_proxy_for_usage))
+        settings.LOGGER.error('No more available proxies for use bot %s' % bot.username)
 
-
-class SuspendedBotHasNoProxiesForUsage(Exception):
-    def __init__(self, bot):
-        bot_group = bot.get_group()
-        if not bot_group.is_bot_usage_enabled:
-            settings.LOGGER.warning('Bot %s has assigned group "%s" with bot usage disabled' %
-                                    (bot.username, bot_group.__unicode__()))
-        elif not bot_group.reuse_proxies_with_suspended_bots:
-            settings.LOGGER.warning('Suspended bot %s has assigned group "%s" with reuse_proxies_with_suspended_bots disabled' %
-                                    (bot.username, bot_group.__unicode__()))
-        else:
-            settings.LOGGER.error('No more available proxies for use bot %s' % bot.username)
+        # limpiamos de la cola todos los tweets que tuviera que mandar ese bot y todos los mctweets que
+        # tuviera que verificar
+        from project.models import Tweet
+        Tweet.objects.clean_not_sent_ok(bot_used=bot)
 
 
 class FatalError(Exception):

@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Count, Q, Max, Manager
 from django.db.models.query import QuerySet
 import os
@@ -8,7 +7,7 @@ import time
 from django.db import models, connection
 from core.querysets import TwitterBotQuerySet, ProxyQuerySet
 from project.exceptions import NoMoreAvailableProxiesForRegistration, NoBotsFoundForSendingMentions, NoTweetsOnMentionQueue, CantRetrieveMoreItemsFromFeeds, BotHasToSendMcTweet, \
-    TweetHasToBeVerified, BotHasReachedConsecutiveTUMentions
+    TweetHasToBeVerified, NoAvailableProxiesToAssignBotsForUse
 from core.scrapper.thread_pool import ThreadPool
 from core.scrapper.utils import utc_now
 from twitter_bots import settings
@@ -74,7 +73,7 @@ class TwitterBotManager(models.Manager):
         self.clean_unregistered()
         self.put_previous_being_created_to_false()
 
-        proxies = Proxy.objects.available_for_registration()
+        proxies = Proxy.objects.available_to_assign_bots_for_registration()
         if proxies.exists():
             subnets_24_count = len(Proxy.objects.get_subnets_24(proxies))
 
@@ -195,6 +194,9 @@ class TwitterBotManager(models.Manager):
             ProxiesGroup.objects.log_groups_with_creation_enabled_disabled()
             time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
 
+    def check_proxies(self, bots):
+        for bot in bots:
+            bot.check_proxy_ok()
     #
     # Proxy methods to queryset
     #
@@ -214,8 +216,8 @@ class TwitterBotManager(models.Manager):
     def with_valid_proxy_for_registration(self):
         return self.get_queryset().with_valid_proxy_for_registration()
 
-    def with_valid_proxy_for_usage(self):
-        return self.get_queryset().with_valid_proxy_for_usage()
+    def with_proxy_connecting_ok(self):
+        return self.get_queryset().with_proxy_connecting_ok()
 
     def uncompleted(self):
         return self.get_queryset().uncompleted()
@@ -339,17 +341,23 @@ class ProxyManager(MyManager):
     def get_queryset(self):
         return ProxyQuerySet(self.model, using=self._db)
 
+    def connection_ok(self):
+        return self.get_queryset().connection_ok()
+
+    def connection_fail(self):
+        return self.get_queryset().connection_fail()
+
     def available_for_usage(self):
-        return self.get_queryset().available_for_usage()
+        return self.get_queryset().available_to_assign_bots_for_use()
 
     def unavailable_for_usage(self):
-        return self.get_queryset().unavailable_for_usage()
+        return self.get_queryset().unavailable_to_assign_bots_for_use()
 
-    def available_for_registration(self):
-        return self.get_queryset().available_for_registration()
+    def available_to_assign_bots_for_registration(self):
+        return self.get_queryset().available_to_assign_bots_for_registration()
 
-    def unavailable_for_registration(self):
-        return self.get_queryset().unavailable_for_registration()
+    def unavailable_to_assign_bots_for_registration(self):
+        return self.get_queryset().unavailable_to_assign_bots_for_registration()
 
     def without_any_dead_bot(self):
         return self.get_queryset().without_any_dead_bot()

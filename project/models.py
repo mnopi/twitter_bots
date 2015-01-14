@@ -12,7 +12,7 @@ from core.scrapper.exceptions import ConnectionError
 from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted, TweetCreationException, \
     TweetWithoutRecipientsError, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
     TweetHasToBeVerified, BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, \
-    DestinationBotIsBeingUsed, BotHasToSendMcTweet
+    DestinationBotIsBeingUsed, BotHasToSendMcTweet, NoAvailableProxiesToAssignBotsForUse
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
     TwitterUserManager, TweetCheckingMentionManager
 from core.scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago, naive_to_utc, \
@@ -29,6 +29,8 @@ class Project(models.Model):
     # RELATIONSHIPS
     target_users = models.ManyToManyField('TargetUser', related_name='projects', blank=True)
     hashtags = models.ManyToManyField('Hashtag', related_name='projects', blank=True)
+    tu_group = models.ManyToManyField('TUGroup', related_name='tu_group', null=True, blank=True)
+    hashtag_group = models.ManyToManyField('HashtagGroup', related_name='hashtag_group', null=True, blank=True)
 
     objects = ProjectManager()
 
@@ -313,7 +315,9 @@ class Tweet(models.Model):
     def __unicode__(self):
         return self.compose()
 
-    def compose(self, for_verif_mctweets=False):
+    def compose(self, with_links=True):
+        """with_links a False se usará para componer sin links a la hora de verificar mctweets"""
+
         def compose_for_twitterusers():
             compose_txt = ''
             mu_txt = ''
@@ -329,17 +333,12 @@ class Tweet(models.Model):
                 compose_txt += ' ' + self.link.url if self.link else ''
 
             if self.page_announced:
-                pa = self.page_announced
+
+                # si ya tiene agregado mensaje o link le metemos espacio para luego el pagelink
                 if self.tweet_msg or self.link:
                     compose_txt += ' '
-                if pa.page_title and pa.hashtag:
-                    compose_txt += pa.page_title + ' ' + pa.page_link + ' ' + pa.hashtag.name
-                elif pa.page_title:
-                    compose_txt += pa.page_title + ' ' + pa.page_link
-                elif pa.hashtag:
-                    compose_txt += pa.page_link + ' ' + pa.hashtag.name
-                else:
-                    compose_txt += pa.page_link
+
+                compose_txt += self.page_announced.compose()
 
             return compose_txt
 
@@ -354,7 +353,7 @@ class Tweet(models.Model):
             compose_txt += self.feed_item.text if self.feed_item else '<<no feed item>>'
 
             # si el tweet tiene link o pagelink entonces se lo ponemos. de lo contrario ponemos el link del feed
-            if not for_verif_mctweets:
+            if with_links:
                 if self.link:
                     compose_txt += ' ' + self.link
                 elif self.page_announced and self.page_announced.page_link:
@@ -508,7 +507,8 @@ class Tweet(models.Model):
             self.bot_used.scrapper.open_browser()
             self.bot_used.scrapper.login()
             self.bot_used.scrapper.send_tweet(self)
-        except ConnectionError:
+        except (ConnectionError,
+                NoAvailableProxiesToAssignBotsForUse):
             pass
         except Exception as e:
             settings.LOGGER.exception('Error on bot %s (%s) sending tweet with id=%i)' %
@@ -1017,6 +1017,36 @@ class Hashtag(models.Model):
         return self.q
 
 
+class TUGroup(models.Model):
+    name = models.CharField(max_length=140, null=False, blank=False)
+    target_users = models.ManyToManyField(TargetUser, null=False, blank=False)
+    projects = models.ManyToManyField(Project, related_name='projects_tu_group', null=False, blank=False)
+
+    def __unicode__(self):
+        tu_group_string = ' -'
+        for tu in self.target_users.all():
+            tu_group_string += ' @' + tu.username
+        return self.name + tu_group_string
+
+
+class HashtagGroup(models.Model):
+    name = models.CharField(max_length=140, null=False, blank=False)
+    hashtags = models.ManyToManyField(Hashtag, null=False, blank=False)
+    projects = models.ManyToManyField(Project, related_name='projects_hashtag_group', null=False, blank=False)
+
+    def __unicode__(self):
+        hashtag_group_string = ' -'
+        for ht in self.hashtags.all():
+            hashtag_group_string += ' ' + ht.q
+        return self.name + hashtag_group_string
+
+# class TargetUser_TUGroup:
+#     target_user = models.ForeignKey(TargetUser, null=False, blank=False, related_name='target_user')
+#     tu_group = models.ForeignKey(TUGroup, null=False, blank=False, related_name='tu_group')
+#
+#     def __unicode__(self):
+#         return '%s %s' % (self.target_user.username, self.tu_group.name)
+
 class TwitterUserHasHashtag(models.Model):
     hashtag = models.ForeignKey(Hashtag, related_name='hashtag_users', null=False)
     twitter_user = models.ForeignKey(TwitterUser, related_name='hashtag_users', null=False)
@@ -1046,7 +1076,7 @@ class PageLinkHashtag(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False)
 
     def __unicode__(self):
-        return self.name
+        return '#' + self.name
 
 
 class PageLink(models.Model):
@@ -1054,17 +1084,37 @@ class PageLink(models.Model):
     page_link = models.URLField(null=False, blank=False)
     project = models.ForeignKey(Project, null=False, blank=False)
     is_active = models.BooleanField(default=True)
-    hashtag = models.ForeignKey(PageLinkHashtag, null=True, blank=True, related_name="page_links")
+    hashtags = models.ManyToManyField(PageLinkHashtag, null=True, blank=True, related_name="page_links")
+    image = models.ForeignKey(TweetImg, null=True, blank=True, related_name="page_img")
+    language = models.CharField(max_length=2, null=True, blank=True)
 
     def __unicode__(self):
-        return self.page_title
+        return self.compose()
 
-    def page_link_length(self):
+    def compose(self):
+        elements = []
+        if self.page_title:
+            elements.append(self.page_title)
+        if self.page_link:
+            elements.append(self.page_link)
+        if self.hashtags.exists():
+            elements.extend([hashtag.__unicode__() for hashtag in self.hashtags.all()])
+
+        return ' '.join(elements)
+
+    def page_link_length(self, p=None):
         page_link_length = 22
         if self.page_title:
             page_link_length += 1 + len(self.page_title)
-        if self.hashtag:
-            page_link_length += 1 + len(self.hashtag.name)
+        try:
+            if p.cleaned_data:
+                if p.cleaned_data['hashtags']:
+                    for hastag in p.cleaned_data['hashtags']:
+                        page_link_length += 1 + len(hastag.name)
+        except:
+            pass
+        if self.image:
+            page_link_length += 23
         return page_link_length
 
 
@@ -1077,7 +1127,7 @@ class ProxiesGroup(models.Model):
     min_days_between_registrations_per_proxy = models.PositiveIntegerField(null=False, blank=False, default=5)
     min_days_between_registrations_per_proxy_under_same_subnet = models.PositiveIntegerField(null=False, blank=False, default=2)
 
-    # indica si vamos a reutilizar proxies con bots chungos (por ejemplo para grupos de prueba etc)
+    # si queremos usar proxies limpitos para meterle bots que hayan sido suspendidos
     reuse_proxies_with_suspended_bots = models.BooleanField(default=False)
 
     # bot usage behaviour
@@ -1122,6 +1172,17 @@ class ProxiesGroup(models.Model):
 
     def __unicode__(self):
         return self.name
+
+    def is_full_of_bots_using(self):
+        """Nos dice si en el grupo todos sus proxies están completos de robots en uso"""
+        working_proxies = self.proxies.connection_ok()
+        max_bots_num = working_proxies.count() * self.max_tw_bots_per_proxy_for_usage
+        return self.get_bots_using().count() >= max_bots_num
+
+    def get_bots_using(self):
+        """Saca bots que hay usándose bajo el grupo de proxies"""
+        from core.models import TwitterBot
+        return TwitterBot.objects.filter(proxy_for_usage__proxies_group=self)
 
 
 class Feed(models.Model):
