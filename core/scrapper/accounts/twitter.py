@@ -5,7 +5,7 @@ from core.scrapper.scrapper import Scrapper
 from core.scrapper.captcha_resolvers import DeathByCaptchaResolver
 from core.scrapper.exceptions import BotMustVerifyPhone, TwitterBotDontExistsOnTwitterException, \
     FailureSendingTweetException, TwitterEmailNotConfirmed, TwitterAccountDead, ProfileStillNotCompleted, \
-    PageNotReadyState, TwitterAccountSuspendedAfterTryingUnsuspend, ConnectionError
+    PageNotReadyState, TwitterAccountSuspendedAfterTryingUnsuspend, ConnectionError, TweetAlreadySent
 from core.scrapper.utils import *
 from selenium.common.exceptions import MoveTargetOutOfBoundsException
 from twitter_bots import settings
@@ -292,12 +292,16 @@ class TwitterScrapper(Scrapper):
             return tweet if is_plain_tweet() else tweet.compose()
 
         def check_sent_ok():
+            # si aún aparece el diálogo de twitear es que no se envió ok
             if self.check_visibility('#global-tweet-dialog'):
-                # si aún aparece el diálogo de twitear es que no se envió ok
-                # si el  se elimina y se marca el bot como inválido
-                settings.LOGGER.warning('Error on bot %s sending tweet %s' % (self.user.username, get_tweet_id()))
-                self.take_screenshot('failure_sending_tweet', force_take=True)
-                raise FailureSendingTweetException()
+
+                # miramos si sale mensajito de 'you already sent this tweet'
+                if self.check_visibility('#message-drawer .message-text'):
+                    raise TweetAlreadySent(self, tweet,
+                        'Tweet %s was already sent by bot %s' % (get_tweet_id(), self.user.username))
+                else:
+                    raise FailureSendingTweetException(self,
+                        'Error on bot %s sending tweet %s' % (self.user.username, get_tweet_id()))
             else:
                 settings.LOGGER.info('Bot %s sent ok tweet %s' % (self.user.username, get_tweet_id()))
                 self.take_screenshot('tweet_sent_ok', force_take=True)
@@ -323,13 +327,8 @@ class TwitterScrapper(Scrapper):
                                                         "/div[2]/div[4]/form/div[2]/div[1]/div[1]/div/label/input")
                 el.send_keys(tweet.tweet_img.img.path)
 
-        # self.click('#tweet-box-mini-home-profile')
-        # self.delay.seconds(1, force_delay=True)
-        # self.fill_input_text('#tweet-box-mini-home-profile', msg)
-
         self.click('#global-tweet-dialog-dialog .tweet-button button')
         self.delay.seconds(5)
-
         check_sent_ok()
         self.delay.seconds(7)
 

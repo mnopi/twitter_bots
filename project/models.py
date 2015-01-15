@@ -8,7 +8,7 @@ import simplejson
 import time
 import tweepy
 from core.managers import mutex
-from core.scrapper.exceptions import ConnectionError
+from core.scrapper.exceptions import ConnectionError, TweetAlreadySent, FailureSendingTweetException
 from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted, TweetCreationException, \
     TweetWithoutRecipientsError, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
     TweetHasToBeVerified, BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, \
@@ -508,7 +508,9 @@ class Tweet(models.Model):
             self.bot_used.scrapper.login()
             self.bot_used.scrapper.send_tweet(self)
         except (ConnectionError,
-                NoAvailableProxiesToAssignBotsForUse):
+                NoAvailableProxiesToAssignBotsForUse,
+                TweetAlreadySent,
+                FailureSendingTweetException):
             pass
         except Exception as e:
             settings.LOGGER.exception('Error on bot %s (%s) sending tweet with id=%i)' %
@@ -524,6 +526,7 @@ class Tweet(models.Model):
                     self.save()
                 finally:
                     mutex.release()
+
             self.bot_used.scrapper.close_browser()
 
     def enough_time_passed_since_last(self):

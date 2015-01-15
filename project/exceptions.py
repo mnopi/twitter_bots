@@ -151,11 +151,16 @@ class VerificationTimeWindowNotPassed(Exception):
         mctweet_receiver = mctweet.mentioned_bots.first()
         sender_time_window = mctweet_sender.get_group().destination_bot_checking_time_window
         settings.LOGGER.debug(
-            'Destination bot %s has to wait more time (between %s minutes) to verify mctweet sent by %s at %s' %
-            (mctweet_receiver.username,
-             sender_time_window,
-             mctweet_sender.username,
-             mctweet.date_sent)
+            'Destination bot %s can\'t verify mctweet %d sent by %s. He has to wait more time (between %s minutes) '
+            'since was sent (at %s)'
+            %
+            (
+                mctweet_receiver.username,
+                mctweet.pk,
+                mctweet_sender.username,
+                sender_time_window,
+                mctweet.date_sent
+            )
         )
 
 

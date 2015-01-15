@@ -80,6 +80,41 @@ TIME_WAITING_AVAIABLE_BOT_TO_TWEET = 60  # cada x segundos el enviador de tweets
 TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER = 15
 
 #
+# MCTWEET VERIFICATION
+REPLY_MSGS = {
+    'all': [
+        'LOL',
+        'ok',
+        'ROFLMAO',
+    ],
+
+    'en': [
+        'dude',
+        'thanks',
+        'thx',
+        'nice',
+        'hah',
+        'yes',
+        'nope',
+        'no',
+        'it rocks',
+        'i like it',
+        'bro',
+    ],
+
+    'es': [
+        'vale',
+        'tio',
+        'gracias',
+        'claro',
+        'si',
+        'no',
+        'me gusta',
+        'entiendo',
+    ],
+}
+
+#
 # BOT CREATOR
 MAX_THREADS_CREATING_BOTS = 8  # máximo de hilos para crear bots
 BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha de nacimiento del bot

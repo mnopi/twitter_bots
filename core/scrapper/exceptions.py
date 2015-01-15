@@ -50,7 +50,26 @@ class BotDetectedAsSpammerException(Exception):
 
 
 class FailureSendingTweetException(Exception):
-    pass
+    def __init__(self, scrapper, msg):
+        settings.LOGGER.warning(msg)
+        scrapper.take_screenshot('failure_sending_tweet', force_take=True)
+
+
+class FailureReplyingMcTweet(Exception):
+    def __init__(self, scrapper, mctweet):
+        receiver = mctweet.mentioned_bots.first()
+        sender = mctweet.bot_used
+        settings.LOGGER.warning('Bot %s can\'t reply mctweet %d sent by %s' %
+                                (receiver.username, mctweet.pk, sender.username))
+        scrapper.take_screenshot('failure_replying_mctweet', force_take=True)
+
+
+class TweetAlreadySent(Exception):
+    def __init__(self, scrapper, tweet, msg):
+        settings.LOGGER.warning(msg)
+        scrapper.take_screenshot('tweet_already_sent', force_take=True)
+        tweet.sent_ok = True
+        tweet.save()
 
 
 class BotMustVerifyPhone(Exception):

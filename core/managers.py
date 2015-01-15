@@ -347,10 +347,10 @@ class ProxyManager(MyManager):
     def connection_fail(self):
         return self.get_queryset().connection_fail()
 
-    def available_for_usage(self):
+    def available_to_assign_bots_for_use(self):
         return self.get_queryset().available_to_assign_bots_for_use()
 
-    def unavailable_for_usage(self):
+    def unavailable_to_assign_bots_for_use(self):
         return self.get_queryset().unavailable_to_assign_bots_for_use()
 
     def available_to_assign_bots_for_registration(self):

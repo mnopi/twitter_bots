@@ -2,6 +2,7 @@
 
 import sys
 import urllib
+import numpy
 from selenium.common.exceptions import NoSuchFrameException, TimeoutException
 from selenium.webdriver import ActionChains, DesiredCapabilities, Proxy
 from selenium.webdriver.common.keys import Keys
@@ -732,32 +733,91 @@ class Scrapper(object):
         with open(os.path.join(settings.BASE_DIR, 'core', 'scrapper', 'page_source.html'), 'w') as f:
             f.write(self.browser.page_source.encode('utf-8'))
 
-class ScrapperLogger(object):
-        def __init__(self, scrapper):
-            if not settings.LOGGER:
-                settings.set_logger('default')
-                settings.LOGGER.warning('No logger configured, default logger created')
+    def get_random_reply(self, max_words=3,
+                         exclamation_percent=20, point_percent=20,
+                         mayus_percent=20):
+        """Devuelve una cadena formada por entre 1 y 3 palabras"""
 
-            self.logger = settings.LOGGER
+        def do(percent):
+            """Dice si se hace algo según la probabilidad de que ocurra"""
+            return random.randrange(100) < percent
+
+        def format_word(w):
+            f_word = w
+            if do(exclamation_percent):
+                f_word += '!' * random.randint(1, 3)
+            elif do(point_percent):
+                f_word += '.' * random.randint(1, 3)
+
+            # el resultado lo ponemos en mayus-minusc según caiga
+            if do(mayus_percent):
+                f_word = f_word.upper()
+            else:
+                f_word = f_word.lower()
+
+            return f_word
+
+        def chose_word():
+            """Escoje una palabra al azar dentro del grupo escogido entre los grupos 'all' y del
+            lenguaje elegido previamente"""
+
+            # hay un 80% de probabilidad de que el grupo sea el del lenguaje y un 20% para el genérico
+            ALL_GROUP_WEIGHT = 0.2
+            LANG_GROUP_WEIGHT = 0.8
+
+            group = numpy.random.choice(
+                [settings.REPLY_MSGS['all'], settings.REPLY_MSGS[lang_chosen]],
+                p=[ALL_GROUP_WEIGHT, LANG_GROUP_WEIGHT]
+            )
+
+            return random.choice(group)
+
+        words = []
+
+        num_words = random.randint(1, max_words)
+        lang_chosen = random.choice(['en', 'es'])
+
+        while not num_words == len(words):
+            word = chose_word()
+            if word not in words:
+                words.append(word)
+
+        # aplicamos ! .. etc
+        for i, word in enumerate(words):
+            words[i] = format_word(word)
+
+        return ' '.join(words)
+
+
+class ScrapperLogger(object):
+    def __init__(self, scrapper):
+        if not settings.LOGGER:
+            settings.set_logger('default')
+            settings.LOGGER.warning('No logger configured, default logger created')
+
+        self.logger = settings.LOGGER
+        if scrapper.user:
             if scrapper.user.pk:
                 self.scrapper_id = '[%s | %i]' % (scrapper.user.username, scrapper.user.id)
             else:
                 self.scrapper_id = '[%s]' % scrapper.user.username
+        else:
+            self.scrapper_id = '[no-user]'
 
-        def info(self, msg):
-            self.logger.info('%s - %s' % (self.scrapper_id, msg))
+    def info(self, msg):
+        self.logger.info('%s - %s' % (self.scrapper_id, msg))
 
-        def debug(self, msg):
-            self.logger.debug('%s - %s' % (self.scrapper_id, msg))
+    def debug(self, msg):
+        self.logger.debug('%s - %s' % (self.scrapper_id, msg))
 
-        def warning(self, msg):
-            self.logger.warning('%s - %s' % (self.scrapper_id, msg))
+    def warning(self, msg):
+        self.logger.warning('%s - %s' % (self.scrapper_id, msg))
 
-        def error(self, msg):
-            self.logger.error('%s - %s' % (self.scrapper_id, msg))
+    def error(self, msg):
+        self.logger.error('%s - %s' % (self.scrapper_id, msg))
 
-        def exception(self, msg):
-            self.logger.exception('%s - %s' % (self.scrapper_id, msg))
+    def exception(self, msg):
+        self.logger.exception('%s - %s' % (self.scrapper_id, msg))
 
 
 class MyActionChains(ActionChains):
