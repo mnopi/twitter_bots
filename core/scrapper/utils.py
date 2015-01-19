@@ -231,6 +231,11 @@ def generate_random_secs_from_minute_interval(minute_interval):
     return random.randint(60 * int(interval[0]), 60 * int(interval[1]))
 
 
+def str_interval_to_random_num(str_interval):
+    interval = str_interval.split('-')
+    return random.randint(int(interval[0]), int(interval[1]))
+
+
 def create_gitignored_folders():
     # creamos estas carpetas si no existen, ya que las hemos añadido al gitignore
     import core.scrapper.utils as utils

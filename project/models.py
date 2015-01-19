@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import random
+from django.core.exceptions import ObjectDoesNotExist
 
 from django.db import models
 from django.db.models import Count, Q
@@ -11,12 +11,13 @@ from core.managers import mutex
 from core.scrapper.exceptions import ConnectionError, TweetAlreadySent, FailureSendingTweetException
 from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted, TweetCreationException, \
     TweetWithoutRecipientsError, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
-    TweetHasToBeVerified, BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, \
-    DestinationBotIsBeingUsed, BotHasToSendMcTweet, NoAvailableProxiesToAssignBotsForUse
+    McTweetMustBeVerified, BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, \
+    DestinationBotIsBeingUsed, McTweetMustBeSent, NoAvailableProxiesToAssignBotsForUse, MuTweetHasNotSentFTweetsEnough, \
+    MethodOnlyAppliesToTuMentions, MethodOnlyAppliesToTbMentions
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
-    TwitterUserManager, TweetCheckingMentionManager
+    TwitterUserManager, McTweetManager
 from core.scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago, naive_to_utc, \
-    generate_random_secs_from_minute_interval, has_elapsed_secs_since_time_ago
+    generate_random_secs_from_minute_interval, has_elapsed_secs_since_time_ago, str_interval_to_random_num
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
 
@@ -318,7 +319,7 @@ class Tweet(models.Model):
     def compose(self, with_links=True):
         """with_links a False se usará para componer sin links a la hora de verificar mctweets"""
 
-        def compose_for_twitterusers():
+        def compose_for_tumention():
             compose_txt = ''
             mu_txt = ''
             # solo se podrá consultar los usuarios mencionados si antes se guardó la instancia del tweet en BD
@@ -342,7 +343,7 @@ class Tweet(models.Model):
 
             return compose_txt
 
-        def compose_for_bots():
+        def compose_for_tbmention():
             compose_txt = ''
             mb_txt = ''
             for mb in self.mentioned_bots.all():
@@ -361,10 +362,15 @@ class Tweet(models.Model):
 
             return compose_txt
 
+        def compose_for_ftweet():
+            return self.feed_item.__unicode__()
+
         if self.mentioned_users.exists():
-            return compose_for_twitterusers()
+            return compose_for_tumention()
         elif self.mentioned_bots.exists():
-            return compose_for_bots()
+            return compose_for_tbmention()
+        elif self.feed_item:
+            return compose_for_ftweet()
 
     def length(self):
         def mentioned_users_space():
@@ -495,14 +501,13 @@ class Tweet(models.Model):
             set_logger('tweet_sender')
 
         try:
-            settings.LOGGER.info('Bot %s sending tweet %i%s: >> %s' %
+            settings.LOGGER.info('Bot %s sending tweet %i [%s]: >> %s' %
                                  (self.bot_used.__unicode__(),
                                   self.pk,
-                                  ' [CHECKING MENTION]' if self.mentioned_bots.exists() else '',
+                                  self.print_type(),
                                   self.compose())
             )
-            screenshots_dir = str(self.pk) + '_mentioning_bot' if self.mentioned_bots.exists() \
-                else str(self.pk)
+            screenshots_dir = '%d_%s' % (self.pk, self.print_type())
             self.bot_used.scrapper.set_screenshots_dir(screenshots_dir)
             self.bot_used.scrapper.open_browser()
             self.bot_used.scrapper.login()
@@ -549,9 +554,9 @@ class Tweet(models.Model):
 
     def log_reason_to_not_send(self, reason):
 
-        if self.mentions_twitter_users():
+        if self.has_twitterusers_mentions():
             do = 'mention twitter users'
-        elif self.mentions_twitter_bots():
+        elif self.has_twitterbots_mentions():
             do = 'mention twitter bots'
         else:
             do = 'tweet'
@@ -571,9 +576,28 @@ class Tweet(models.Model):
         if sender_bot.is_already_being_used():
             raise BotIsAlreadyBeingUsed(sender_bot)
 
-        if self.mentions_twitter_users() \
+        if not self.has_enough_ftweets_sent():
+            raise MuTweetHasNotSentFTweetsEnough(self)
+
+        if self.has_twitterusers_mentions() \
                 and sender_bot.has_reached_consecutive_twitteruser_mentions():
             raise BotHasReachedConsecutiveTUMentions(sender_bot)
+
+    def get_ftweets_count_to_send_before(self):
+        """Devuelve cuántos ftweets hay que enviar antes del tumention"""
+
+        if self.has_twitterusers_mentions():
+            try:
+                return self.ftweets_num.number
+            except ObjectDoesNotExist:
+                ftweets_number = str_interval_to_random_num(
+                    self.bot_used.get_group().feedtweets_per_twitteruser_mention)
+
+                FTweetsNumPerTuMention.objects.create(number=ftweets_number, tu_mention=self)
+
+                return self.ftweets_num.number
+        else:
+            raise MethodOnlyAppliesToTuMentions
 
     def _check_if_errors_on_construction(self):
         """Nos dice si el tweet está bien construído"""
@@ -591,19 +615,19 @@ class Tweet(models.Model):
         except TweetConstructionError:
             return False
 
-    def mentions_twitter_users(self):
+    def has_twitterusers_mentions(self):
         return self.mentioned_users.exists()
 
-    def mentions_twitter_bots(self):
+    def has_twitterbots_mentions(self):
         return self.mentioned_bots.exists()
 
     def has_mentions(self):
-        return self.mentions_twitter_users() or self.mentions_twitter_bots()
+        return self.has_twitterusers_mentions() or self.has_twitterbots_mentions()
 
     def check_if_can_be_verified(self):
         """Comprueba si el tweet puede ser verificado por bot destino"""
 
-        if self.mentions_twitter_bots():
+        if self.has_twitterbots_mentions():
             # comprobamos que el bot destino no esté siendo usando
             destination_bot = self.mentioned_bots.first()
             if destination_bot.is_already_being_used():
@@ -619,18 +643,82 @@ class Tweet(models.Model):
                 if not verif_time_window_is_passed:
                     raise VerificationTimeWindowNotPassed(self)
         else:
-            raise Exception('Tweet verification only applies to tweets mentioning twitterbots')
+            raise MethodOnlyAppliesToTbMentions
 
-    def verify(self):
-        """Se intenta verificar el tweet desde su bot destino.
+    def has_enough_ftweets_sent(self):
+        return self.get_ftweets_sent().count() >= self.get_ftweets_count_to_send_before()
 
-        De lo contrario, lanzamos excepción TweetHasToBeVerified para que salga del mutex
-        y se ponga a verificarse.
-        """
-        self.check_if_can_be_verified()
-        self.tweet_checking_mention.destination_bot_is_checking_mention = True
-        self.tweet_checking_mention.save()
-        raise TweetHasToBeVerified(self)
+    def get_or_create_ftweet_to_send(self):
+        """Se busca un ftweet ya creado y que no se haya enviado. Si existe se crea"""
+
+        def create_ftweet():
+            return self.bot_used.make_tweet_to_send(ftweet=True)
+
+        ftweet_to_send = self.tweets_from_feed.filter(tweet__sent_ok=False)
+        if ftweet_to_send.exists():
+            if ftweet_to_send.count() > 1:
+                settings.LOGGER.warning('There were found multiple ftweets pending to send from '
+                                      'bot %s and will be deleted' % self.username)
+                self.clear_not_sent_ok_ftweets()
+                ftweet_to_send = create_ftweet()
+            else:
+                ftweet_to_send = ftweet_to_send.first()
+        else:
+            ftweet_to_send = create_ftweet()
+
+        # si el ftweet no tiene asociado el registro tff lo crea
+        TweetFromFeed.objects.get_or_create(tweet=ftweet_to_send, tu_mention=self)
+
+        return ftweet_to_send
+
+    def get_ftweets_sent(self):
+        """Devuelve cuantos ftweets se enviaron para el tweet"""
+        return self.tweets_from_feed.filter(tweet__sent_ok=True)
+
+    def print_type(self):
+        if self.is_mutweet():
+            return 'TU_MENTION'
+        elif self.is_mbtweet():
+            return 'MC_TWEET'
+        elif self.is_ftweet():
+            return 'F_TWEET'
+        else:
+            return '???'
+
+    def is_mutweet(self):
+        return self.project and self.has_twitterusers_mentions() and not self.feed_item
+
+    def is_mbtweet(self):
+        return self.project and self.has_twitterbots_mentions() and self.feed_item
+
+    def is_ftweet(self):
+        return not self.project and self.feed_item
+
+    def is_well_constructed(self):
+        def has_project_content_ok():
+            """Dice si tiene contenido propio para el proyecto según se indicó en las propiedades
+            del grupo para el bot remitente"""
+            wrong_msg = sender_group.has_tweet_msg and not self.tweet_msg
+            wrong_link = sender_group.has_link and not self.link
+            wrong_img = sender_group.has_tweet_img and not self.tweet_img
+            wrong_page_announced = sender_group.has_page_announced and not self.page_announced
+
+            return not wrong_msg and not wrong_link and not wrong_img and not wrong_page_announced
+
+        def has_not_project_content():
+            return not self.tweet_msg and not self.link and not self.tweet_img and not self.page_announced
+
+        def mutweet_ok():
+            return self.is_mutweet() and has_project_content_ok()
+
+        def mbtweet_ok():
+            return self.is_mbtweet() and has_project_content_ok()
+
+        def ftweet_ok():
+            return self.is_ftweet() and has_not_project_content()
+
+        sender_group = self.bot_used.get_group()
+        return mutweet_ok() or mbtweet_ok() or ftweet_ok() or False
 
 
 class TweetCheckingMention(models.Model):
@@ -640,7 +728,7 @@ class TweetCheckingMention(models.Model):
     destination_bot_checked_mention_date = models.DateTimeField(null=True, blank=True)
     mentioning_works = models.BooleanField(default=False)
 
-    objects = TweetCheckingMentionManager()
+    objects = McTweetManager()
 
     class Meta:
         verbose_name_plural = 'Tweets checking mention'
@@ -1217,7 +1305,8 @@ class FeedItem(models.Model):
     link = models.URLField(null=True, blank=True)
 
     def __unicode__(self):
-        return self.text
+        return '%s %s' % (self.text, self.link)
+
 
 class FeedsGroup(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False)
@@ -1230,4 +1319,10 @@ class FeedsGroup(models.Model):
 
 class TweetFromFeed(models.Model):
     tweet = models.OneToOneField('Tweet', related_name='tweet_from_feed', null=False, blank=False)
-    twitteruser_mention = models.ForeignKey('Tweet', related_name='tweets_from_feed')
+    tu_mention = models.ForeignKey('Tweet', related_name='tweets_from_feed')
+
+
+class FTweetsNumPerTuMention(models.Model):
+    number = models.PositiveIntegerField(null=False, blank=False, default=0)
+    tu_mention = models.OneToOneField('Tweet', related_name='ftweets_num')
+

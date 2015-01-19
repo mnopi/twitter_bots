@@ -255,6 +255,7 @@ class PageLinkHashtagAdmin(admin.ModelAdmin):
 class TweetAdmin(admin.ModelAdmin):
     list_display = (
         'bot_used',
+        'type',
         'compose',
         'length',
         'date_created',
@@ -265,6 +266,9 @@ class TweetAdmin(admin.ModelAdmin):
         'project',
         'has_image',
     )
+
+    def type(self, obj):
+        return obj.print_type()
 
     list_display_links = ('compose',)
 
@@ -286,24 +290,27 @@ class TweetAdmin(admin.ModelAdmin):
         'mentioned_users__username',
     )
 
-    class DestinationFilter(admin.SimpleListFilter):
+    class TypeFilter(admin.SimpleListFilter):
         title = 'Destination'
         parameter_name = 'destination'
 
         def lookups(self, request, model_admin):
             return (
-                ('bots', 'Bots',),
-                ('twitterusers', 'Twitter Users',),
+                ('mutweet', 'MU Tweet',),
+                ('mctweet', 'MC Tweet',),
+                ('ftweet', 'F Tweet',),
             )
 
         def queryset(self, request, queryset):
-            if self.value() == 'bots':
-                return queryset.filter(mentioned_users__isnull=True, mentioned_bots__isnull=False)
-            elif self.value() == 'twitterusers':
+            if self.value() == 'mutweet':
                 return queryset.filter(mentioned_users__isnull=False, mentioned_bots__isnull=True)
+            elif self.value() == 'mctweet':
+                return queryset.filter(mentioned_users__isnull=True, mentioned_bots__isnull=False)
+            elif self.value() == 'ftweet':
+                return queryset.filter(project__isnull=True, feed_item__isnull=False)
 
     list_filter = (
-        DestinationFilter,
+        TypeFilter,
         'sending',
         'sent_ok',
         'date_created',

@@ -3,7 +3,7 @@
 from optparse import make_option
 import time
 from core.models import TwitterBot
-from project.models import Tweet, TweetCheckingMention
+from project.models import Tweet, TweetCheckingMention, TweetFromFeed
 from project.exceptions import FatalError
 from twitter_bots import settings
 from django.core.management.base import BaseCommand
@@ -42,8 +42,12 @@ class Command(BaseCommand):
                 else None
 
             num_threads = int(args[0]) if args else None
+            try:
+                num_tasks = int(args[1])
+            except IndexError:
+                num_tasks = None
 
-            TwitterBot.objects.send_mentions_from_queue(bot=bot, num_threads=num_threads)
+            TwitterBot.objects.send_mentions_from_queue(bot=bot, num_threads=num_threads, num_tasks=num_tasks)
 
             time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER)
         except Exception as e:

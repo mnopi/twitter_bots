@@ -83,9 +83,12 @@ TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER = 15
 # MCTWEET VERIFICATION
 REPLY_MSGS = {
     'all': [
-        'LOL',
+        'lol',
+        'omg',
+        'omfg',
         'ok',
-        'ROFLMAO',
+        'roflmao',
+        'no',
     ],
 
     'en': [
@@ -96,19 +99,20 @@ REPLY_MSGS = {
         'hah',
         'yes',
         'nope',
-        'no',
         'it rocks',
         'i like it',
         'bro',
+        'bad',
+        'good',
     ],
 
     'es': [
         'vale',
+        'bueno',
         'tio',
         'gracias',
         'claro',
         'si',
-        'no',
         'me gusta',
         'entiendo',
     ],

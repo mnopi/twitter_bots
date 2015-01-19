@@ -6,8 +6,8 @@ import time
 
 from django.db import models, connection
 from core.querysets import TwitterBotQuerySet, ProxyQuerySet
-from project.exceptions import NoMoreAvailableProxiesForRegistration, NoBotsFoundForSendingMentions, NoTweetsOnMentionQueue, CantRetrieveMoreItemsFromFeeds, BotHasToSendMcTweet, \
-    TweetHasToBeVerified, NoAvailableProxiesToAssignBotsForUse
+from project.exceptions import NoMoreAvailableProxiesForRegistration, NoBotsFoundForSendingMentions, NoTweetsOnMentionQueue, CantRetrieveMoreItemsFromFeeds, McTweetMustBeSent, \
+    McTweetMustBeVerified, NoAvailableProxiesToAssignBotsForUse, MuTweetHasNotSentFTweetsEnough, FTweetMustBeSent
 from core.scrapper.thread_pool import ThreadPool
 from core.scrapper.utils import utc_now
 from twitter_bots import settings
@@ -133,12 +133,15 @@ class TwitterBotManager(models.Manager):
             settings.LOGGER.debug('Sleeping %d seconds..' % settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET)
             time.sleep(settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET)
 
-        except BotHasToSendMcTweet as e:
+        except McTweetMustBeSent as e:
             e.mc_tweet.send()
 
-        except TweetHasToBeVerified as e:
-            mentioned_bot = e.tweet.mentioned_bots.first()
-            mentioned_bot.verify_tweet_if_received_ok(e.tweet)
+        except McTweetMustBeVerified as e:
+            mentioned_bot = e.mctweet.mentioned_bots.first()
+            mentioned_bot.verify_tweet_if_received_ok(e.mctweet)
+
+        except FTweetMustBeSent as e:
+            e.ftweet.send()
 
         except (CantRetrieveMoreItemsFromFeeds, Exception) as e:
             settings.LOGGER.exception('Error sending tweet')

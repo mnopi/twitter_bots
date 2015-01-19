@@ -9,8 +9,9 @@ from core.scrapper.utils import has_elapsed_secs_since_time_ago
 from core.scrapper.utils import generate_random_secs_from_minute_interval
 from project.exceptions import RateLimitedException, AllFollowersExtracted, NoBotsFoundForSendingMentions, \
     NoTweetsOnMentionQueue, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
-    BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, BotHasToSendMcTweet, BotCantSendMctweet, \
-    DestinationBotIsBeingUsed, LastMctweetFailedTimeWindowNotPassed
+    BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, McTweetMustBeSent, BotCantSendMctweet, \
+    DestinationBotIsBeingUsed, LastMctweetFailedTimeWindowNotPassed, MuTweetHasNotSentFTweetsEnough, FTweetMustBeSent, \
+    McTweetMustBeVerified
 from project.querysets import ProjectQuerySet, TwitterUserQuerySet, TweetQuerySet, ExtractorQuerySet, TargetUserQuerySet
 from twitter_bots import settings
 from django.db import models
@@ -52,22 +53,16 @@ class TweetManager(models.Manager):
     def put_sending_to_not_sending(self):
         if self.exists():
             self.filter(sending=True).update(sending=False)
-            settings.LOGGER.info('All previous sending tweets were set to not sending')
+            settings.LOGGER.info('All previous sending tweets (mutweets, mctweets or ftweets) were set to not sending')
 
     def remove_wrong_constructed(self):
         """Elimina los tweets que estén mal construidos, por ejemplo aquellos en que su bot ha de mencionar
         pero no contienen mención alguna"""
         not_sended = self.filter(sent_ok=False)
         for tweet in not_sended:
-            tweet_has_no_mention = tweet.bot_used.get_group().has_mentions and not tweet.has_mentions()
-            if tweet_has_no_mention:
-                settings.LOGGER.warning('Tweet without mentions will be deleted: %s' % tweet.compose())
+            if not tweet.is_well_constructed():
+                settings.LOGGER.warning('Tweet %d is wrong constructed and will be deleted' % tweet.pk)
                 tweet.delete()
-            else:
-                mctweet_is_wrong = tweet.mentions_twitter_bots() and not tweet.feed_item
-                if mctweet_is_wrong:
-                    settings.LOGGER.warning('mctweet without feed_item will be deleted: %s' % tweet.compose())
-                    tweet.delete()
 
     def get_mention_ready_to_send(self, bot=None):
         """Mira en la cola de menciones por enviar a usuarios de twitter y devuelve una que se pueda enviar.
@@ -88,13 +83,17 @@ class TweetManager(models.Manager):
                         BotIsAlreadyBeingUsed,
                         BotHasNotEnoughTimePassedToTweetAgain):
                     continue
+
                 except BotHasReachedConsecutiveTUMentions as e:
                     mctweet_sender_bot = e.bot
                     mctweet = mctweet_sender_bot.get_or_create_mctweet()
 
                     if mctweet.sent_ok:
                         try:
-                            mctweet.verify()
+                            mctweet.check_if_can_be_verified()
+                            mctweet.tweet_checking_mention.destination_bot_is_checking_mention = True
+                            mctweet.tweet_checking_mention.save()
+                            raise McTweetMustBeVerified(mctweet)
                         except (DestinationBotIsBeingUsed,
                                 VerificationTimeWindowNotPassed):
                             continue
@@ -103,9 +102,15 @@ class TweetManager(models.Manager):
                             mctweet_sender_bot.check_if_can_send_mctweet()
                             mctweet.sending = True
                             mctweet.save()
-                            raise BotHasToSendMcTweet(mctweet)
+                            raise McTweetMustBeSent(mctweet)
                         except LastMctweetFailedTimeWindowNotPassed:
                             continue
+
+                except MuTweetHasNotSentFTweetsEnough as e:
+                    ftweet = e.mutweet.get_or_create_ftweet_to_send()
+                    ftweet.sending = True
+                    ftweet.save()
+                    raise FTweetMustBeSent(ftweet)
 
             if mention_ready_to_send:
                 return mention_ready_to_send
@@ -409,7 +414,7 @@ class TwitterUserManager(MyManager):
         return self.get_queryset().mentioned_by_bot_on_project(*args)
 
 
-class TweetCheckingMentionManager(MyManager):
+class McTweetManager(MyManager):
     def put_checking_to_not_checking(self):
         if self.exists():
             self.filter(destination_bot_is_checking_mention=True).update(destination_bot_is_checking_mention=False)

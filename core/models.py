@@ -5,8 +5,8 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from selenium.common.exceptions import NoSuchElementException
 from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableProxiesToAssignBotsForUse,\
-    TweetCreationException, BotHasToCheckIfMentioningWorks, CantRetrieveMoreItemsFromFeeds, BotHasToSendMcTweet, \
-    TweetHasToBeVerified, BotCantSendMctweet, LastMctweetFailedTimeWindowNotPassed
+    TweetCreationException, BotHasToCheckIfMentioningWorks, CantRetrieveMoreItemsFromFeeds, McTweetMustBeSent, \
+    McTweetMustBeVerified, BotCantSendMctweet, LastMctweetFailedTimeWindowNotPassed
 from core.scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from core.scrapper.accounts.hotmail import HotmailScrapper
 from core.scrapper.accounts.twitter import TwitterScrapper
@@ -426,53 +426,66 @@ class TwitterBot(models.Model):
         else:
             return True
 
-    def make_tweet_to_send(self, add_feed_item=False, only_mention_bots=False):
+    def make_tweet_to_send(self, add_feed_item=False, only_mention_bots=False, ftweet=False):
         """Crea un tweet con mención pendiente de enviar"""
         from project.models import Tweet, TwitterUser
 
-        # saco proyectos asignados para el robot que actualmente estén ejecutándose, ordenados de menor a mayor
-        # número de tweets creados en la cola pendientes de enviar
-        projects_with_this_bot = self.get_running_projects().order_by__queued_tweets()
-        if projects_with_this_bot.exists():
-            for project in projects_with_this_bot:
+        tweet_to_send = None
 
-                # project.check_if_has_minimal_content()
-
-                try:
-                    tweet_to_send = Tweet(
-                        project=project,
-                        bot_used=self
-                    )
-                    tweet_to_send.save()
-                    bot_group = self.get_group()
-
-                    if bot_group.has_tweet_msg:
-                        tweet_to_send.add_tweet_msg(project)
-                    if bot_group.has_link:
-                        tweet_to_send.add_link(project)
-                    if bot_group.has_tweet_img:
-                        tweet_to_send.add_image(project)
-                    if bot_group.has_page_announced:
-                        tweet_to_send.add_page_announced(project)
-                    if bot_group.has_mentions:
-                        if only_mention_bots:
-                            tweet_to_send.add_bots_to_mention()
-                        else:
-                            tweet_to_send.add_mentions()
-
-                    # si mandamos un item de los feeds entonces quitamos tweet_msg y ponemos feed_msg
-                    if add_feed_item:
-                        item_to_send = self.get_item_to_send()
-                        tweet_to_send.feed_item = item_to_send
-                        tweet_to_send.save()
-
-                    # tras encontrar ese proyecto con el que hemos podido construir el tweet salimos para
-                    # dar paso al siguiente bot
-                    break
-                except TweetCreationException:
-                    continue
+        if ftweet:
+            # si sólo queremos crear el tweet desde un feed
+            tweet_to_send = Tweet(
+                bot_used=self,
+                feed_item=self.get_item_to_send()
+            )
+            tweet_to_send.save()
         else:
-            settings.LOGGER.warning('Bot %s has no running projects assigned at this moment' % self.__unicode__())
+            # saco proyectos asignados para el robot que actualmente estén ejecutándose, ordenados de menor a mayor
+            # número de tweets creados en la cola pendientes de enviar
+            projects_with_this_bot = self.get_running_projects().order_by__queued_tweets()
+            if projects_with_this_bot.exists():
+                for project in projects_with_this_bot:
+
+                    # project.check_if_has_minimal_content()
+
+                    try:
+                        tweet_to_send = Tweet(
+                            project=project,
+                            bot_used=self
+                        )
+                        tweet_to_send.save()
+                        bot_group = self.get_group()
+
+                        if bot_group.has_tweet_msg:
+                            tweet_to_send.add_tweet_msg(project)
+                        if bot_group.has_link:
+                            tweet_to_send.add_link(project)
+                        if bot_group.has_tweet_img:
+                            tweet_to_send.add_image(project)
+                        if bot_group.has_page_announced:
+                            tweet_to_send.add_page_announced(project)
+                        if bot_group.has_mentions:
+                            if only_mention_bots:
+                                tweet_to_send.add_bots_to_mention()
+                            else:
+                                tweet_to_send.add_mentions()
+
+                        # si mandamos un item de los feeds entonces quitamos tweet_msg y ponemos feed_msg
+                        if add_feed_item:
+                            item_to_send = self.get_item_to_send()
+                            tweet_to_send.feed_item = item_to_send
+                            tweet_to_send.save()
+
+                        # tras encontrar ese proyecto con el que hemos podido construir el tweet salimos para
+                        # dar paso al siguiente bot
+                        break
+                    except TweetCreationException:
+                        continue
+
+            else:
+                settings.LOGGER.warning('Bot %s has no running projects assigned at this moment' % self.__unicode__())
+
+        return tweet_to_send
 
     def get_item_to_send(self):
         "Escoge algún feed que el bot todavía no haya enviado"
@@ -618,6 +631,17 @@ class TwitterBot(models.Model):
             sent_ok=False,
         ).delete()
 
+    def clear_not_sent_ok_ftweets(self):
+        """Se eliminan todos los mc tweets que el bot no haya enviado ok"""
+
+        from project.models import Tweet
+
+        Tweet.objects.filter(
+            tweet_from_feed__isnull=False,
+            bot_used=self,
+            sent_ok=False,
+        ).delete()
+
     def get_or_create_mctweet(self):
         """El bot busca su tweet de verificación (mentioning check tweet). Si no existe crea uno"""
 
@@ -669,24 +693,6 @@ class TwitterBot(models.Model):
 
         with_mention_received.sort(key=lambda b: b.last_mention_received_by_bot_date, reverse=False)
         return without_mention_received + with_mention_received
-
-    def _verify_received_mctweets(self):
-        """Pone al bot a verificar todos los mctweets que los demás bots le hayan enviado y estén aún sin verificar"""
-
-        from project.models import TweetCheckingMention
-
-        tcms_to_verify = TweetCheckingMention.objects.filter(
-            tweet__mentioned_bots=self,
-            destination_bot_checked_mention=False
-        )
-        if tcms_to_verify.exists():
-            settings.LOGGER.debug('Bot %s verifying %d mctweets sent to him..' %
-                                  (self.username, tcms_to_verify.count()))
-
-            self.mctweets_to_verify = [tcm.tweet for tcm in tcms_to_verify]
-            raise TweetHasToBeVerified(self)
-        else:
-            settings.LOGGER.debug('Bot %s has no mctweets to verify' % self.username)
 
     def has_enough_time_passed_since_his_last_tweet(self):
         """Nos dice si pasó el suficiente tiempo desde que el robot tuiteó por última vez a un usuario"""
@@ -802,6 +808,7 @@ class TwitterBot(models.Model):
             finally:
                 tcm.destination_bot_is_checking_mention = False
                 tcm.save()
+
 
 class Proxy(models.Model):
     proxy = models.CharField(max_length=21, null=False, blank=True)

@@ -102,14 +102,14 @@ class BotHasToCheckIfMentioningWorks(Exception):
         self.mc_tweet = mc_tweet
 
 
-class BotHasToSendMcTweet(Exception):
+class McTweetMustBeSent(Exception):
     def __init__(self, mc_tweet):
         self.mc_tweet = mc_tweet
 
 
-class TweetHasToBeVerified(Exception):
-    def __init__(self, tweet):
-        self.tweet = tweet
+class McTweetMustBeVerified(Exception):
+    def __init__(self, mctweet):
+        self.mctweet = mctweet
 
 
 class CantRetrieveMoreItemsFromFeeds(Exception):
@@ -177,6 +177,20 @@ class BotHasNotEnoughTimePassedToTweetAgain(Exception):
                                bot.get_last_tweet_sent().date_sent))
 
 
+class MuTweetHasNotSentFTweetsEnough(Exception):
+    def __init__(self, mutweet):
+        self.mutweet = mutweet
+        settings.LOGGER.debug('Mutweet %d has not sent ftweets enough (%d/%d)' %
+                              (mutweet.pk,
+                               mutweet.tweets_from_feed.count(),
+                               mutweet.get_ftweets_count_to_send_before()))
+
+
+class FTweetMustBeSent(Exception):
+    def __init__(self, ftweet):
+        self.ftweet = ftweet
+
+
 class DestinationBotIsBeingUsed(Exception):
     def __init__(self, mctweet):
         destination_bot = mctweet.mentioned_bots.first()
@@ -191,3 +205,13 @@ class LastMctweetFailedTimeWindowNotPassed(Exception):
             bot.username,
             bot.get_group().mention_fail_time_window,
             bot.get_mctweets_verified().last().destination_bot_checked_mention_date))
+
+
+class MethodOnlyAppliesToTuMentions(Exception):
+    def __init__(self):
+        settings.LOGGER.exception('This method only applies to twitteruser mentions')
+
+
+class MethodOnlyAppliesToTbMentions(Exception):
+    def __init__(self):
+        settings.LOGGER.exception('This method only applies to twitterbot mentions')

@@ -285,10 +285,13 @@ class TwitterScrapper(Scrapper):
         def is_plain_tweet():
             return type(tweet) is str or type(tweet) is unicode
 
-        def get_tweet_id():
+        def print_tweet_id():
             return tweet if is_plain_tweet() else str(tweet.pk)
 
-        def get_tweet_msg():
+        def print_tweet_type():
+            return 'PLAIN' if is_plain_tweet() else tweet.print_type()
+
+        def print_tweet_msg():
             return tweet if is_plain_tweet() else tweet.compose()
 
         def check_sent_ok():
@@ -298,12 +301,12 @@ class TwitterScrapper(Scrapper):
                 # miramos si sale mensajito de 'you already sent this tweet'
                 if self.check_visibility('#message-drawer .message-text'):
                     raise TweetAlreadySent(self, tweet,
-                        'Tweet %s was already sent by bot %s' % (get_tweet_id(), self.user.username))
+                        'Tweet %s was already sent by bot %s' % (print_tweet_id(), self.user.username))
                 else:
                     raise FailureSendingTweetException(self,
-                        'Error on bot %s sending tweet %s' % (self.user.username, get_tweet_id()))
+                        'Error on bot %s sending tweet %s' % (self.user.username, print_tweet_id()))
             else:
-                settings.LOGGER.info('Bot %s sent ok tweet %s' % (self.user.username, get_tweet_id()))
+                settings.LOGGER.info('Bot %s sent ok tweet %s [%s]' % (self.user.username, print_tweet_id(), print_tweet_type()))
                 self.take_screenshot('tweet_sent_ok', force_take=True)
 
                 try:
