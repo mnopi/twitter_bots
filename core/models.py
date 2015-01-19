@@ -715,7 +715,7 @@ class TwitterBot(models.Model):
         if last_verified_mctweet_was_failed:
             # si el último mctweet falló su verificación vemos si pasó el tiempo de espera
             mentioning_fail_timewindow_is_passed = has_elapsed_secs_since_time_ago(
-                last_verified_mctweet.destination_bot_checked_mention_date,
+                last_verified_mctweet.tweet_checking_mention.destination_bot_checked_mention_date,
                 generate_random_secs_from_minute_interval(self.get_group().mention_fail_time_window)
             )
             if not mentioning_fail_timewindow_is_passed:
