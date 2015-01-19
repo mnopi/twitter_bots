@@ -113,6 +113,11 @@ class TweetManager(models.Manager):
                     ftweet.save()
                     raise FTweetMustBeSent(ftweet)
 
+                except Exception as e:
+                    settings.LOGGER.error('Error getting tumention from queue for bot %s: %s' %
+                                          (mention.bot_used.username, mention.compose()))
+                    raise e
+
             if mention_ready_to_send:
                 return mention_ready_to_send
             else:

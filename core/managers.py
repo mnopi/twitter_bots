@@ -145,6 +145,7 @@ class TwitterBotManager(models.Manager):
 
         except (CantRetrieveMoreItemsFromFeeds, Exception) as e:
             settings.LOGGER.exception('Error sending tweet')
+            time.sleep(60)
             raise e
 
     def send_mentions_from_queue(self, bot=None, num_threads=None, num_tasks=None):
