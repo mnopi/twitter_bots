@@ -13,7 +13,7 @@ from project.exceptions import RateLimitedException, AllFollowersExtracted, AllH
     TweetWithoutRecipientsError, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
     McTweetMustBeVerified, BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, \
     DestinationBotIsBeingUsed, McTweetMustBeSent, NoAvailableProxiesToAssignBotsForUse, MuTweetHasNotSentFTweetsEnough, \
-    MethodOnlyAppliesToTuMentions, MethodOnlyAppliesToTbMentions
+    MethodOnlyAppliesToTuMentions, MethodOnlyAppliesToTbMentions, SentOkMcTweetWithoutDateSent
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
     TwitterUserManager, McTweetManager
 from core.scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago, naive_to_utc, \
@@ -628,20 +628,23 @@ class Tweet(models.Model):
         """Comprueba si el tweet puede ser verificado por bot destino"""
 
         if self.has_twitterbots_mentions():
-            # comprobamos que el bot destino no esté siendo usando
-            destination_bot = self.mentioned_bots.first()
-            if destination_bot.is_already_being_used():
-                raise DestinationBotIsBeingUsed(self)
+            if not self.date_sent:
+                raise SentOkMcTweetWithoutDateSent(self)
             else:
-                # comprobamos que si ya se ha pasado el time window desde que el bot que lanza el tweet
-                # fue detectado que no puede mencionar
-                verif_time_window = self.bot_used.get_group().destination_bot_checking_time_window
-                verif_time_window_is_passed = has_elapsed_secs_since_time_ago(
-                    self.date_sent,
-                    generate_random_secs_from_minute_interval(verif_time_window)
-                )
-                if not verif_time_window_is_passed:
-                    raise VerificationTimeWindowNotPassed(self)
+                # comprobamos que el bot destino no esté siendo usando
+                destination_bot = self.mentioned_bots.first()
+                if destination_bot.is_already_being_used():
+                    raise DestinationBotIsBeingUsed(self)
+                else:
+                    # comprobamos que si ya se ha pasado el time window desde que el bot que lanza el tweet
+                    # fue detectado que no puede mencionar
+                    verif_time_window = self.bot_used.get_group().destination_bot_checking_time_window
+                    verif_time_window_is_passed = has_elapsed_secs_since_time_ago(
+                        self.date_sent,
+                        generate_random_secs_from_minute_interval(verif_time_window)
+                    )
+                    if not verif_time_window_is_passed:
+                        raise VerificationTimeWindowNotPassed(self)
         else:
             raise MethodOnlyAppliesToTbMentions
 

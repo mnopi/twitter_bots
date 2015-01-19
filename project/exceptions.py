@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from core.scrapper.utils import get_thread_name, has_elapsed_secs_since_time_ago, \
-    generate_random_secs_from_minute_interval
+    generate_random_secs_from_minute_interval, utc_now
 from twitter_bots import settings
 import time
 
@@ -180,10 +180,11 @@ class BotHasNotEnoughTimePassedToTweetAgain(Exception):
 class MuTweetHasNotSentFTweetsEnough(Exception):
     def __init__(self, mutweet):
         self.mutweet = mutweet
-        settings.LOGGER.debug('Mutweet %d has not sent ftweets enough (%d/%d)' %
-                              (mutweet.pk,
+        settings.LOGGER.debug('Bot %s has not sent ftweets enough (%d/%d) to tweet mutweet %d' %
+                              (mutweet.bot_used.username,
                                mutweet.tweets_from_feed.count(),
-                               mutweet.get_ftweets_count_to_send_before()))
+                               mutweet.get_ftweets_count_to_send_before(),
+                               mutweet.pk))
 
 
 class FTweetMustBeSent(Exception):
@@ -215,3 +216,10 @@ class MethodOnlyAppliesToTuMentions(Exception):
 class MethodOnlyAppliesToTbMentions(Exception):
     def __init__(self):
         settings.LOGGER.exception('This method only applies to twitterbot mentions')
+
+
+class SentOkMcTweetWithoutDateSent(Exception):
+    def __init__(self, mctweet):
+        settings.LOGGER.warning('Sent ok mctweet %d without date sent! setting to utc_now..' % mctweet.pk)
+        mctweet.date_sent = utc_now()
+        mctweet.save()

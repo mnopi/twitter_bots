@@ -11,7 +11,7 @@ from project.exceptions import RateLimitedException, AllFollowersExtracted, NoBo
     NoTweetsOnMentionQueue, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
     BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, McTweetMustBeSent, BotCantSendMctweet, \
     DestinationBotIsBeingUsed, LastMctweetFailedTimeWindowNotPassed, MuTweetHasNotSentFTweetsEnough, FTweetMustBeSent, \
-    McTweetMustBeVerified
+    McTweetMustBeVerified, SentOkMcTweetWithoutDateSent
 from project.querysets import ProjectQuerySet, TwitterUserQuerySet, TweetQuerySet, ExtractorQuerySet, TargetUserQuerySet
 from twitter_bots import settings
 from django.db import models
@@ -95,7 +95,8 @@ class TweetManager(models.Manager):
                             mctweet.tweet_checking_mention.save()
                             raise McTweetMustBeVerified(mctweet)
                         except (DestinationBotIsBeingUsed,
-                                VerificationTimeWindowNotPassed):
+                                VerificationTimeWindowNotPassed,
+                                SentOkMcTweetWithoutDateSent):
                             continue
                     else:
                         try:
