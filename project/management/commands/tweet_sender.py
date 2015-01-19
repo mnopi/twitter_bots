@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from Queue import Full
 
 from optparse import make_option
 import time
@@ -50,6 +51,9 @@ class Command(BaseCommand):
             TwitterBot.objects.send_mentions_from_queue(bot=bot, num_threads=num_threads, num_tasks=num_tasks)
 
             time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER)
+        except Full as e:
+            settings.LOGGER.warning('Timeout exceeded, full threadpool queue')
+            raise FatalError(e)
         except Exception as e:
             raise FatalError(e)
 

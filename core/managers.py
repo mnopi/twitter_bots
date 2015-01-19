@@ -151,7 +151,7 @@ class TwitterBotManager(models.Manager):
         if num_threads == 1:
             self.send_twusermention_from_pending_queue(bot)
         else:
-            pool = ThreadPool(num_threads or settings.MAX_THREADS_SENDING_TWEETS)
+            pool = ThreadPool(num_threads or settings.MAX_THREADS_SENDING_TWEETS, timeout=60*10)
 
             for task_num in range(num_tasks or settings.TOTAL_TASKS_SENDING_TWEETS):
                 pool.add_task(self.send_twusermention_from_pending_queue, bot)
