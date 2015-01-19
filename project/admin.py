@@ -198,6 +198,10 @@ class ProjectProxiesGroupInline(admin.TabularInline):
     model = ProxiesGroup.projects.through
     extra = 0
 
+class FeedsGroupProxiesGroupInline(admin.TabularInline):
+    model = FeedsGroup.proxies_groups.through
+    extra = 0
+
 class ProjectTweetMsgInline(admin.TabularInline):
     model = TweetMsg
     formset = TweetMsgInlineFormset
@@ -478,6 +482,7 @@ class ProxiesGroupAdmin(admin.ModelAdmin):
 
     inlines = [
         ProjectProxiesGroupInline,
+        FeedsGroupProxiesGroupInline,
     ]
 
 

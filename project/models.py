@@ -662,7 +662,7 @@ class Tweet(models.Model):
                 self.clear_not_sent_ok_ftweets()
                 ftweet_to_send = create_ftweet()
             else:
-                ftweet_to_send = ftweet_to_send.first()
+                ftweet_to_send = ftweet_to_send.first().tweet
         else:
             ftweet_to_send = create_ftweet()
 
