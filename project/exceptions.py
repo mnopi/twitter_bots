@@ -182,7 +182,7 @@ class MuTweetHasNotSentFTweetsEnough(Exception):
         self.mutweet = mutweet
         settings.LOGGER.debug('Bot %s has not sent ftweets enough (%d/%d) to tweet mutweet %d' %
                               (mutweet.bot_used.username,
-                               mutweet.tweets_from_feed.count(),
+                               mutweet.tweets_from_feed.filter(tweet__sent_ok=True).count(),
                                mutweet.get_ftweets_count_to_send_before(),
                                mutweet.pk))
 
@@ -195,9 +195,9 @@ class FTweetMustBeSent(Exception):
 class DestinationBotIsBeingUsed(Exception):
     def __init__(self, mctweet):
         destination_bot = mctweet.mentioned_bots.first()
-        settings.LOGGER.debug('Bot %s can\'t verify mctweet from %s because %s is already '
+        settings.LOGGER.debug('Bot %s can\'t verify mctweet from %s because is already '
                               'being used now' %
-                              (destination_bot.username, mctweet.bot_used.username, destination_bot.username))
+                              (destination_bot.username, mctweet.bot_used.username))
 
 
 class LastMctweetFailedTimeWindowNotPassed(Exception):
@@ -205,7 +205,7 @@ class LastMctweetFailedTimeWindowNotPassed(Exception):
         settings.LOGGER.debug('Bot %s not passed %s minutes after last mctweet failed (at %s)' % (
             bot.username,
             bot.get_group().mention_fail_time_window,
-            bot.get_mctweets_verified().last().destination_bot_checked_mention_date))
+            bot.get_mctweets_verified().last().tweet_checking_mention.destination_bot_checked_mention_date))
 
 
 class MethodOnlyAppliesToTuMentions(Exception):

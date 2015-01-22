@@ -49,7 +49,7 @@ TEST_MODE = False
 FORCE_FIREFOX = False
 ###############
 FAST_MODE = False  # para saltarse los delays en testeo
-TAKE_SCREENSHOTS = True
+TAKE_SCREENSHOTS = False
 
 #
 # EXTRACTORS
@@ -76,8 +76,11 @@ MAX_QUEUED_TWEETS_TO_SEND_PER_BOT = 4
 # TWEET SENDER
 MAX_THREADS_SENDING_TWEETS = 8  # máximo de hilos para enviar tweets
 TOTAL_TASKS_SENDING_TWEETS = MAX_THREADS_SENDING_TWEETS  # número total de tareas para las hebras por cada vez que se ejecuta el proceso de enviar tweets
-TIME_WAITING_AVAIABLE_BOT_TO_TWEET = 60  # cada x segundos el enviador de tweets comprueba que haya bots disponibles para enviarlos
+TIME_SLEEPING_AFTER_NO_BOTS_FOUND = 60  # tiempo que se duerme la hebra si no encuentra ningún bot disponible para lanzar tweet
 TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER = 15
+
+TWEET_LINK_MAX_LENGTH = 22
+TWEET_IMG_LENGTH = 23
 
 #
 # MCTWEET VERIFICATION
@@ -152,10 +155,16 @@ SCRAPPER_PATH = os.path.join(PROJECT_ROOT, 'core', 'scrapper')
 WEBDRIVERS_PATH = os.path.join(SCRAPPER_PATH, 'webdrivers')
 
 PHANTOMJS_PATH = os.path.join(WEBDRIVERS_PATH, 'phantomjs')
+
+# PHANTOMJS BIN
 if sys.platform == "win32":
     PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_windows_bin.exe')
+elif sys.platform == 'linux2':
+    PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_linux_bin')
 else:
     PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_mac_bin_1_9_8')
+
+# PHANTOMJS COOKIES
 PHANTOMJS_COOKIES_DIR = os.path.join(PHANTOMJS_PATH, 'cookies')
 
 SCREENSHOTS_DIR = os.path.join(SCRAPPER_PATH, 'screenshots')

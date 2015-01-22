@@ -11,7 +11,7 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
         "NAME": "twitter_bots_prod",
-        "USER": "mnopi",
+        "USER": "root",
         "PASSWORD": "1aragon1",
         "HOST": "localhost",
         "PORT": "3306",

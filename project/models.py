@@ -8,7 +8,8 @@ import simplejson
 import time
 import tweepy
 from core.managers import mutex
-from core.scrapper.exceptions import ConnectionError, TweetAlreadySent, FailureSendingTweetException
+from core.scrapper.exceptions import ConnectionError, TweetAlreadySent, FailureSendingTweetException, \
+    ProxyUrlRequestError
 from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted, TweetCreationException, \
     TweetWithoutRecipientsError, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
     McTweetMustBeVerified, BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, \
@@ -290,7 +291,6 @@ class TwitterUser(models.Model):
         except Exception as e:
             raise e
 
-
 class Tweet(models.Model):
     date_created = models.DateTimeField(auto_now_add=True)  # la fecha en la que se crea y se mete en la cola
     date_sent = models.DateTimeField(null=True, blank=True)
@@ -356,7 +356,7 @@ class Tweet(models.Model):
             # si el tweet tiene link o pagelink entonces se lo ponemos. de lo contrario ponemos el link del feed
             if with_links:
                 if self.link:
-                    compose_txt += ' ' + self.link
+                    compose_txt += ' ' + self.link.url
                 elif self.page_announced and self.page_announced.page_link:
                     compose_txt += ' ' + self.page_announced.page_link
 
@@ -385,13 +385,13 @@ class Tweet(models.Model):
         if self.tweet_msg:
             total_length += len(self.tweet_msg.text)
         if self.link:
-            total_length += 1 + 22
+            total_length += 1 + settings.TWEET_LINK_MAX_LENGTH
         if self.tweet_img:
-            total_length += 23
+            total_length += settings.TWEET_IMG_LENGTH
         if self.page_announced:
             if self.tweet_msg or self.link:
                 total_length += 1
-            total_length += self.page_announced.page_link_length()
+            total_length += self.page_announced.length()
 
         return total_length
 
@@ -416,7 +416,7 @@ class Tweet(models.Model):
 
         bot_used_group = self.bot_used.get_group()
 
-        mentionable_bots = self.bot_used.get_rest_of_completed_bots_under_same_group()
+        mentionable_bots = self.bot_used.get_mentionable_bots()
         if mentionable_bots:
             for bot_to_mention in mentionable_bots[:bot_used_group.max_num_mentions_per_tweet]:
                 if self.length() + len(bot_to_mention.username) + 2 <= 140:
@@ -467,14 +467,17 @@ class Tweet(models.Model):
     def add_page_announced(self, project):
         if project.pagelink_set.exists():
             page_announced = project.pagelink_set.order_by('?')[0]
-            if self.length() + page_announced.page_link_length() <= 140:
+            if self.length() + page_announced.length() <= 140:
                 self.page_announced = page_announced
                 self.save()
             else:
                 settings.LOGGER.warning('Tweet %s is too long to add page link %s' %
                                         (self, page_announced))
         else:
-            raise Exception('Project %s has no pagelinks' % project.__unicode__())
+            raise Exception('Bot %s tried to build tweet for project %s but it has no pagelinks. '
+                            'Try one of two: add at least one pagelink or disable "has_page_links" '
+                            'on his group: %s' %
+                            (self.bot_used.username, project.__unicode__(), self.bot_used.get_group().name))
 
     def add_image(self, project):
         if project.tweet_imgs.exists():
@@ -512,7 +515,8 @@ class Tweet(models.Model):
             self.bot_used.scrapper.open_browser()
             self.bot_used.scrapper.login()
             self.bot_used.scrapper.send_tweet(self)
-        except (ConnectionError,
+        except (ProxyUrlRequestError,
+                ConnectionError,
                 NoAvailableProxiesToAssignBotsForUse,
                 TweetAlreadySent,
                 FailureSendingTweetException):
@@ -1176,7 +1180,7 @@ class PageLinkHashtag(models.Model):
 class PageLink(models.Model):
     page_title = models.CharField(max_length=150, null=True, blank=True)
     page_link = models.URLField(null=False, blank=False)
-    project = models.ForeignKey(Project, null=False, blank=False)
+    project = models.ForeignKey(Project, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     hashtags = models.ManyToManyField(PageLinkHashtag, null=True, blank=True, related_name="page_links")
     image = models.ForeignKey(TweetImg, null=True, blank=True, related_name="page_img")
@@ -1196,8 +1200,8 @@ class PageLink(models.Model):
 
         return ' '.join(elements)
 
-    def page_link_length(self, p=None):
-        page_link_length = 22
+    def length(self, p=None):
+        page_link_length = settings.TWEET_LINK_MAX_LENGTH
         if self.page_title:
             page_link_length += 1 + len(self.page_title)
         try:
@@ -1208,7 +1212,7 @@ class PageLink(models.Model):
         except:
             pass
         if self.image:
-            page_link_length += 23
+            page_link_length += settings.TWEET_IMG_LENGTH
         return page_link_length
 
 
@@ -1247,6 +1251,8 @@ class ProxiesGroup(models.Model):
     mention_fail_time_window = models.CharField(max_length=10, null=False, blank=False, default='10-40')
     # time window desde que se envía el mc_tweet hasta que el bot destino lo verifica en su panel de notificaciones
     destination_bot_checking_time_window = models.CharField(max_length=10, null=False, blank=False, default='2-5')
+    # tiempo mínimo que ha de pasar para que un bot pueda mandar mctweet otra vez a un mismo bot
+    mctweet_to_same_bot_time_window = models.CharField(max_length=10, null=False, blank=False, default='60-120')
 
     # webdriver
     FIREFOX = 'FI'

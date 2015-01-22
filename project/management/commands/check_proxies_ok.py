@@ -15,7 +15,7 @@ class Command(BaseCommand):
         if args:
             group_to_check = ProxiesGroup.objects.get(name=args[0])
             # escogemos aquellos bots que tengan el
-            bots_to_check = TwitterBot.objects.using_proxies_group(group_to_check)
+            bots_to_check = TwitterBot.objects.using_proxies_group(group_to_check).usable()
             for bot in bots_to_check:
                 bot.check_proxy_ok()
         else:

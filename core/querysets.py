@@ -178,7 +178,7 @@ class ProxyQuerySet(MyQuerySet):
         return self.filter(Q(is_in_proxies_txts=False) | Q(is_unavailable_for_use=False))
 
     def available_to_assign_bots_for_use(self):
-        """Devuelve proxies disponibles para poder asignar a bots y que puedan iniciar sesión, tuitear etc"""
+        """Devuelve proxies disponibles para poder asignar a bots para su uso"""
 
         # base de proxies aptos usar robots ya registrados
         proxies_base = self\

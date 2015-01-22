@@ -24,19 +24,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-
-        def clean():
-            """hacemos esto para que no salgan los robots como ocupados (enviando tweet, comprobando mención..)"""
-
-            Tweet.objects.put_sending_to_not_sending()
-            TweetCheckingMention.objects.put_checking_to_not_checking()
-            Tweet.objects.remove_wrong_constructed()
-
         set_logger(__name__)
         settings.LOGGER.info('-- INITIALIZED %s --' % MODULE_NAME)
 
         try:
-            clean()
+            Tweet.objects.clean_not_ok()
 
             bot = TwitterBot.objects.get(username=options['bot']) \
                 if 'bot' in options and options['bot'] \

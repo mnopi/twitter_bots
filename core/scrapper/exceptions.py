@@ -98,7 +98,7 @@ class ConnectionError(Exception):
 class ProxyConnectionError(ConnectionError):
     """Cuando no se puede conectar al proxy"""
     def __init__(self, scrapper):
-        scrapper.logger.error('Proxy %s not available for usage' % scrapper.user.proxy_for_usage.__unicode__())
+        scrapper.logger.error('Can\'t connect to proxy: %s' % scrapper.user.proxy_for_usage.__unicode__())
         # scrapper.user.proxy_for_usage.mark_as_unavailable_for_use()
         time.sleep(10)
 

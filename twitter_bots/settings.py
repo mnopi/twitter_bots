@@ -61,17 +61,17 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
 
-        "NAME": "twitter_bots_prod",
+        "NAME": "twitter_bots_dev",
         "USER": "root",
-        "PASSWORD": "",
+        "PASSWORD": "1aragon1",
         "HOST": "127.0.0.1",
         "PORT": "3306",
 
         # "NAME": "twitter_bots_prod",
         # "USER": "mnopi",
         # "PASSWORD": "1aragon1",
-        # # "HOST": "192.168.1.115",
-        # "HOST": "88.26.212.82",
+        # "HOST": "192.168.1.115",
+        # # "HOST": "88.26.212.82",
         # "PORT": "3306",
     },
 
@@ -132,7 +132,7 @@ LOGGING = {
     },
     'handlers': {
         'console_info': {
-            'level': 'DEBUG',
+            'level': 'INFO',
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
             'stream': sys.stdout,

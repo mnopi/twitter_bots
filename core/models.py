@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from django.db.models import Q
+from django.db.models import Q, Count
 import feedparser
 from django.contrib.auth.models import AbstractUser
 from django.db import models
@@ -650,7 +650,7 @@ class TwitterBot(models.Model):
 
         from project.models import Tweet, TweetCheckingMention
 
-        # vemos si hay algún tweet de verificación pendiente de comprobar
+        # vemos si ya hay algún mctweet sin verificar
         mctweet_not_checked = Tweet.objects.mentioning_bots().by_bot(self).not_checked_if_mention_arrives_ok()
         if mctweet_not_checked.exists():
             if mctweet_not_checked.count() > 1:
@@ -669,30 +669,63 @@ class TwitterBot(models.Model):
 
         return mctweet
 
-    def get_rest_of_completed_bots_under_same_group(self):
-        """Devuelve una lista con los bots completos bajo el mismo grupo del bot dado. Ordenados
-        poniendo primero los que el bot tuiteó hace más tiempo"""
-        bots = TwitterBot.objects\
-            .using_proxies_group(self.get_group())\
+    def get_mentionable_bots(self):
+        """Devuelve una lista con los bots que puede mencionar"""
+
+        group = self.get_group()
+
+        bots_under_same_group = TwitterBot.objects\
+            .using_proxies_group(group)\
+            .with_proxy_connecting_ok()\
             .twitteable()\
             .exclude(pk=self.pk)
 
-        # sacamos bots ordenamos de más antiguo a más nuevo mencionado por el bot, los bots que aún no hayan sido
-        # mencionados por el bot los ponemos al principio
-        bots = list(bots)
-        without_mention_received = []
-        with_mention_received = []
+        # ordenamos de menor a mayor número de mctweets fabricados
+        # http://timmyomahony.com/blog/filtering-annotations-django/
+        bots_under_same_group = bots_under_same_group.extra(
+            select = {
+                'mctweets_received_count': """
+                Select count(*) from project_tweet as tweet
+                JOIN project_tweet_mentioned_bots as mctweet on mctweet.tweet_id=tweet.id
+                where mctweet.twitterbot_id=core_twitterbot.id
+                """
+            }
+        ).order_by('mctweets_received_count')
 
-        for b in bots:
-            mentions_to_b = b.mentions.filter(bot_used=self)
-            if mentions_to_b.exists():
-                b.last_mention_received_by_bot_date = mentions_to_b.latest('date_sent').date_sent
-                with_mention_received.append(b)
+        # de estos quitamos los que este bot haya mencionado antes de pasado un intervalo
+        # de x tiempo
+        final_bots = []
+        for bot in bots_under_same_group:
+            # sacamos las menciones que este bot (self) hizo a cada bot
+            mentions = bot.mentions.filter(bot_used=self)
+            if mentions.exists():
+                secs = generate_random_secs_from_minute_interval(group.mctweet_to_same_bot_time_window)
+                time_window_passed = has_elapsed_secs_since_time_ago(
+                    mentions.latest('date_sent').date_sent,
+                    secs
+                )
+                if time_window_passed:
+                    final_bots.append(bot)
             else:
-                without_mention_received.append(b)
+                final_bots.append(bot)
 
-        with_mention_received.sort(key=lambda b: b.last_mention_received_by_bot_date, reverse=False)
-        return without_mention_received + with_mention_received
+        return final_bots
+        # # sacamos bots tras aplicar una segunda ordenación: de más antiguo a más nuevo mencionado por el bot,
+        # # los que aún no hayan sido mencionados los ponemos al principio
+        # bots_under_same_group = list(bots_under_same_group)
+        # without_mention_received = []
+        # with_mention_received = []
+        #
+        # for b in bots_under_same_group:
+        #     mentions_to_b = b.mentions.filter(bot_used=self)
+        #     if mentions_to_b.exists():
+        #         b.last_mention_received_by_bot_date = mentions_to_b.latest('date_sent').date_sent
+        #         with_mention_received.append(b)
+        #     else:
+        #         without_mention_received.append(b)
+        #
+        # with_mention_received.sort(key=lambda b: b.last_mention_received_by_bot_date, reverse=False)
+        # return without_mention_received + with_mention_received
 
     def has_enough_time_passed_since_his_last_tweet(self):
         """Nos dice si pasó el suficiente tiempo desde que el robot tuiteó por última vez a un usuario"""

@@ -68,31 +68,43 @@ class TwitterBotManager(models.Manager):
 
         bot.complete_creation()
 
-    def create_bots(self, num_bots=None):
+    def create_bots(self, num_bots=None, from_dyn_ip=False):
+
+        def create_from_proxies():
+            proxies = Proxy.objects.available_to_assign_bots_for_registration()
+            if proxies.exists():
+                subnets_24_count = len(Proxy.objects.get_subnets_24(proxies))
+
+                if num_bots and num_bots > subnets_24_count:
+                    settings.LOGGER.warning('The num_bots specified to create is higher than total /24 available subnets')
+                    num_bots = subnets_24_count
+                else:
+                    num_bots = num_bots or subnets_24_count
+
+                settings.LOGGER.info('There is %i available /24 subnets to create bots' % subnets_24_count)
+
+                pool = ThreadPool(settings.MAX_THREADS_CREATING_BOTS)
+                settings.LOGGER.info('Creating %d twitter bots..' % num_bots)
+                for task_num in range(num_bots):
+                    settings.LOGGER.info('Adding task %i' % task_num)
+                    pool.add_task(self.create_bot)
+                pool.wait_completion()
+            else:
+                raise NoMoreAvailableProxiesForRegistration()
+
+        def create_from_dyn_ip():
+            pass
+
+
         from core.models import Proxy
         self.clean_unregistered()
         self.put_previous_being_created_to_false()
 
-        proxies = Proxy.objects.available_to_assign_bots_for_registration()
-        if proxies.exists():
-            subnets_24_count = len(Proxy.objects.get_subnets_24(proxies))
-
-            if num_bots and num_bots > subnets_24_count:
-                settings.LOGGER.warning('The num_bots specified to create is higher than total /24 available subnets')
-                num_bots = subnets_24_count
-            else:
-                num_bots = num_bots or subnets_24_count
-
-            settings.LOGGER.info('There is %i available /24 subnets to create bots' % subnets_24_count)
-
-            pool = ThreadPool(settings.MAX_THREADS_CREATING_BOTS)
-            settings.LOGGER.info('Creating %d twitter bots..' % num_bots)
-            for task_num in range(num_bots):
-                settings.LOGGER.info('Adding task %i' % task_num)
-                pool.add_task(self.create_bot)
-            pool.wait_completion()
+        if from_dyn_ip:
+            create_from_dyn_ip()
         else:
-            raise NoMoreAvailableProxiesForRegistration()
+            create_from_proxies()
+
 
         # threads = []
         # for n in range(num_bots):
@@ -130,8 +142,8 @@ class TwitterBotManager(models.Manager):
         except (NoBotsFoundForSendingMentions,
                 NoTweetsOnMentionQueue):
             # si no se puede enviar nada ponemos la hebra a esperar un momento
-            settings.LOGGER.debug('Sleeping %d seconds..' % settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET)
-            time.sleep(settings.TIME_WAITING_AVAIABLE_BOT_TO_TWEET)
+            settings.LOGGER.debug('Sleeping %d seconds..' % settings.TIME_SLEEPING_AFTER_NO_BOTS_FOUND)
+            time.sleep(settings.TIME_SLEEPING_AFTER_NO_BOTS_FOUND)
 
         except McTweetMustBeSent as e:
             e.mc_tweet.send()
@@ -201,6 +213,7 @@ class TwitterBotManager(models.Manager):
     def check_proxies(self, bots):
         for bot in bots:
             bot.check_proxy_ok()
+
     #
     # Proxy methods to queryset
     #

@@ -2,6 +2,7 @@
 
 import time
 import random
+from django.db.models import Q
 from tweepy import TweepError
 from core.decorators import mlocked
 from core.managers import MyManager
@@ -187,6 +188,14 @@ class TweetManager(models.Manager):
 
         return final_queue
 
+    def clean_not_ok(self):
+        from project.models import TweetCheckingMention
+
+        self.pending_to_send().with_not_ok_bots().delete()
+        self.put_sending_to_not_sending()
+        TweetCheckingMention.objects.put_checking_to_not_checking()
+        self.remove_wrong_constructed()
+
     #
     # proxy queryset methods
     #
@@ -205,6 +214,12 @@ class TweetManager(models.Manager):
 
     def not_checked_if_mention_arrives_ok(self):
         return self.get_queryset().not_checked_if_mention_arrives_ok()
+
+    def pending_to_send(self):
+        return self.get_queryset().pending_to_send()
+
+    def with_not_ok_bots(self):
+        return self.get_queryset().with_not_ok_bots()
 
 
 class ProjectManager(models.Manager):

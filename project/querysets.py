@@ -70,6 +70,19 @@ class TweetQuerySet(QuerySet):
             Q(tweet_checking_mention__destination_bot_checked_mention=False)
         )
 
+    def pending_to_send(self):
+        return self.filter(sent_ok=False)
+
+    def with_not_ok_bots(self):
+        """Saca los tweets donde su bot tenga un proxy que no conecte o bien esté suspendido/muerto"""
+        with_not_connectable_proxy = (Q(bot_used__proxy_for_usage__is_in_proxies_txts=False) |
+                                     Q(bot_used__proxy_for_usage__is_unavailable_for_use=True))
+        with_not_ok_bot = (Q(bot_used__is_dead=True) |
+                           Q(bot_used__is_suspended=True) |
+                           Q(bot_used__twitter_confirmed_email_ok=False))
+        return self.filter(
+            with_not_connectable_proxy | with_not_ok_bot
+        )
 
 class MyQuerySet(QuerySet):
     def union(self, qs, limit=None, order_by=None):

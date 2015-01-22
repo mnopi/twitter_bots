@@ -65,17 +65,20 @@ class PageLinkInlineFormset(forms.models.BaseInlineFormSet):
                     tweet_length = 0
                     error_msg = 'The group: ' + group.name + ' can\'t create tweet composed by'
                     if group.has_page_announced:
-                        listForm = []
+                        pagelink_forms = []
                         for form in self.forms:
                             if form.cleaned_data:
                                 if form.cleaned_data['DELETE']:
-                                    form.instance.page_title = ''
-                                    form.instance.hastags = None
+                                    # form.instance.page_title = ''
+                                    # form.instance.hashtags.all().delete()
+                                    pass
                                 else:
-                                    listForm.append(form)
-                        longest_page_link = max(listForm, key = lambda p: p.instance.page_link_length(p))
-                        tweet_length += longest_page_link.instance.page_link_length(longest_page_link)
-                        error_msg += ' page_announced: ' + longest_page_link.instance.page_title + ','
+                                    pagelink_forms.append(form)
+
+                        if pagelink_forms:
+                            longest_page_link = max(pagelink_forms, key=lambda p: p.instance.length(p))
+                            tweet_length += longest_page_link.instance.length(longest_page_link)
+                            error_msg += ' page_announced: ' + longest_page_link.instance.page_title + ','
                     if group.has_mentions:
                         mentions_length = 17 * group.max_num_mentions_per_tweet
                         tweet_length += mentions_length
@@ -96,7 +99,7 @@ class PageLinkAdmin(admin.ModelAdmin):
         'page_title',
         'project',
         'is_active',
-        'hastags',
+        'hashtags',
         'image',
         'languaje',
     )
@@ -124,8 +127,7 @@ class TweetMsgInlineFormset(forms.models.BaseInlineFormSet):
                         error_msg += " tweet_msg: " + longest_msg.text + ','
                     if group.has_link:
                         if project.links.all():
-                            longest_link = 22
-                            tweet_length += longest_link + 1
+                            tweet_length += settings.TWEET_LINK_MAX_LENGTH + 1
                             error_msg += " link: igoo.co/x " + ','
                     if group.has_mentions:
                         mentions_length = 17 * group.max_num_mentions_per_tweet
@@ -133,7 +135,7 @@ class TweetMsgInlineFormset(forms.models.BaseInlineFormSet):
                         error_msg += ' ' + str(group.max_num_mentions_per_tweet) + ' mentions,'
                     if group.has_tweet_img:
                         if project.tweet_imgs:
-                            img_length = 23
+                            img_length = settings.TWEET_IMG_LENGTH
                             tweet_length += img_length
                             error_msg += " and image"
                     if tweet_length > 140:
@@ -169,8 +171,7 @@ class ProjectAdminForm(forms.ModelForm):
                         error_msg += " tweet_msg: " + longest_msg.text + ','
                 if group.has_link:
                     if project.links.all():
-                        longest_link = 22
-                        tweet_length += longest_link + 1
+                        tweet_length += settings.TWEET_LINK_MAX_LENGTH + 1
                         error_msg += " link: igoo.co/x " + ','
                 # if group.has_page_announced:
                 #     if project.pagelink_set.all():
@@ -292,6 +293,7 @@ class TweetAdmin(admin.ModelAdmin):
         'page_announced__page_title',
         'page_announced__page_link',
         'mentioned_users__username',
+        # 'mentioned_bots__username',
     )
 
     class TypeFilter(admin.SimpleListFilter):
@@ -433,7 +435,7 @@ class ProxiesGroupAdmin(admin.ModelAdmin):
         'has_page_announced',
         'has_mentions',
 
-        'proxies_num',
+        'total_proxies',
         'proxies_avaiable_for_usage_num',
         'total_bots_num',
         'bots_using_num',
@@ -446,7 +448,7 @@ class ProxiesGroupAdmin(admin.ModelAdmin):
 
     )
 
-    def proxies_num(self, obj):
+    def total_proxies(self, obj):
         return obj.proxies.count()
 
     def proxies_avaiable_for_usage_num(self, obj):
@@ -458,7 +460,7 @@ class ProxiesGroupAdmin(admin.ModelAdmin):
 
     def bots_using_num(self, obj):
         from core.models import TwitterBot
-        return TwitterBot.objects.using_proxies_group(obj).count()
+        return TwitterBot.objects.with_proxy_connecting_ok().using_proxies_group(obj).count()
 
     exclude = ('projects',)
 
