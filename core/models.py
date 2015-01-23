@@ -5,7 +5,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from selenium.common.exceptions import NoSuchElementException
 from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableProxiesToAssignBotsForUse,\
-    TweetCreationException, BotHasToCheckIfMentioningWorks, CantRetrieveMoreItemsFromFeeds, McTweetMustBeSent, \
+    TweetCreationException, BotHasToCheckIfMentioningWorks, CantRetrieveNewItemsFromFeeds, McTweetMustBeSent, \
     McTweetMustBeVerified, BotCantSendMctweet, LastMctweetFailedTimeWindowNotPassed
 from core.scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from core.scrapper.accounts.hotmail import HotmailScrapper
@@ -501,10 +501,10 @@ class TwitterBot(models.Model):
             items_not_sent = self.get_feed_items_not_sent_yet()
 
         # volvemos a comprobar para ver si se añadió nuevo item desde feed
-        if not items_not_sent.exists():
-            raise CantRetrieveMoreItemsFromFeeds(self)
-        else:
+        if items_not_sent.exists():
             return items_not_sent.first()
+        else:
+            raise CantRetrieveNewItemsFromFeeds(self)
 
     def get_feed_items_not_sent_yet(self):
         """Mira en los feeds asignados al grupo de proxies para el bot e intenta sacar un item

@@ -1297,7 +1297,7 @@ class Feed(models.Model):
         feed = feedparser.parse(self.url)
         for entry in feed['entries']:
             entry_text = entry['title']
-            entry_link = entry['link']
+            entry_link = entry['feedburner_origlink'] if 'feedburner_origlink' in entry else entry['link']
 
             text_is_short_enough = len(entry_text) <= 101
             text_is_new = not FeedItem.objects.filter(text__icontains=entry_text).exists()

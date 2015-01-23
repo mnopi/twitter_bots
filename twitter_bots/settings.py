@@ -132,7 +132,7 @@ LOGGING = {
     },
     'handlers': {
         'console_info': {
-            'level': 'INFO',
+            'level': 'DEBUG',
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
             'stream': sys.stdout,

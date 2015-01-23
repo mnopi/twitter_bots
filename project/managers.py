@@ -8,11 +8,11 @@ from core.decorators import mlocked
 from core.managers import MyManager
 from core.scrapper.utils import has_elapsed_secs_since_time_ago
 from core.scrapper.utils import generate_random_secs_from_minute_interval
-from project.exceptions import RateLimitedException, AllFollowersExtracted, NoBotsFoundForSendingMentions, \
-    NoTweetsOnMentionQueue, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
+from project.exceptions import RateLimitedException, AllFollowersExtracted, NoAvailableBots, \
+    EmptyMentionQueue, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
     BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, McTweetMustBeSent, BotCantSendMctweet, \
     DestinationBotIsBeingUsed, LastMctweetFailedTimeWindowNotPassed, MuTweetHasNotSentFTweetsEnough, FTweetMustBeSent, \
-    McTweetMustBeVerified, SentOkMcTweetWithoutDateSent
+    McTweetMustBeVerified, SentOkMcTweetWithoutDateSent, CantRetrieveNewItemsFromFeeds, NoAvailableBot
 from project.querysets import ProjectQuerySet, TwitterUserQuerySet, TweetQuerySet, ExtractorQuerySet, TargetUserQuerySet
 from twitter_bots import settings
 from django.db import models
@@ -109,10 +109,13 @@ class TweetManager(models.Manager):
                             continue
 
                 except MuTweetHasNotSentFTweetsEnough as e:
-                    ftweet = e.mutweet.get_or_create_ftweet_to_send()
-                    ftweet.sending = True
-                    ftweet.save()
-                    raise FTweetMustBeSent(ftweet)
+                    try:
+                        ftweet = e.mutweet.get_or_create_ftweet_to_send()
+                        ftweet.sending = True
+                        ftweet.save()
+                        raise FTweetMustBeSent(ftweet)
+                    except CantRetrieveNewItemsFromFeeds:
+                        continue
 
                 except Exception as e:
                     settings.LOGGER.error('Error getting tumention from queue for bot %s: %s' %
@@ -124,11 +127,13 @@ class TweetManager(models.Manager):
             else:
                 # por si se eliminaron tweets mal construídos volvemos a comprobar si la cola está o no vacía
                 if not self.get_queued_twitteruser_mentions_to_send():
-                    raise NoTweetsOnMentionQueue(bot=bot)
+                    raise EmptyMentionQueue(bot=bot)
+                elif bot:
+                    raise NoAvailableBot(bot)
                 else:
-                    raise NoBotsFoundForSendingMentions
+                    raise NoAvailableBots
         else:
-            raise NoTweetsOnMentionQueue(bot=bot)
+            raise EmptyMentionQueue(bot=bot)
 
     def create_mentions_to_send(self):
         """Crea los tweets a encolar para cada bot disponible"""

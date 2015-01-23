@@ -6,8 +6,9 @@ import time
 
 from django.db import models, connection
 from core.querysets import TwitterBotQuerySet, ProxyQuerySet
-from project.exceptions import NoMoreAvailableProxiesForRegistration, NoBotsFoundForSendingMentions, NoTweetsOnMentionQueue, CantRetrieveMoreItemsFromFeeds, McTweetMustBeSent, \
-    McTweetMustBeVerified, NoAvailableProxiesToAssignBotsForUse, MuTweetHasNotSentFTweetsEnough, FTweetMustBeSent
+from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableBots, EmptyMentionQueue, CantRetrieveNewItemsFromFeeds, McTweetMustBeSent, \
+    McTweetMustBeVerified, NoAvailableProxiesToAssignBotsForUse, MuTweetHasNotSentFTweetsEnough, FTweetMustBeSent, \
+    NoAvailableBot
 from core.scrapper.thread_pool import ThreadPool
 from core.scrapper.utils import utc_now
 from twitter_bots import settings
@@ -139,8 +140,9 @@ class TwitterBotManager(models.Manager):
 
             tweet_to_send.send()
 
-        except (NoBotsFoundForSendingMentions,
-                NoTweetsOnMentionQueue):
+        except (NoAvailableBots,
+                NoAvailableBot,
+                EmptyMentionQueue):
             # si no se puede enviar nada ponemos la hebra a esperar un momento
             settings.LOGGER.debug('Sleeping %d seconds..' % settings.TIME_SLEEPING_AFTER_NO_BOTS_FOUND)
             time.sleep(settings.TIME_SLEEPING_AFTER_NO_BOTS_FOUND)
@@ -155,7 +157,7 @@ class TwitterBotManager(models.Manager):
         except FTweetMustBeSent as e:
             e.ftweet.send()
 
-        except (CantRetrieveMoreItemsFromFeeds, Exception) as e:
+        except Exception as e:
             settings.LOGGER.exception('Error sending tweet')
             time.sleep(60)
             raise e

@@ -33,15 +33,21 @@ class TwitteableBotsNotFound(Exception):
         time.sleep(10)
 
 
-class NoBotsFoundForSendingMentions(Exception):
-    """Esto se lanza cuando la hebra no detecta más bots para poder lanzar menciones, bien por estar usándose en otra
+class NoAvailableBots(Exception):
+    """Esto se lanza cuando la hebra no detecta más bots para poder usarse, bien por estar usándose en otra
     hebra o por tener que esperar algún periodo ventana"""
 
     def __init__(self):
-        settings.LOGGER.warning('No bots found for sending mentions. All are already in use or waiting time windows.')
+        settings.LOGGER.warning('No available bots found. All are already in use, waiting time windows or '
+                                'waiting new feeds items.')
 
 
-class NoTweetsOnMentionQueue(Exception):
+class NoAvailableBot(Exception):
+    def __init__(self, bot):
+        settings.LOGGER.warning('Bot %s not available now.' % bot.username)
+
+
+class EmptyMentionQueue(Exception):
     def __init__(self, bot=None):
         for_bot_msg = '' if not bot else ' to send by bot %s' % bot.username
         settings.LOGGER.warning('%s No tweets on mention queue%s.' % (get_thread_name(), for_bot_msg))
@@ -112,9 +118,9 @@ class McTweetMustBeVerified(Exception):
         self.mctweet = mctweet
 
 
-class CantRetrieveMoreItemsFromFeeds(Exception):
+class CantRetrieveNewItemsFromFeeds(Exception):
     def __init__(self, bot):
-        settings.LOGGER.error('Bot %s can\'t retrieve new items from his feeds. All were already sent! You need '
+        settings.LOGGER.warning('Bot %s can\'t retrieve new items from his feeds. All were already sent! You need '
                               'to add more feeds for his group "%s"' %
                               (bot.username, bot.get_group().__unicode__()))
 
