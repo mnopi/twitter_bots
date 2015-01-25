@@ -449,7 +449,7 @@ class TwitterUserManager(MyManager):
             {
                 'project_pk': project.pk,
                 'limit': 'LIMIT %d' % limit if limit else '',
-                'language': 'and project_users.language="%s"' % language if language else '',
+                'language': 'and project_users.language="%s"' % language if language and language != 'en' else '',
                 'language_field': ', twitteruser.language' if language else ''
             }
         )

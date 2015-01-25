@@ -43,15 +43,25 @@ class Project(models.Model):
     # GETTERS
 
     def check_if_full_of_unmentioned_twitterusers(self):
-        unmentioned_count = self.get_unmentioned_users().count()
+        # contamos aquellos twitterusers cuyo idioma coincida con el del lenguaje de los mensajes y pagelinks
+        # para el proyecto. Si está el idioma inglés o no hay idioma entonces cualquiera vale
+        valid_langs = self.get_langs_using()
+        if not valid_langs or 'en' in valid_langs:
+            unmentioned_count = self.get_unmentioned_users().count()
+        else:
+            unmentioned_count = self.get_unmentioned_users().filter(language__in=valid_langs).count()
+
+        # límite de twitterusers no mencionados por proyecto
         bots_count = self.get_twitteable_bots().count()
-
-        # el límite de tweets por proyecto será el de su número máximo de tweets
-        # que puede haber en cola
         unmentioned_limit = bots_count * settings.MAX_QUEUED_TWEETS_TO_SEND_PER_BOT
-        if unmentioned_count >= unmentioned_limit:
-            raise ProjectFullOfUnmentionedTwitterusers(self, unmentioned_count, unmentioned_limit)
 
+        if unmentioned_count >= unmentioned_limit:
+            raise ProjectFullOfUnmentionedTwitterusers(self, valid_langs, unmentioned_count, unmentioned_limit)
+
+    def get_langs_using(self):
+        tweet_msgs_langs = self.tweet_msgs.values_list('language', flat=True).distinct()
+        pagelinks_langs = self.pagelinks.values_list('language', flat=True).distinct()
+        return list(set(list(tweet_msgs_langs) + list(pagelinks_langs)))
 
     def get_twitter_users_unmentioned_by_bot(self, bot, limit=None):
         return TwitterUser.objects.raw("""SELECT
@@ -1201,7 +1211,7 @@ class PageLinkHashtag(models.Model):
 class PageLink(models.Model):
     page_title = models.CharField(max_length=150, null=True, blank=True)
     page_link = models.URLField(null=False, blank=False)
-    project = models.ForeignKey(Project, null=True, blank=True)
+    project = models.ForeignKey(Project, related_name='pagelinks', null=True, blank=True)
     is_active = models.BooleanField(default=True)
     hashtags = models.ManyToManyField(PageLinkHashtag, null=True, blank=True, related_name="page_links")
     image = models.ForeignKey(TweetImg, null=True, blank=True, related_name="page_img")

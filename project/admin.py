@@ -379,15 +379,37 @@ class TwitterUserAdmin(admin.ModelAdmin):
     list_display = (
         'username',
         'date_saved',
+        'is_mentioned',
     )
+
+    def is_mentioned(self, obj):
+        return obj.mentions.exists()
+    is_mentioned.boolean = True
 
     search_fields = (
         'username',
         'hashtags__q',
     )
+
+    class MentionedUnmentionedFilter(admin.SimpleListFilter):
+        title = 'Mention'
+        parameter_name = 'mention'
+
+        def lookups(self, request, model_admin):
+            return (
+                ('mentioned', 'Mentioned',),
+                ('unmentioned', 'Unmentioned',),
+            )
+
+        def queryset(self, request, queryset):
+            if self.value() == 'mentioned':
+                return queryset.filter(mentions__isnull=False)
+            elif self.value() == 'unmentioned':
+                return queryset.filter(mentions__isnull=True)
+
     list_filter = (
+        MentionedUnmentionedFilter,
         'date_saved',
-        'target_users__projects',
         'source',
         'target_users',
         'hashtags__q',
