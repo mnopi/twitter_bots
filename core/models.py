@@ -506,10 +506,11 @@ class TwitterBot(models.Model):
             return items_not_sent.first()
         else:
             # en caso de enviarse todos los feeditems ordenamos de más antiguo a más reciente
-            # todos los que se enviaron
+            # todos los que se enviaron. ordenamos por date_created en lugar de date_sent ya que
+            # algunas veces es null en date_sent
             settings.LOGGER.debug('Bot %s has sent all feeditems, getting oldest sent available..' % self.username)
             return FeedItem.objects.sent_by_bot(self)\
-                .order_by('tweets__date_sent')\
+                .order_by('tweets__date_created')\
                 .first()
 
     def get_feed_items_not_sent_yet(self):

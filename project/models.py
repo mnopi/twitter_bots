@@ -404,6 +404,8 @@ class Tweet(models.Model):
             return compose_for_tbmention()
         elif self.feed_item:
             return compose_for_ftweet()
+        else:
+            return '<<wrong tweet construction !!>>'
 
     def length(self):
         def mentioned_users_space():
@@ -498,8 +500,8 @@ class Tweet(models.Model):
                                     (self, tweet_message))
 
     def add_page_announced(self, project):
-        if project.pagelink_set.exists():
-            page_announced = project.pagelink_set.order_by('?')[0]
+        if project.pagelinks.exists():
+            page_announced = project.pagelinks.order_by('?')[0]
             if self.length() + page_announced.length() <= 140:
                 self.page_announced = page_announced
                 self.save()
