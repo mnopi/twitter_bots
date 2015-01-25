@@ -139,13 +139,6 @@ class McTweetMustBeVerified(Exception):
         self.mctweet = mctweet
 
 
-class CantRetrieveNewItemsFromFeeds(Exception):
-    def __init__(self, bot):
-        settings.LOGGER.warning('Bot %s can\'t retrieve new items from his feeds. All were already sent! You need '
-                              'to add more feeds for his group "%s"' %
-                              (bot.username, bot.get_group().__unicode__()))
-
-
 class TweetConstructionError(Exception):
     def __init__(self, tweet):
         settings.LOGGER.warning('Tweet %d is wrong constructed and will be deleted' % tweet.pk)

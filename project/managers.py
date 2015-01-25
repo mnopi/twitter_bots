@@ -12,10 +12,11 @@ from project.exceptions import RateLimitedException, AllFollowersExtracted, NoAv
     EmptyMentionQueue, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
     BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, McTweetMustBeSent, BotCantSendMctweet, \
     DestinationBotIsBeingUsed, LastMctweetFailedTimeWindowNotPassed, MuTweetHasNotSentFTweetsEnough, FTweetMustBeSent, \
-    McTweetMustBeVerified, SentOkMcTweetWithoutDateSent, CantRetrieveNewItemsFromFeeds, NoAvailableBot, \
+    McTweetMustBeVerified, SentOkMcTweetWithoutDateSent, NoAvailableBot, \
     ExtractorReachedMaxConsecutivePagesRetrievedPerTUser, NoRunningProjects, ProjectFullOfUnmentionedTwitterusers, \
     ProjectRunningWithoutBots
-from project.querysets import ProjectQuerySet, TwitterUserQuerySet, TweetQuerySet, ExtractorQuerySet, TargetUserQuerySet
+from project.querysets import ProjectQuerySet, TwitterUserQuerySet, TweetQuerySet, ExtractorQuerySet, TargetUserQuerySet, \
+    FeedItemQuerySet
 from twitter_bots import settings
 from django.db import models
 
@@ -106,13 +107,10 @@ class TweetManager(models.Manager):
                             continue
 
                 except MuTweetHasNotSentFTweetsEnough as e:
-                    try:
-                        ftweet = e.mutweet.get_or_create_ftweet_to_send()
-                        ftweet.sending = True
-                        ftweet.save()
-                        raise FTweetMustBeSent(ftweet)
-                    except CantRetrieveNewItemsFromFeeds:
-                        continue
+                    ftweet = e.mutweet.get_or_create_ftweet_to_send()
+                    ftweet.sending = True
+                    ftweet.save()
+                    raise FTweetMustBeSent(ftweet)
 
                 except Exception as e:
                     settings.LOGGER.error('Error getting tumention from queue for bot %s: %s' %
@@ -498,3 +496,19 @@ class McTweetManager(MyManager):
         if self.exists():
             self.filter(destination_bot_is_checking_mention=True).update(destination_bot_is_checking_mention=False)
             settings.LOGGER.info('All previous verifying mctweets were set to not verifying')
+
+
+class FeedItemManager(MyManager):
+    # querysets
+
+    def get_queryset(self):
+        return FeedItemQuerySet(self.model, using=self._db)
+
+    def for_bot(self, bot):
+        return self.get_queryset().for_bot(bot)
+
+    def not_sent_by_bot(self, bot):
+        return self.get_queryset().not_sent_by_bot(bot)
+
+    def sent_by_bot(self, bot):
+        return self.get_queryset().sent_by_bot(bot)

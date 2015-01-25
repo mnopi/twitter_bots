@@ -5,8 +5,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from selenium.common.exceptions import NoSuchElementException
 from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableProxiesToAssignBotsForUse,\
-    TweetCreationException, BotHasToCheckIfMentioningWorks, CantRetrieveNewItemsFromFeeds, McTweetMustBeSent, \
-    McTweetMustBeVerified, BotCantSendMctweet, LastMctweetFailedTimeWindowNotPassed
+    TweetCreationException, LastMctweetFailedTimeWindowNotPassed
 from core.scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from core.scrapper.accounts.hotmail import HotmailScrapper
 from core.scrapper.accounts.twitter import TwitterScrapper
@@ -492,7 +491,7 @@ class TwitterBot(models.Model):
     def get_item_to_send(self):
         "Escoge algún feed que el bot todavía no haya enviado"
 
-        from project.models import Project, Tweet, TweetMsg, Link, Feed
+        from project.models import Project, Tweet, TweetMsg, Link, FeedItem
 
         # saco un item de los feeds disponibles para el grupo del bot
         # si ese item ya lo mandó el bot sacamos otro
@@ -506,7 +505,12 @@ class TwitterBot(models.Model):
         if items_not_sent.exists():
             return items_not_sent.first()
         else:
-            raise CantRetrieveNewItemsFromFeeds(self)
+            # en caso de enviarse todos los feeditems ordenamos de más antiguo a más reciente
+            # todos los que se enviaron
+            settings.LOGGER.debug('Bot %s has sent all feeditems, getting oldest sent available..' % self.username)
+            return FeedItem.objects.sent_by_bot(self)\
+                .order_by('tweets__date_sent')\
+                .first()
 
     def get_feed_items_not_sent_yet(self):
         """Mira en los feeds asignados al grupo de proxies para el bot e intenta sacar un item

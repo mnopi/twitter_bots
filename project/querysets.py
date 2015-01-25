@@ -177,3 +177,21 @@ class TwitterUserQuerySet(MyQuerySet):
         """Saca los usuarios que fueron guardados hace :days o más días"""
         return self.filter(date_saved__lte=utc_now() - datetime.timedelta(days=days))
 
+
+class FeedItemQuerySet(MyQuerySet):
+    def not_sent_by_bot(self, bot):
+        """Mira en los feeds asignados al grupo de proxies para el bot y saca los que este grupo
+        todavía no haya enviado."""
+
+        return self\
+            .for_bot(bot)\
+            .exclude(Q(tweets__bot_used=bot) & Q(tweets__sent_ok=True))
+
+    def sent_by_bot(self, bot):
+        return self\
+            .for_bot(bot)\
+            .filter(Q(tweets__bot_used=bot) & Q(tweets__sent_ok=True))
+
+    def for_bot(self, bot):
+        bot_group = bot.get_group()
+        return self.filter(feed__feeds_groups__proxies_groups=bot_group)

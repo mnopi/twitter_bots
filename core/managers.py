@@ -6,7 +6,7 @@ import time
 
 from django.db import models, connection
 from core.querysets import TwitterBotQuerySet, ProxyQuerySet
-from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableBots, EmptyMentionQueue, CantRetrieveNewItemsFromFeeds, McTweetMustBeSent, \
+from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableBots, EmptyMentionQueue, McTweetMustBeSent, \
     McTweetMustBeVerified, NoAvailableProxiesToAssignBotsForUse, MuTweetHasNotSentFTweetsEnough, FTweetMustBeSent, \
     NoAvailableBot
 from core.scrapper.thread_pool import ThreadPool

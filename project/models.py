@@ -16,7 +16,7 @@ from project.exceptions import RateLimitedException, AllFollowersExtracted, AllH
     MethodOnlyAppliesToTuMentions, MethodOnlyAppliesToTbMentions, SentOkMcTweetWithoutDateSent, \
     ExtractorReachedMaxConsecutivePagesRetrievedPerTUser, ProjectFullOfUnmentionedTwitterusers
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
-    TwitterUserManager, McTweetManager
+    TwitterUserManager, McTweetManager, FeedItemManager
 from core.scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago, naive_to_utc, \
     generate_random_secs_from_minute_interval, has_elapsed_secs_since_time_ago, str_interval_to_random_num, \
     format_source
@@ -1343,6 +1343,9 @@ class FeedItem(models.Model):
     feed = models.ForeignKey(Feed, null=False, blank=False)
     text = models.CharField(max_length=101, null=False, blank=False)
     link = models.URLField(null=True, blank=True)
+    date_saved = models.DateTimeField(auto_now_add=True)
+
+    objects = FeedItemManager()
 
     def __unicode__(self):
         return '%s %s' % (self.text, self.link)
