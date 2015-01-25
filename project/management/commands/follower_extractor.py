@@ -15,7 +15,7 @@ class Command(BaseCommand):
         settings.LOGGER.info('-- INITIALIZED %s --' % MODULE_NAME)
 
         try:
-            Extractor.objects.extract_followers()
+            Extractor.objects.extract_followers_for_running_projects()
         except Exception as e:
             raise FatalError(e)
 

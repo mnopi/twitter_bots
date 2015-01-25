@@ -21,6 +21,23 @@ class AllFollowersExtracted(Exception):
         time.sleep(20)
 
 
+class NoRunningProjects(Exception):
+    def __init__(self):
+        settings.LOGGER.error('There are no running projects!')
+        time.sleep(20)
+
+
+class ProjectFullOfUnmentionedTwitterusers(Exception):
+    def __init__(self, project, unmentioned_count, unmentioned_limit):
+        settings.LOGGER.info('Project %s is full of unmentioned twitterusers (has: %d, max: %d)' %
+                             (project.name, unmentioned_count, unmentioned_limit))
+
+class ExtractorReachedMaxConsecutivePagesRetrievedPerTUser(Exception):
+    def __init__(self, extractor):
+        settings.LOGGER.info('Extractor %s reached max consecutive pages retrieved per target user (%i)' %
+                             (extractor.twitter_bot.username, settings.MAX_CONSECUTIVE_PAGES_RETRIEVED_PER_TARGET_USER))
+
+
 class AllHashtagsExtracted(Exception):
     def __init__(self):
         settings.LOGGER.warning('All hashtags were extracted from all active hashtags in all active projects')
@@ -127,13 +144,8 @@ class CantRetrieveNewItemsFromFeeds(Exception):
 
 class TweetConstructionError(Exception):
     def __init__(self, tweet):
+        settings.LOGGER.warning('Tweet %d is wrong constructed and will be deleted' % tweet.pk)
         tweet.delete()
-
-
-class TweetWithoutRecipientsError(TweetConstructionError):
-    def __init__(self, tweet):
-        super(TweetWithoutRecipientsError, self).__init__(tweet)
-        settings.LOGGER.warning('Tweet without recipients will be deleted: %s' % tweet.compose())
 
 
 class BotIsAlreadyBeingUsed(Exception):
@@ -144,6 +156,11 @@ class BotIsAlreadyBeingUsed(Exception):
 class BotHasReachedConsecutiveTUMentions(Exception):
     def __init__(self, bot):
         self.bot = bot
+
+
+class ProjectRunningWithoutBots(Exception):
+    def __init__(self, project):
+        settings.LOGGER.error('Project "%s" is marked as running and has no twitteable bots!' % project.name)
 
 
 class VerificationTimeWindowNotPassed(Exception):

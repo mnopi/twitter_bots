@@ -1,5 +1,3 @@
-import copy
-import random
 from threading import Lock
 import threading
 from project.models import Extractor
@@ -21,7 +19,7 @@ class Command(BaseCommand):
         try:
             threads = []
             if settings.EXTRACT_FOLLOWERS:
-                threads.append(threading.Thread(target=Extractor.objects.extract_followers))
+                threads.append(threading.Thread(target=Extractor.objects.extract_followers_for_running_projects))
             # if settings.EXTRACT_HASHTAGS:
                 # threads.append(threading.Thread(target=Extractor.objects.extract_hashtags))
             for th in threads:

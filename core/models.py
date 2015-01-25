@@ -11,7 +11,8 @@ from core.scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from core.scrapper.accounts.hotmail import HotmailScrapper
 from core.scrapper.accounts.twitter import TwitterScrapper
 from core.scrapper.exceptions import TwitterEmailNotFound, \
-    TwitterAccountDead, TwitterAccountSuspended, ProfileStillNotCompleted, FailureReplyingMcTweet
+    TwitterAccountDead, TwitterAccountSuspended, ProfileStillNotCompleted, FailureReplyingMcTweet, \
+    TwitterEmailNotConfirmed
 from core.scrapper.utils import *
 from core.managers import TwitterBotManager, ProxyManager, mutex
 from twitter_bots import settings
@@ -304,7 +305,8 @@ class TwitterBot(models.Model):
                     ProfileStillNotCompleted,
                     NoMoreAvailableProxiesForRegistration,
                     TwitterAccountDead,
-                    TwitterAccountSuspended):
+                    TwitterAccountSuspended,
+                    TwitterEmailNotConfirmed):
                 pass
             except Exception as ex:
                 settings.LOGGER.exception('Error completing creation for bot %s' % self.username)

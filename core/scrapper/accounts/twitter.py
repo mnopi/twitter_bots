@@ -127,14 +127,12 @@ class TwitterScrapper(Scrapper):
 
             self.clear_local_storage()
             self.check_account_suspended()
-        except TwitterEmailNotConfirmed:
-            pass
         except (ConnectionError,
-                PageNotReadyState,
-                Exception), e:
-            if type(e) is Exception:
-                self.logger.error('Login on twitter error')
-                self.take_screenshot('login_failure', force_take=True)
+                PageNotReadyState) as e:
+            raise e
+        except Exception as e:
+            self.logger.error('Login on twitter error')
+            self.take_screenshot('login_failure', force_take=True)
             raise e
 
     def lift_suspension(self):

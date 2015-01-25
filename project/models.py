@@ -7,18 +7,19 @@ import feedparser
 import simplejson
 import time
 import tweepy
-from core.managers import mutex
 from core.scrapper.exceptions import ConnectionError, TweetAlreadySent, FailureSendingTweetException, \
-    ProxyUrlRequestError
+    ProxyUrlRequestError, TwitterEmailNotConfirmed
 from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted, TweetCreationException, \
-    TweetWithoutRecipientsError, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
+    TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
     McTweetMustBeVerified, BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, \
     DestinationBotIsBeingUsed, McTweetMustBeSent, NoAvailableProxiesToAssignBotsForUse, MuTweetHasNotSentFTweetsEnough, \
-    MethodOnlyAppliesToTuMentions, MethodOnlyAppliesToTbMentions, SentOkMcTweetWithoutDateSent
+    MethodOnlyAppliesToTuMentions, MethodOnlyAppliesToTbMentions, SentOkMcTweetWithoutDateSent, \
+    ExtractorReachedMaxConsecutivePagesRetrievedPerTUser, ProjectFullOfUnmentionedTwitterusers
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
     TwitterUserManager, McTweetManager
 from core.scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago, naive_to_utc, \
-    generate_random_secs_from_minute_interval, has_elapsed_secs_since_time_ago, str_interval_to_random_num
+    generate_random_secs_from_minute_interval, has_elapsed_secs_since_time_ago, str_interval_to_random_num, \
+    format_source
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
 
@@ -31,8 +32,8 @@ class Project(models.Model):
     # RELATIONSHIPS
     target_users = models.ManyToManyField('TargetUser', related_name='projects', blank=True)
     hashtags = models.ManyToManyField('Hashtag', related_name='projects', blank=True)
-    tu_group = models.ManyToManyField('TUGroup', related_name='tu_group', null=True, blank=True)
-    hashtag_group = models.ManyToManyField('HashtagGroup', related_name='hashtag_group', null=True, blank=True)
+    # tu_groups = models.ManyToManyField('TUGroup', related_name='projects', null=True, blank=True)
+    # hashtag_groups = models.ManyToManyField('HashtagGroup', related_name='projects', null=True, blank=True)
 
     objects = ProjectManager()
 
@@ -40,6 +41,17 @@ class Project(models.Model):
         return self.name
 
     # GETTERS
+
+    def check_if_full_of_unmentioned_twitterusers(self):
+        unmentioned_count = self.get_unmentioned_users().count()
+        bots_count = self.get_twitteable_bots().count()
+
+        # el límite de tweets por proyecto será el de su número máximo de tweets
+        # que puede haber en cola
+        unmentioned_limit = bots_count * settings.MAX_QUEUED_TWEETS_TO_SEND_PER_BOT
+        if unmentioned_count >= unmentioned_limit:
+            raise ProjectFullOfUnmentionedTwitterusers(self, unmentioned_count, unmentioned_limit)
+
 
     def get_twitter_users_unmentioned_by_bot(self, bot, limit=None):
         return TwitterUser.objects.raw("""SELECT
@@ -176,6 +188,9 @@ class TargetUser(models.Model):
     # fecha en la que se terminó de extraer
     date_extraction_end = models.DateTimeField(null=True, blank=True)
 
+    # fecha en la que se extrajo una página por última vez
+    date_last_extraction = models.DateTimeField(null=True, blank=True)
+
     # número de páginas consecutivas de las que no se extrayó un número suficiente de followers
     num_consecutive_pages_without_enough_new_followers = models.PositiveIntegerField(null=True, default=0)
 
@@ -291,25 +306,33 @@ class TwitterUser(models.Model):
         except Exception as e:
             raise e
 
+    def set_last_tweet_date_and_source(self, tw_user_from_api):
+        if hasattr(tw_user_from_api, 'status'):
+            if hasattr(tw_user_from_api.status, 'created_at'):
+                self.last_tweet_date = naive_to_utc(tw_user_from_api.status.created_at)
+            if hasattr(tw_user_from_api.status, 'source'):
+                self.source = format_source(tw_user_from_api.status.source)
+            else:
+                self.source = TwitterUser.OTHERS
+        else:
+            self.source = TwitterUser.OTHERS
+
 class Tweet(models.Model):
     date_created = models.DateTimeField(auto_now_add=True)  # la fecha en la que se crea y se mete en la cola
     date_sent = models.DateTimeField(null=True, blank=True)
     sending = models.BooleanField(default=False)
-
-    # esto nos dice si el robot escribió bien el tweet en su timeline. Otra cosa es que aparezca
-    # en los resultados de búsqueda de twitter..
     sent_ok = models.BooleanField(default=False)
 
     # RELATIONSHIPS
-    tweet_msg = models.ForeignKey('TweetMsg', null=True, blank=True)
-    link = models.ForeignKey('Link', related_name='tweets', null=True, blank=True)
-    page_announced = models.ForeignKey('PageLink', related_name='tweets', null=True, blank=True)
+    tweet_msg = models.ForeignKey('TweetMsg', null=True, blank=True, on_delete=models.PROTECT)
+    link = models.ForeignKey('Link', related_name='tweets', null=True, blank=True, on_delete=models.PROTECT)
+    page_announced = models.ForeignKey('PageLink', related_name='tweets', null=True, blank=True, on_delete=models.PROTECT)
     bot_used = models.ForeignKey('core.TwitterBot', related_name='tweets', null=True, blank=True)
     mentioned_users = models.ManyToManyField('TwitterUser', related_name='mentions', null=True, blank=True)
     mentioned_bots = models.ManyToManyField('core.TwitterBot', related_name='mentions', null=True, blank=True)
     project = models.ForeignKey('Project', related_name='tweets', null=True, blank=True)
-    tweet_img = models.ForeignKey('TweetImg', related_name='tweets', null=True, blank=True)
-    feed_item = models.ForeignKey('FeedItem', related_name='tweets', null=True, blank=True)
+    tweet_img = models.ForeignKey('TweetImg', related_name='tweets', null=True, blank=True, on_delete=models.PROTECT)
+    feed_item = models.ForeignKey('FeedItem', related_name='tweets', null=True, blank=True, on_delete=models.PROTECT)
 
     objects = TweetManager()
 
@@ -456,7 +479,7 @@ class Tweet(models.Model):
             raise TweetCreationException(self)
 
     def add_tweet_msg(self, project):
-        tweet_message = project.tweet_msgs.order_by('?')[0]
+        tweet_message = project.tweet_msgs.order_by('?').first()
         if self.length() + len(tweet_message.text) <= 140:
             self.tweet_msg = tweet_message
             self.save()
@@ -491,7 +514,7 @@ class Tweet(models.Model):
             settings.LOGGER.warning('Project %s has no images' % project.__unicode__())
 
     def add_link(self, project):
-        link = project.links.get(is_active=True)
+        link = project.links.filter(is_active=True).order_by('?').first()
         if self.length() + len(link.url) + 1 <= 140:
             self.link = link
             self.save()
@@ -500,6 +523,8 @@ class Tweet(models.Model):
                                     (self, link))
 
     def send(self):
+        from core.managers import mutex
+
         if not settings.LOGGER:
             set_logger('tweet_sender')
 
@@ -515,6 +540,10 @@ class Tweet(models.Model):
             self.bot_used.scrapper.open_browser()
             self.bot_used.scrapper.login()
             self.bot_used.scrapper.send_tweet(self)
+        except TwitterEmailNotConfirmed:
+            # si al intentar enviar el tweet el usuario no estaba realmente confirmado eliminamos su tweet
+            self.bot_used.scrapper.logger.warning('Tweet %i will be deleted' % self.pk)
+            self.delete()
         except (ProxyUrlRequestError,
                 ConnectionError,
                 NoAvailableProxiesToAssignBotsForUse,
@@ -604,13 +633,8 @@ class Tweet(models.Model):
             raise MethodOnlyAppliesToTuMentions
 
     def _check_if_errors_on_construction(self):
-        """Nos dice si el tweet está bien construído"""
-
-        # comprobamos que menciona a alguien en caso de que el bot que lo envía esté marcado como que
-        # tiene que mencionar (has_mentions)
-        no_recipients_error = self.bot_used.get_group().has_mentions and not self.has_mentions()
-        if no_recipients_error:
-            raise TweetWithoutRecipientsError(self)
+        if not self.is_well_constructed():
+            raise TweetConstructionError(self)
 
     def _has_errors(self):
         try:
@@ -822,33 +846,22 @@ class Extractor(models.Model):
     #     else:
     #         return datetime.datetime.strptime(twitter_datetime_str, '%a %b %d %H:%M:%S +0000 %Y')
 
-    def format_source(self, user_source_str):
-        low = user_source_str.lower()
-        if 'iphone' in low:
-            return TwitterUser.IPHONE
-        elif 'ipad' in low:
-            return TwitterUser.IPAD
-        elif 'ios' in low:
-            return TwitterUser.IOS
-        elif 'android' in low:
-            return TwitterUser.ANDROID
-        else:
-            return TwitterUser.OTHERS
-
     def update_target_user_data(self, target_user):
         tw_user = self.api.get_user(screen_name=target_user.username)
         target_user.followers_count = tw_user.followers_count
         target_user.save()
 
     def create_twitter_user_obj(self, tw_user_from_api):
-        "tw_follower es el objeto devuelto por tweepy tras consultar la API"
+        """Crea un objeto twitteruser (no guarda en BD) a partir de tw_user_from_api, que es
+        el objeto devuelto por tweepy tras consultar la API. Si ya existía se actualiza"""
+
         twitter_user = TwitterUser.objects.filter(twitter_id=tw_user_from_api.id)
         if twitter_user.exists():
             if twitter_user.count() > 1:
                 raise Exception('Duplicated twitter user with id %i' % twitter_user[0].twitter_id)
             else:
-                settings.LOGGER.info('Twitter user %s already exists' % twitter_user[0].username)
-                return twitter_user[0], False
+                settings.LOGGER.debug('Twitter user %s already exists' % twitter_user[0].username)
+                return twitter_user.first(), False
         else:
             twitter_user = TwitterUser()
             twitter_user.twitter_id = tw_user_from_api.id
@@ -862,19 +875,68 @@ class Extractor(models.Model):
             twitter_user.time_zone = tw_user_from_api.time_zone
             twitter_user.verified = tw_user_from_api.verified
 
-            if hasattr(tw_user_from_api, 'status'):
-                if hasattr(tw_user_from_api.status, 'created_at'):
-                    twitter_user.last_tweet_date = naive_to_utc(tw_user_from_api.status.created_at)
-                if hasattr(tw_user_from_api.status, 'source'):
-                    twitter_user.source = self.format_source(tw_user_from_api.status.source)
-                else:
-                    twitter_user.source = TwitterUser.OTHERS
-            else:
-                twitter_user.source = TwitterUser.OTHERS
+            twitter_user.set_last_tweet_date_and_source(tw_user_from_api)
 
             return twitter_user, True
 
-    def extract_followers(self, target_user):
+    def extract_followers_from_tuser(self, target_user):
+
+        def process_page(page):
+
+            def process_tw_follower(tw_follower):
+                # creamos twitter_user a partir del follower si ya no existe en BD
+                twitter_user, is_new = self.create_twitter_user_obj(tw_follower)
+                if is_new:
+                    if twitter_user.is_active():
+                        self.new_twitter_users.append(twitter_user)
+                        settings.LOGGER.debug('New twitter user %s added to list' % twitter_user.__unicode__())
+                    else:
+                        settings.LOGGER.debug('Twitter user %s inactive. LTD: %s, CD: %s' %
+                                             (twitter_user.__unicode__(), twitter_user.last_tweet_date, twitter_user.created_date))
+                else:
+                    # en BD actualizamos el twitteruser que ya teníamos, por si su último tweet
+                    # tiene una fecha más reciente a la anterior extracción
+                    # twitter_user.save()
+
+                    follower = Follower(twitter_user=twitter_user, target_user=target_user)
+                    follower_already_exists = Follower.objects.select_related('twitter_user', 'target_user').filter(
+                        twitter_user=twitter_user, target_user=target_user).exists()
+                    if follower_already_exists:
+                        settings.LOGGER.debug('Follower %s already exists' % follower.__unicode__())
+                    elif follower.twitter_user.is_active():
+                        self.new_followers.append(follower)
+                        settings.LOGGER.debug('New follower %s added to list' % follower.__unicode__())
+
+            self.last_request_date = utc_now()
+            self.save()
+            settings.LOGGER.debug("""Retrieved @%s\'s follower page with cursor %i
+                \n\tNext cursor: %i
+                \n\tPrevious cursor: %i
+            """ % (target_user.username, target_user.next_cursor, cursor.iterator.next_cursor,
+                   cursor.iterator.prev_cursor))
+
+            self.new_twitter_users = []
+            self.new_followers = []
+            # guardamos cada follower recibido, sin duplicar en BD
+            for tw_follower in page:
+                process_tw_follower(tw_follower)
+
+            #
+            # metemos los nuevos twitter users y followers en BD
+            before_saving = utc_now()
+            time.sleep(2)  # para que se note la diferencia por si guarda muy rapido los twitterusers
+            TwitterUser.objects.bulk_create(self.new_twitter_users)
+            # pillamos todos los ids de los nuevos twitter_user creados
+            new_twitter_users_ids = TwitterUser.objects\
+                .filter(date_saved__gt=before_saving)\
+                .values_list('id', flat=True)
+
+            for twitter_user in new_twitter_users_ids:
+                self.new_followers.append(
+                    Follower(twitter_user_id=twitter_user, target_user=target_user))
+
+            Follower.objects.bulk_create(self.new_followers)
+
         from project.management.commands.run_extractors import mutex
 
         self.update_target_user_data(target_user)
@@ -892,58 +954,17 @@ class Extractor(models.Model):
             num_pages_retrieved = 0
 
             for page in cursor.pages():
-                mutex.acquire()
 
-                self.last_request_date = utc_now()
-                self.save()
-                settings.LOGGER.info("""Retrieved @%s\'s follower page with cursor %i
-                    \n\tNext cursor: %i
-                    \n\tPrevious cursor: %i
-                """ % (target_user.username, target_user.next_cursor, cursor.iterator.next_cursor,
-                       cursor.iterator.prev_cursor))
+                try:
+                    mutex.acquire()
+                    process_page(page)
+                finally:
+                    mutex.release()
 
-                new_twitter_users = []
-                new_followers = []
-                # guardamos cada follower recibido, sin duplicar en BD
-                for tw_follower in page:
-                    # creamos twitter_user a partir del follower si ya no existe en BD
-                    twitter_user, is_new = self.create_twitter_user_obj(tw_follower)
-                    if is_new:
-                        if twitter_user.is_active():
-                            new_twitter_users.append(twitter_user)
-                            settings.LOGGER.info('New twitter user %s added to list' % twitter_user.__unicode__())
-                        else:
-                            settings.LOGGER.info('Twitter user %s inactive. LTD: %s, CD: %s' %
-                                                 (twitter_user.__unicode__(), twitter_user.last_tweet_date, twitter_user.created_date))
-                    else:
-                        follower = Follower(twitter_user=twitter_user, target_user=target_user)
-                        follower_already_exists = Follower.objects.select_related('twitter_user', 'target_user').filter(
-                            twitter_user=twitter_user, target_user=target_user).exists()
-                        if follower_already_exists:
-                            settings.LOGGER.info('Follower %s already exists' % follower.__unicode__())
-                        elif follower.twitter_user.is_active():
-                            new_followers.append(follower)
-                            settings.LOGGER.info('New follower %s added to list' % follower.__unicode__())
+                target_user.date_last_extraction = utc_now()
+                target_user.save()
 
-                #
-                # metemos los nuevos twitter users y followers en BD
-                before_saving = utc_now()
-                time.sleep(2)  # para que se note la diferencia por si guarda muy rapido los twitterusers
-                TwitterUser.objects.bulk_create(new_twitter_users)
-                # pillamos todos los ids de los nuevos twitter_user creados
-                new_twitter_users_ids = TwitterUser.objects\
-                    .filter(date_saved__gt=before_saving)\
-                    .values_list('id', flat=True)
-
-                mutex.release()
-
-                for twitter_user in new_twitter_users_ids:
-                    new_followers.append(
-                        Follower(twitter_user_id=twitter_user, target_user=target_user))
-
-                Follower.objects.bulk_create(new_followers)
-
-                target_user.check_if_enough_new_followers(new_followers)
+                target_user.check_if_enough_new_followers(self.new_followers)
 
                 # Damos como extraído el targetuser cuando se cumpla alguna de las condiciones:
                 #   - El número de usuarios en la página extraída es menor a la mitad
@@ -962,13 +983,13 @@ class Extractor(models.Model):
 
                 num_pages_retrieved += 1
                 if num_pages_retrieved == settings.MAX_CONSECUTIVE_PAGES_RETRIEVED_PER_TARGET_USER:
-                    break
+                    raise ExtractorReachedMaxConsecutivePagesRetrievedPerTUser(self)
 
         except tweepy.error.TweepError as ex:
             if hasattr(ex.response, 'status_code') and ex.response.status_code == 429:
                 raise RateLimitedException(self)
             else:
-                settings.LOGGER.exception('')
+                settings.LOGGER.exception('tweepy error')
                 time.sleep(7)
                 raise ex
 
@@ -1056,16 +1077,16 @@ class Extractor(models.Model):
 
             hashtag.save()
 
-    def extract_followers_from_all_target_users(self):
-        self.connect_twitter_api()
-
-        while True:
-            target_users_to_extract = TargetUser.objects.available_to_extract()
-            if target_users_to_extract.exists():
-                for target_user in target_users_to_extract:
-                    self.extract_followers(target_user)
-            else:
-                raise AllFollowersExtracted()
+    # def extract_followers_from_all_target_users(self):
+    #     self.connect_twitter_api()
+    #
+    #     while True:
+    #         target_users_to_extract = TargetUser.objects.available_to_extract()
+    #         if target_users_to_extract.exists():
+    #             for target_user in target_users_to_extract:
+    #                 self.extract_followers(target_user)
+    #         else:
+    #             raise AllFollowersExtracted()
 
     def extract_twitter_users_from_all_hashtags(self):
         hashtags_to_extract = Hashtag.objects.filter(projects__is_running=True, is_extracted=False)
@@ -1079,8 +1100,8 @@ class Extractor(models.Model):
         """Si fue marcadado como rate limited se mira si pasaron más de 15 minutos.
         En ese caso se desmarca y se devielve True"""
         if self.is_rate_limited:
-            seconds_lapsed = (utc_now() - self.last_request_date).seconds
-            if seconds_lapsed > self.minutes_window * 60:
+            time_window_passed = has_elapsed_secs_since_time_ago(self.last_request_date, self.minutes_window * 60)
+            if time_window_passed:
                 self.is_rate_limited = False
                 self.save()
                 return True
@@ -1117,8 +1138,8 @@ class Hashtag(models.Model):
 
 class TUGroup(models.Model):
     name = models.CharField(max_length=140, null=False, blank=False)
-    target_users = models.ManyToManyField(TargetUser, null=False, blank=False)
-    projects = models.ManyToManyField(Project, related_name='projects_tu_group', null=False, blank=False)
+    target_users = models.ManyToManyField(TargetUser, related_name='tu_groups', null=False, blank=False)
+    projects = models.ManyToManyField(Project, related_name='tu_groups', null=False, blank=False)
 
     def __unicode__(self):
         tu_group_string = ' -'
@@ -1129,8 +1150,8 @@ class TUGroup(models.Model):
 
 class HashtagGroup(models.Model):
     name = models.CharField(max_length=140, null=False, blank=False)
-    hashtags = models.ManyToManyField(Hashtag, null=False, blank=False)
-    projects = models.ManyToManyField(Project, related_name='projects_hashtag_group', null=False, blank=False)
+    hashtags = models.ManyToManyField(Hashtag, related_name='hashtag_groups', null=False, blank=False)
+    projects = models.ManyToManyField(Project, related_name='hashtag_groups', null=False, blank=False)
 
     def __unicode__(self):
         hashtag_group_string = ' -'
@@ -1233,24 +1254,24 @@ class ProxiesGroup(models.Model):
     max_tw_bots_per_proxy_for_usage = models.PositiveIntegerField(null=False, blank=False, default=12)
 
     # tweet behaviour
-    time_between_tweets = models.CharField(max_length=10, null=False, blank=False, default='2-5')  # '2-5' -> entre 2 y 5 minutos
+    time_between_tweets = models.CharField(max_length=10, null=False, blank=False, default='2-7')  # '2-5' -> entre 2 y 5 minutos
     has_tweet_msg = models.BooleanField(default=False)
     has_link = models.BooleanField(default=False)
     has_tweet_img = models.BooleanField(default=False)
     has_page_announced = models.BooleanField(default=False)
     has_mentions = models.BooleanField(default=False)
     max_num_mentions_per_tweet = models.PositiveIntegerField(null=False, blank=False, default=1)
-    feedtweets_per_twitteruser_mention = models.CharField(max_length=10, null=False, blank=False, default='2-4')
+    feedtweets_per_twitteruser_mention = models.CharField(max_length=10, null=False, blank=False, default='0-3')
 
     #
     # mentioning check behaviour
     #
     #  cada x menciones consecutivas se manda un tweet a otro bot de su mismo grupo para ver si sigue funcionando
-    num_consecutive_mentions_for_check_mentioning_works = models.PositiveIntegerField(null=False, blank=False, default=5)
+    num_consecutive_mentions_for_check_mentioning_works = models.PositiveIntegerField(null=False, blank=False, default=20)
     # time window para no volver a mencionar con el mismo robot después de que la comprobación haya ido mal
     mention_fail_time_window = models.CharField(max_length=10, null=False, blank=False, default='10-40')
     # time window desde que se envía el mc_tweet hasta que el bot destino lo verifica en su panel de notificaciones
-    destination_bot_checking_time_window = models.CharField(max_length=10, null=False, blank=False, default='2-5')
+    destination_bot_checking_time_window = models.CharField(max_length=10, null=False, blank=False, default='4-6')
     # tiempo mínimo que ha de pasar para que un bot pueda mandar mctweet otra vez a un mismo bot
     mctweet_to_same_bot_time_window = models.CharField(max_length=10, null=False, blank=False, default='60-120')
 

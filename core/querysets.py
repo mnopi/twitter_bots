@@ -96,6 +96,7 @@ class TwitterBotQuerySet(QuerySet):
         return self.usable().filter(extractor=None)
 
     def _annotate_tweets_queued_to_send(self):
+        """Anota en la queryset la cuenta de tweets encolados pendientes de enviar por el bot"""
         return self.extra(
             select={
                 'tweets_queued_to_send': """
@@ -109,7 +110,9 @@ class TwitterBotQuerySet(QuerySet):
     def without_tweet_to_send_queue_full(self):
         """Saca bots que no tengan llena su cola de tweets pendientes de enviar llena"""
         valid_pks = [
-            bot.pk for bot in self.twitteable()._annotate_tweets_queued_to_send() if bot.tweets_queued_to_send < settings.MAX_QUEUED_TWEETS_TO_SEND_PER_BOT
+            bot.pk
+            for bot in self.twitteable()._annotate_tweets_queued_to_send()
+            if bot.tweets_queued_to_send < settings.MAX_QUEUED_TWEETS_TO_SEND_PER_BOT
         ]
         return self.filter(pk__in=valid_pks)
 

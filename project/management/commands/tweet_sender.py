@@ -4,8 +4,8 @@ from Queue import Full
 from optparse import make_option
 import time
 from core.models import TwitterBot
-from project.models import Tweet, TweetCheckingMention, TweetFromFeed
-from project.exceptions import FatalError
+from project.models import Tweet, TweetCheckingMention, TweetFromFeed, Project
+from project.exceptions import FatalError, ProjectRunningWithoutBots
 from twitter_bots import settings
 from django.core.management.base import BaseCommand
 from twitter_bots.settings import set_logger
@@ -29,6 +29,7 @@ class Command(BaseCommand):
 
         try:
             Tweet.objects.clean_not_ok()
+            Project.objects.check_bots_on_all_running()
 
             bot = TwitterBot.objects.get(username=options['bot']) \
                 if 'bot' in options and options['bot'] \
@@ -46,6 +47,8 @@ class Command(BaseCommand):
         except Full as e:
             settings.LOGGER.warning('Timeout exceeded, full threadpool queue')
             raise FatalError(e)
+        except ProjectRunningWithoutBots:
+            pass
         except Exception as e:
             raise FatalError(e)
 

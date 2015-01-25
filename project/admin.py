@@ -19,6 +19,11 @@ class TargetUserAdmin(admin.ModelAdmin):
         'followers_mentioned_total',
     )
 
+    list_editable = (
+        'is_active',
+        'next_cursor',
+    )
+
     def followers_saved_today(self, obj):
         return obj.followers.filter(date_saved__startswith=datetime.date.today()).count()
 
@@ -203,6 +208,14 @@ class FeedsGroupProxiesGroupInline(admin.TabularInline):
     model = FeedsGroup.proxies_groups.through
     extra = 0
 
+class ProjectTUGroupInline(admin.TabularInline):
+    model = TUGroup.projects.through
+    extra = 0
+
+class ProjectHashtagGroupInline(admin.TabularInline):
+    model = HashtagGroup.projects.through
+    extra = 0
+
 class ProjectTweetMsgInline(admin.TabularInline):
     model = TweetMsg
     formset = TweetMsgInlineFormset
@@ -243,6 +256,8 @@ class ProjectAdmin(admin.ModelAdmin):
     list_display_links = ('name',)
 
     inlines = [
+        ProjectTUGroupInline,
+        ProjectHashtagGroupInline,
         ProjectProxiesGroupInline,
         ProjectLinkInline,
         ProjectTweetImgInline,

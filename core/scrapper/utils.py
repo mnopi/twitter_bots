@@ -201,6 +201,22 @@ def is_older(d1, d2):
     return compare_datetimes(d1, d2) == -1
 
 
+def format_source(user_source_str):
+    from project.models import TwitterUser
+
+    low = user_source_str.lower()
+    if 'iphone' in low:
+        return TwitterUser.IPHONE
+    elif 'ipad' in low:
+        return TwitterUser.IPAD
+    elif 'ios' in low:
+        return TwitterUser.IOS
+    elif 'android' in low:
+        return TwitterUser.ANDROID
+    else:
+        return TwitterUser.OTHERS
+
+
 def is_newer(d1, d2):
     """Nos dice si la fecha d1 es más nueva que d2"""
     return compare_datetimes(d1, d2) == 1

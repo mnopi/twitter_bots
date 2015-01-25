@@ -53,6 +53,7 @@ TAKE_SCREENSHOTS = False
 
 #
 # EXTRACTORS
+MAX_DAYS_TO_STAY_UNMENTIONED = 90  # máximo de días que un twitteruser puede estar en BD sin ser mencionado
 ## followers
 EXTRACT_FOLLOWERS = True
 MAX_DAYS_SINCE_REGISTERED_ON_TWITTER_WITHOUT_TWEETS = 50  # máximo de días desde que el usuario se registró y todavía no envió ningún tweet

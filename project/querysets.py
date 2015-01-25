@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 from itertools import chain
+import datetime
 from django.db import connection
 
 from django.db.models import Count, Q
 from django.db.models.query import QuerySet
+from core.scrapper.utils import utc_now
 
 
 class ExtractorQuerySet(QuerySet):
@@ -49,7 +51,13 @@ class ProjectQuerySet(QuerySet):
 
 class TargetUserQuerySet(QuerySet):
     def available_to_extract(self):
-        return self.filter(is_active=True, projects__is_running=True).exclude(next_cursor=None)
+        return self.filter(is_active=True).exclude(next_cursor=None)
+
+    def for_project(self, project):
+        return self.filter(
+            Q(tu_groups__projects=project) |
+            Q(projects=project)
+        )
 
 
 class TweetQuerySet(QuerySet):
@@ -128,8 +136,9 @@ class TwitterUserQuerySet(MyQuerySet):
 
         return self.filter(
             Q(target_users__projects=project) |
+            Q(target_users__tu_groups__projects=project) |
             Q(hashtags__projects=project)
-        )
+        ).distinct()
 
     def target_users_for_project(self, project):
         return self.filter(target_users__projects=project)
@@ -143,6 +152,10 @@ class TwitterUserQuerySet(MyQuerySet):
     def mentioned_on_project(self, project):
         """Saca usuarios que hayan sido mencionados para el proyecto dado"""
         return self.filter(mentions__project=project).distinct()
+
+    def unmentioned_on_project(self, project):
+        """Saca usuarios que hayan sido mencionados para el proyecto dado"""
+        return self.for_project(project).unmentioned().distinct()
 
     def mentioned_by_bot(self, bot):
         return self.mentioned().filter(mentions__bot_used=self).distinct()
@@ -160,4 +173,7 @@ class TwitterUserQuerySet(MyQuerySet):
     def mentioned_by_bot_on_project(self, bot, project):
         return self.mentioned_by_bot(bot).mentioned_on_project(project).distinct()
 
+    def saved_lte_days(self, days):
+        """Saca los usuarios que fueron guardados hace :days o más días"""
+        return self.filter(date_saved__lte=utc_now() - datetime.timedelta(days=days))
 

@@ -2,7 +2,7 @@
 
 import time
 import random
-from django.db.models import Q
+from django.db.models import Q, Count
 from tweepy import TweepError
 from core.decorators import mlocked
 from core.managers import MyManager
@@ -12,7 +12,9 @@ from project.exceptions import RateLimitedException, AllFollowersExtracted, NoAv
     EmptyMentionQueue, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
     BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, McTweetMustBeSent, BotCantSendMctweet, \
     DestinationBotIsBeingUsed, LastMctweetFailedTimeWindowNotPassed, MuTweetHasNotSentFTweetsEnough, FTweetMustBeSent, \
-    McTweetMustBeVerified, SentOkMcTweetWithoutDateSent, CantRetrieveNewItemsFromFeeds, NoAvailableBot
+    McTweetMustBeVerified, SentOkMcTweetWithoutDateSent, CantRetrieveNewItemsFromFeeds, NoAvailableBot, \
+    ExtractorReachedMaxConsecutivePagesRetrievedPerTUser, NoRunningProjects, ProjectFullOfUnmentionedTwitterusers, \
+    ProjectRunningWithoutBots
 from project.querysets import ProjectQuerySet, TwitterUserQuerySet, TweetQuerySet, ExtractorQuerySet, TargetUserQuerySet
 from twitter_bots import settings
 from django.db import models
@@ -30,6 +32,10 @@ class TargetUserManager(models.Manager):
 
     def available_to_extract(self):
         return self.get_queryset().available_to_extract()
+
+    def for_project(self, project):
+        return self.get_queryset().for_project(project)
+
 
 
 class TweetManager(models.Manager):
@@ -55,15 +61,6 @@ class TweetManager(models.Manager):
         if self.exists():
             self.filter(sending=True).update(sending=False)
             settings.LOGGER.info('All previous sending tweets (mutweets, mctweets or ftweets) were set to not sending')
-
-    def remove_wrong_constructed(self):
-        """Elimina los tweets que estén mal construidos, por ejemplo aquellos en que su bot ha de mencionar
-        pero no contienen mención alguna"""
-        not_sended = self.filter(sent_ok=False)
-        for tweet in not_sended:
-            if not tweet.is_well_constructed():
-                settings.LOGGER.warning('Tweet %d is wrong constructed and will be deleted' % tweet.pk)
-                tweet.delete()
 
     def get_mention_ready_to_send(self, bot=None):
         """Mira en la cola de menciones por enviar a usuarios de twitter y devuelve una que se pueda enviar.
@@ -199,7 +196,6 @@ class TweetManager(models.Manager):
         self.pending_to_send().with_not_ok_bots().delete()
         self.put_sending_to_not_sending()
         TweetCheckingMention.objects.put_checking_to_not_checking()
-        self.remove_wrong_constructed()
 
     #
     # proxy queryset methods
@@ -228,9 +224,20 @@ class TweetManager(models.Manager):
 
 
 class ProjectManager(models.Manager):
-    #
-    # PROXY QS
-    #
+
+    def check_bots_on_all_running(self):
+        """Comprueba que haya bots en todos los proyectos que estén marcados en ejecución"""
+        running_projects = self.running()
+        for project in running_projects:
+            project_bots = project.get_twitteable_bots()
+            if project_bots.exists():
+                settings.LOGGER.info('Running project "%s" with %d bots..' %
+                                     (project.name, project_bots.count()))
+            else:
+                raise ProjectRunningWithoutBots(project)
+
+    # QUERYSET
+
     def get_queryset(self):
         return ProjectQuerySet(self.model, using=self._db)
 
@@ -256,12 +263,48 @@ class ExtractorManager(MyManager):
             return 'hashtag'
 
     def log_extractor_being_used(self, extractor, mode):
-        settings.LOGGER.info('### Using %s extractor: %s behind proxy %s ###' %
+        settings.LOGGER.debug('### Using %s extractor: %s behind proxy %s ###' %
                              (self.display_extractor_mode(mode),
                               extractor.twitter_bot.username,
                               extractor.twitter_bot.proxy_for_usage.__unicode__()))
 
-    def extract_followers(self):
+    def extract_followers_for_running_projects(self):
+        """Tienen prioridad los targetusers cuyos proyectos tengan menos usuarios por mencionar"""
+        from project.models import TargetUser, Project, TwitterUser
+
+        # limpiamos los antiguos todavía sin mencionar
+        TwitterUser.objects.clear_old_unmentioned()
+
+        # vamos iterando por cada uno de los proyectos en ejecución
+        running_projects = Project.objects.filter(is_running=True)
+        if running_projects.exists():
+            for project in running_projects:
+                try:
+                    project.check_if_full_of_unmentioned_twitterusers()
+                except ProjectFullOfUnmentionedTwitterusers:
+                    continue
+                else:
+                    project_targetusers = TargetUser.objects.for_project(project)
+                    if project_targetusers.exists():
+                        # sacamos el targetuser con última extracción
+                        targetusers_available_to_extract = project_targetusers\
+                            .available_to_extract()\
+                            .extra(select={'date_le_null': 'date_last_extraction IS NULL',})\
+                            .order_by('date_last_extraction', 'date_le_null')
+                        if targetusers_available_to_extract.exists():
+                            settings.LOGGER.info('Extracting followers from project "%s"' % project.name)
+                            self.extract_followers_from_tu(targetusers_available_to_extract.first())
+                        else:
+                            settings.LOGGER.warning('Project "%s" has all targetusers extracted' % project.name)
+                    else:
+                        settings.LOGGER.warning('Project "%s" has no target users added!' % project.name)
+        else:
+            raise NoRunningProjects
+
+        settings.LOGGER.debug('sleeping 20 seconds..')
+        time.sleep(20)
+
+    def extract_followers_from_tu(self, target_user):
         from project.models import Extractor
 
         available_follower_extractors = self.available(Extractor.FOLLOWER_MODE)
@@ -269,19 +312,19 @@ class ExtractorManager(MyManager):
             for extractor in available_follower_extractors:
                 try:
                     self.log_extractor_being_used(extractor, mode=Extractor.FOLLOWER_MODE)
-                    extractor.extract_followers_from_all_target_users()
+                    extractor.connect_twitter_api()
+                    extractor.extract_followers_from_tuser(target_user)
                 except TweepError as e:
                     if 'Cannot connect to proxy' in e.reason:
                         settings.LOGGER.exception('')
                         continue
                     else:
                         raise e
-                except AllFollowersExtracted:
+                except (AllFollowersExtracted,
+                        ExtractorReachedMaxConsecutivePagesRetrievedPerTUser):
                     break
                 except RateLimitedException:
                     continue
-
-            time.sleep(random.randint(5, 15))
         else:
             settings.LOGGER.error('No available follower extractors. Sleeping..')
             time.sleep(30)
@@ -350,66 +393,73 @@ class TwitterUserManager(MyManager):
         """
 
         return self.raw_as_qs("""
-            SELECT total_project_users.id
+            SELECT project_users.id
             FROM
                 (
                     (
-                        select project_twitteruser.id, project_twitteruser.last_tweet_date
+                        select twitteruser.id, twitteruser.last_tweet_date
                         %(language_field)s
-                        from project_twitteruser
-                        LEFT OUTER JOIN project_follower ON (project_twitteruser.id = project_follower.twitter_user_id)
-                        LEFT OUTER JOIN project_targetuser ON (project_follower.target_user_id = project_targetuser.id)
-                        LEFT OUTER JOIN project_project_target_users ON (project_targetuser.id = project_project_target_users.targetuser_id)
-                        WHERE project_project_target_users.project_id = %(project_pk)d
+                        from project_twitteruser as twitteruser
+                        LEFT OUTER JOIN project_follower as follower ON (twitteruser.id = follower.twitter_user_id)
+                        LEFT OUTER JOIN project_targetuser as targetuser ON (follower.target_user_id = targetuser.id)
+                        LEFT OUTER JOIN project_project_target_users as proj_targetusers ON (targetuser.id = proj_targetusers.targetuser_id)
+                        WHERE proj_targetusers.project_id = %(project_pk)d
                     )
                     union
                     (
-                        select project_twitteruser.id, project_twitteruser.last_tweet_date
+                        select twitteruser.id, twitteruser.last_tweet_date
                         %(language_field)s
-                        from project_twitteruser
-                        LEFT OUTER JOIN project_twitteruserhashashtag ON (project_twitteruser.id = project_twitteruserhashashtag.twitter_user_id)
-                        LEFT OUTER JOIN project_hashtag ON (project_twitteruserhashashtag.hashtag_id = project_hashtag.id)
-                        LEFT OUTER JOIN project_project_hashtags ON (project_hashtag.id = project_project_hashtags.hashtag_id)
-                        WHERE project_project_hashtags.project_id = %(project_pk)d
+                        from project_twitteruser as twitteruser
+                        LEFT OUTER JOIN project_twitteruserhashashtag as twitteruser_hashtag ON (twitteruser.id = twitteruser_hashtag.twitter_user_id)
+                        LEFT OUTER JOIN project_hashtag as hashtag ON (twitteruser_hashtag.hashtag_id = hashtag.id)
+                        LEFT OUTER JOIN project_project_hashtags as project_hashtags ON (hashtag.id = project_hashtags.hashtag_id)
+                        WHERE project_hashtags.project_id = %(project_pk)d
                     )
                     union
                     (
-						select project_twitteruser.id, project_twitteruser.last_tweet_date
+						select twitteruser.id, twitteruser.last_tweet_date
 						%(language_field)s
-						from project_twitteruser
-						LEFT OUTER JOIN project_follower ON (project_twitteruser.id = project_follower.twitter_user_id)
-						LEFT OUTER JOIN project_targetuser ON (project_follower.target_user_id = project_targetuser.id)
-						LEFT OUTER JOIN project_tugroup_target_users ON (project_targetuser.id = project_tugroup_target_users.targetuser_id)
-						LEFT OUTER JOIN project_tugroup ON (project_tugroup_target_users.tugroup_id = project_tugroup.id)
-						LEFT OUTER JOIN project_project_tu_group ON (project_tugroup.id = project_project_tu_group.tugroup_id)
-						WHERE project_project_tu_group.project_id = %(project_pk)d
+						from project_twitteruser as twitteruser
+						LEFT OUTER JOIN project_follower as follower ON (twitteruser.id = follower.twitter_user_id)
+						LEFT OUTER JOIN project_targetuser as targetuser ON (follower.target_user_id = targetuser.id)
+						LEFT OUTER JOIN project_tugroup_target_users as tugroup_targetusers ON (targetuser.id = tugroup_targetusers.targetuser_id)
+						LEFT OUTER JOIN project_tugroup as tugroup ON (tugroup_targetusers.tugroup_id = tugroup.id)
+						LEFT OUTER JOIN project_tugroup_projects as tugroup_projects ON (tugroup.id = tugroup_projects.tugroup_id)
+						WHERE tugroup_projects.project_id = %(project_pk)d
                     )
                     union
                     (
-						select project_twitteruser.id, project_twitteruser.last_tweet_date
+						select twitteruser.id, twitteruser.last_tweet_date
 						%(language_field)s
-						from project_twitteruser
-						LEFT OUTER JOIN project_twitteruserhashashtag ON (project_twitteruser.id = project_twitteruserhashashtag.twitter_user_id)
-						LEFT OUTER JOIN project_hashtag ON (project_twitteruserhashashtag.hashtag_id = project_hashtag.id)
-						LEFT OUTER JOIN project_hashtaggroup_hashtags ON (project_hashtag.id = project_hashtaggroup_hashtags.hashtag_id)
-						LEFT OUTER JOIN project_hashtaggroup ON (project_hashtaggroup_hashtags.hashtaggroup_id = project_hashtaggroup.id)
-						LEFT OUTER JOIN project_project_hashtag_group ON (project_hashtaggroup.id = project_project_hashtag_group.hashtaggroup_id)
-						WHERE project_project_hashtag_group.project_id = %(project_pk)d
+						from project_twitteruser as twitteruser
+						LEFT OUTER JOIN project_twitteruserhashashtag as twitteruser_hashtag ON (twitteruser.id = twitteruser_hashtag.twitter_user_id)
+						LEFT OUTER JOIN project_hashtag as hashtag ON (twitteruser_hashtag.hashtag_id = hashtag.id)
+						LEFT OUTER JOIN project_hashtaggroup_hashtags as hgroup_hashtags ON (hashtag.id = hgroup_hashtags.hashtag_id)
+						LEFT OUTER JOIN project_hashtaggroup as hgroup ON (hgroup_hashtags.hashtaggroup_id = hgroup.id)
+						LEFT OUTER JOIN project_hashtaggroup_projects as hgroup_projects ON (hgroup.id = hgroup_projects.hashtaggroup_id)
+						WHERE hgroup_projects.project_id = %(project_pk)d
                     )
-                ) total_project_users
-            LEFT OUTER JOIN project_tweet_mentioned_users ON (total_project_users.id = project_tweet_mentioned_users.twitteruser_id)
-            WHERE project_tweet_mentioned_users.tweet_id IS NULL
+                ) project_users
+            LEFT OUTER JOIN project_tweet_mentioned_users as tweet_mentionedusers ON (project_users.id = tweet_mentionedusers.twitteruser_id)
+            WHERE tweet_mentionedusers.tweet_id IS NULL
             %(language)s
-            ORDER BY total_project_users.last_tweet_date DESC
+            ORDER BY project_users.last_tweet_date DESC
             %(limit)s
             """ %
             {
                 'project_pk': project.pk,
                 'limit': 'LIMIT %d' % limit if limit else '',
-                'language': 'and total_project_users.language="%s"' % language if language else '',
-                'language_field': ', project_twitteruser.language' if language else ''
+                'language': 'and project_users.language="%s"' % language if language else '',
+                'language_field': ', twitteruser.language' if language else ''
             }
         )
+
+    def clear_old_unmentioned(self):
+        old_unmentioned = self.unmentioned().saved_lte_days(settings.MAX_DAYS_TO_STAY_UNMENTIONED)
+        count = old_unmentioned.count()
+        old_unmentioned.delete()
+        if count > 0:
+            settings.LOGGER.info('Deleted %i old unmentioned twitterusers' % count)
 
     # PROXY QUERYSET
     def get_queryset(self):
@@ -438,6 +488,9 @@ class TwitterUserManager(MyManager):
 
     def mentioned_by_bot_on_project(self, *args):
         return self.get_queryset().mentioned_by_bot_on_project(*args)
+
+    def saved_lte_days(self, days):
+        return self.get_queryset().saved_lte_days(days)
 
 
 class McTweetManager(MyManager):
