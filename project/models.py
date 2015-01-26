@@ -438,8 +438,11 @@ class Tweet(models.Model):
         return self.length() > 140
 
     def has_image(self):
-        return self.tweet_img != None
+        return self.tweet_img != None or (self.page_announced and self.page_announced.image != None)
     has_image.boolean = True
+
+    def get_image(self):
+        return self.tweet_img or (self.page_announced.image if self.page_announced else None)
 
     def is_available(self):
         return not self.sending and not self.sent_ok
@@ -500,8 +503,9 @@ class Tweet(models.Model):
                                     (self, tweet_message))
 
     def add_page_announced(self, project):
-        if project.pagelinks.exists():
-            page_announced = project.pagelinks.order_by('?')[0]
+        active_pagelinks = project.pagelinks.filter(is_active=True)
+        if active_pagelinks.exists():
+            page_announced = active_pagelinks.order_by('?')[0]
             if self.length() + page_announced.length() <= 140:
                 self.page_announced = page_announced
                 self.save()

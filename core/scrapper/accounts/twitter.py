@@ -326,7 +326,7 @@ class TwitterScrapper(Scrapper):
             if tweet.has_image():
                 el = self.browser.find_element_by_xpath("//*[@id=\"global-tweet-dialog-dialog\"]"
                                                         "/div[2]/div[4]/form/div[2]/div[1]/div[1]/div/label/input")
-                el.send_keys(tweet.tweet_img.img.path)
+                el.send_keys(tweet.get_image().img.path)
 
         self.click('#global-tweet-dialog-dialog .tweet-button button')
         self.delay.seconds(5)
