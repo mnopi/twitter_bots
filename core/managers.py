@@ -76,22 +76,25 @@ class TwitterBotManager(models.Manager):
 
         proxies = Proxy.objects.available_to_assign_bots_for_registration()
         if proxies.exists():
-            subnets_24_count = len(Proxy.objects.get_subnets_24(proxies))
-
-            if num_bots and num_bots > subnets_24_count:
-                settings.LOGGER.warning('The num_bots specified to create is higher than total /24 available subnets')
-                num_bots = subnets_24_count
+            if num_bots == 1:
+                self.create_bot()
             else:
-                num_bots = num_bots or subnets_24_count
+                subnets_24_count = len(Proxy.objects.get_subnets_24(proxies))
 
-            settings.LOGGER.info('There is %i available /24 subnets to create bots' % subnets_24_count)
+                if num_bots and num_bots > subnets_24_count:
+                    settings.LOGGER.warning('The num_bots specified to create is higher than total /24 available subnets')
+                    num_bots = subnets_24_count
+                else:
+                    num_bots = num_bots or subnets_24_count
 
-            pool = ThreadPool(settings.MAX_THREADS_CREATING_BOTS)
-            settings.LOGGER.info('Creating %d twitter bots..' % num_bots)
-            for task_num in range(num_bots):
-                settings.LOGGER.info('Adding task %i' % task_num)
-                pool.add_task(self.create_bot)
-            pool.wait_completion()
+                settings.LOGGER.info('There is %i available /24 subnets to create bots' % subnets_24_count)
+
+                pool = ThreadPool(settings.MAX_THREADS_CREATING_BOTS)
+                settings.LOGGER.info('Creating %d twitter bots..' % num_bots)
+                for task_num in range(num_bots):
+                    settings.LOGGER.info('Adding task %i' % task_num)
+                    pool.add_task(self.create_bot)
+                pool.wait_completion()
         else:
             raise NoMoreAvailableProxiesForRegistration()
 
@@ -348,6 +351,19 @@ class ProxyManager(MyManager):
     def get_subnets_24(self, proxies):
         """Devuelve las subredes /24 a las que pertenecen los proxies pasados por parámetro"""
         return list(set([proxy.get_subnet_24() for proxy in proxies.all()]))
+
+    def mark_as_unavailable_for_use(self, proxies):
+        proxies.update(
+            is_unavailable_for_use=True,
+            date_unavailable_for_use=utc_now()
+        )
+
+    def mark_as_available_for_use(self, proxies):
+        proxies.update(
+            is_unavailable_for_use=False,
+            date_unavailable_for_use=None
+        )
+
 
     #
     # PROXY QUERYSET

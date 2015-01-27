@@ -9,11 +9,10 @@ class Delay(object):
     def __init__(self, user):
         self.user = user
 
-    def _delay(self, t1, t2, force_delay=False):
-        if force_delay or not settings.FAST_MODE:
-            time.sleep(random.uniform(t1, t2))
+    def _delay(self, t1, t2):
+        time.sleep(random.uniform(t1, t2))
 
-    def seconds(self, seconds=None, type='box_switch', force_delay=False):
+    def seconds(self, seconds=None, type='box_switch'):
         """
         Crea retardo aleatorio +-0.9-1.8 entre los segundos dados en decimal
         """
@@ -21,7 +20,7 @@ class Delay(object):
         major = seconds + random.uniform(0.9, 1.8)
         if minor < 0: minor = random.uniform(0.1, 0.5)
         if major < 0: major = random.uniform(0.1, 0.5)
-        self._delay(minor, major, force_delay=force_delay)
+        self._delay(minor, major)
 
     def box_switch(self):
         """

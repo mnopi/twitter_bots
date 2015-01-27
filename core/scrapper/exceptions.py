@@ -17,6 +17,12 @@ class TwitterEmailNotConfirmed(Exception):
         scrapper.logger.warning('Twitter email not confirmed yet')
 
 
+class HotmailAccountNotCreated(Exception):
+    def __init__(self, scrapper):
+        scrapper.logger.error('Hotmail account can not be created')
+        scrapper.take_screenshot('failure_registering_hotmail', force_take=True)
+
+
 class TwitterAccountSuspended(Exception):
     def __init__(self, scrapper):
         scrapper.user.mark_as_suspended()

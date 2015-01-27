@@ -422,11 +422,27 @@ class ProxyAdmin(admin.ModelAdmin):
 
     actions = [
         'assign_proxies_group',
+        'mark_as_unavailable_for_use',
+        'mark_as_available_for_use',
     ]
 
     def assign_proxies_group(self, request, queryset):
         return assign_proxies_group(self, request, queryset)
 
+    def mark_as_unavailable_for_use(self, request, queryset):
+        try:
+            Proxy.objects.mark_as_unavailable_for_use(queryset)
+            self.message_user(request, 'proxies successfully marked as unavailable for use')
+        except Exception as e:
+            self.message_user(request, 'Error marking proxies as unavailable', level=messages.ERROR)
+            raise e
+
+    def mark_as_available_for_use(self, request, queryset):
+        try:
+            Proxy.objects.mark_as_available_for_use(queryset)
+            self.message_user(request, 'proxies successfully marked as unavailable for use')
+        except:
+            self.message_user(request, 'Error marking proxies as unavailable', level=messages.ERROR)
 
 def assign_proxies_group(admin_obj, request, queryset):
     # http://www.jpichon.net/blog/2010/08/django-admin-actions-and-intermediate-pages/

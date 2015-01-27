@@ -18,7 +18,7 @@ class TwitterScrapper(Scrapper):
         def check_email():
             while True:
                 if self.check_visibility('.prompt.email .sidetip .checking.active'):
-                    self.delay.seconds(0.5, force_delay=True)
+                    self.delay.seconds(0.5)
                 elif self.check_visibility('.prompt.email .sidetip .error.active'):
                     fucked_email = self.user.email
                     # self.user.email_registered_ok = False
@@ -28,28 +28,31 @@ class TwitterScrapper(Scrapper):
                 elif self.check_visibility('.prompt.email .sidetip .ok.active'):
                     break
 
+        def change_username():
+            alternatives = self.get_css_elements('.suggestions button')
+            if alternatives:
+                # puede que alguna alternativa no se vea, así que si va mal el click cogemos otra hasta que vaya
+                while True:
+                    alt = random.choice(alternatives)
+                    try:
+                        self.click(alt)
+                        self.user.username = alt.text
+                        self.user.save()
+                        break
+                    except MoveTargetOutOfBoundsException:
+                        pass
+            else:
+                self.user.username = generate_random_username(self.user.real_name)
+                self.fill_input_text('#username', self.user.username)
+
         def check_username():
             while True:
                 # CHECKING..
                 if self.check_visibility('.select-username .sidetip .checking.active'):
-                    self.delay.seconds(0.5, force_delay=True)
+                    self.delay.seconds(0.5)
                 # ERROR
                 elif self.check_visibility('.select-username .sidetip .error.active'):
-                    alternatives = self.get_css_elements('.suggestions button')
-                    if alternatives:
-                        # puede que alguna alternativa no se vea, así que si va mal el click cogemos otra hasta que vaya
-                        while True:
-                            alt = random.choice(alternatives)
-                            try:
-                                self.click(alt)
-                                self.user.username = alt.text
-                                self.user.save()
-                                break
-                            except MoveTargetOutOfBoundsException:
-                                pass
-                    else:
-                        self.user.username = generate_random_username(self.user.real_name)
-                        self.fill_input_text('#username', self.user.username)
+                    change_username()
                 # USERNAME OK
                 elif self.check_visibility('.select-username .sidetip .ok.active'):
                     break
@@ -75,15 +78,24 @@ class TwitterScrapper(Scrapper):
                 self.fill_input_text('#full-name', self.user.real_name)
                 self.fill_input_text('#email', self.user.email)
                 check_email()
+                if not self.check_visibility('#password'):
+                    checkbox_css = 'div.prompt:nth-child(4) > label:nth-child(1) > input:nth-child(1)'
+                    self.try_to_click(checkbox_css)
+                    self.click('#submit_button')
                 self.fill_input_text('#password', self.user.password_twitter)
+                self.try_to_click('#submit_button')
                 self.fill_input_text('#username', self.user.username)
                 check_username()
                 self.try_to_click('input[name="submit_button"]', 'input#submit_button')
 
+                # si sale un cartelito "that's you" picamos en alguna de las sugerencias de username
+                if self.check_visibility('#message-drawer .message-text'):
+                    self.click('#skip_link')
+
             self.delay.seconds(10)
 
             # le damos al botón 'next' que sale en la bienvenida (si lo hay)
-            self.try_to_click('a[href="/welcome/recommendations"]' )
+            self.try_to_click('a[href="/welcome/recommendations"]')
 
             self.wait_to_page_readystate()
             self.delay.seconds(7)

@@ -11,7 +11,7 @@ from core.scrapper.accounts.hotmail import HotmailScrapper
 from core.scrapper.accounts.twitter import TwitterScrapper
 from core.scrapper.exceptions import TwitterEmailNotFound, \
     TwitterAccountDead, TwitterAccountSuspended, ProfileStillNotCompleted, FailureReplyingMcTweet, \
-    TwitterEmailNotConfirmed
+    TwitterEmailNotConfirmed, HotmailAccountNotCreated
 from core.scrapper.utils import *
 from core.managers import TwitterBotManager, ProxyManager, mutex
 from twitter_bots import settings
@@ -56,7 +56,6 @@ class TwitterBot(models.Model):
 
     is_being_created = models.BooleanField(default=True)
     is_manually_registered = models.BooleanField(default=False)
-    has_fast_mode = models.BooleanField(default=False)
     user_agent = models.TextField(null=False, blank=True)
 
     email_registered_ok = models.BooleanField(default=False)
@@ -218,15 +217,11 @@ class TwitterBot(models.Model):
     def complete_creation(self):
         if self.has_to_complete_creation():
             t1 = utc_now()
-            settings.LOGGER.info('Completing creation for bot %s behind proxy %s' %
-                                 (self.username, self.proxy_for_usage.__unicode__()))
+            settings.LOGGER.info('Completing creation for bot %s (%s) behind proxy %s' %
+                                 (self.username, self.real_name, self.proxy_for_usage.__unicode__()))
 
             # eliminamos el directorio de capturas previas para el usuario
             rmdir_if_exists(os.path.join(settings.SCREENSHOTS_DIR, self.real_name))
-
-            if settings.FAST_MODE and not settings.TEST_MODE:
-                settings.LOGGER.warning('Fast mode only avaiable on test mode!')
-                settings.FAST_MODE = False
 
             try:
                 # init scrappers
@@ -241,13 +236,7 @@ class TwitterBot(models.Model):
                 # 1_signup_email
                 if self.has_to_register_email():
                     self.email_scr.set_screenshots_dir('1_signup_email')
-                    try:
-                        self.email_scr.sign_up()
-                    except Exception as ex:
-                        settings.LOGGER.exception('Error on bot %s registering email %s' %
-                                                  (self.username, self.email))
-                        self.email_scr.take_screenshot('signup_email_failure', force_take=True)
-                        raise ex
+                    self.email_scr.sign_up()
                     self.email_registered_ok = True
                     self.save()
                     self.email_scr.take_screenshot('signed_up_sucessfully', force_take=True)
@@ -271,7 +260,10 @@ class TwitterBot(models.Model):
                         self.email_scr.take_screenshot('tw_email_confirmed_sucessfully', force_take=True)
                     except TwitterEmailNotFound:
                         self.twitter_scr.set_screenshots_dir('resend_conf_email')
-                        self.twitter_scr.login()
+                        try:
+                            self.twitter_scr.login()
+                        except TwitterEmailNotConfirmed:
+                            pass
                         self.email_scr.confirm_tw_email()
                         self.twitter_confirmed_email_ok = True
                         self.save()
@@ -300,7 +292,8 @@ class TwitterBot(models.Model):
                 else:
                     settings.LOGGER.info('Bot "%s" completed sucessfully in %s seconds' % (self.username, diff_secs))
 
-            except (NoAvailableProxiesToAssignBotsForUse,
+            except (HotmailAccountNotCreated,
+                    NoAvailableProxiesToAssignBotsForUse,
                     ProfileStillNotCompleted,
                     NoMoreAvailableProxiesForRegistration,
                     TwitterAccountDead,
@@ -337,7 +330,6 @@ class TwitterBot(models.Model):
             self.password_twitter = generate_random_string(only_lowercase=True)
             self.birth_date = random_date(settings.BIRTH_INTERVAL[0], settings.BIRTH_INTERVAL[1])
             self.user_agent = generate_random_desktop_user_agent()
-            self.has_fast_mode = settings.FAST_MODE
             self.random_offsets = settings.RANDOM_OFFSETS_ON_EL_CLICK
             self.assign_proxy()
             self.save()

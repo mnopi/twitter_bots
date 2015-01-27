@@ -3,7 +3,8 @@ from selenium.webdriver.common.keys import Keys
 
 from core.scrapper.scrapper import Scrapper
 from core.scrapper.captcha_resolvers import DeathByCaptchaResolver
-from core.scrapper.exceptions import TwitterEmailNotFound, EmailAccountSuspended, EmailAccountNotFound
+from core.scrapper.exceptions import TwitterEmailNotFound, EmailAccountSuspended, EmailAccountNotFound, \
+    HotmailAccountNotCreated
 from core.scrapper.utils import *
 from twitter_bots import settings
 
@@ -103,9 +104,9 @@ class HotmailScrapper(Scrapper):
             self.click('#iBirthMonth')
             for _ in range(0, self.user.birth_date.month):
                 self.send_special_key(Keys.ARROW_DOWN)
-            self.delay.seconds(1, force_delay=True)
+            self.delay.seconds(1)
             self.fill_input_text('#iBirthDay', self.user.birth_date.day)
-            self.delay.seconds(1, force_delay=True)
+            self.delay.seconds(1)
             self.fill_input_text('#iBirthYear', self.user.birth_date.year)
 
             # SEXO
@@ -126,9 +127,10 @@ class HotmailScrapper(Scrapper):
         fill_form()
         self.delay.seconds(5)
         submit_form()
-        if not self.check_visibility('#meControlHeader', timeout=60):
-            raise Exception()
-        # wait_condition(lambda: 'welcome' in self.get_css_element('#overview-head h2').text.lower(), timeout=60)
+        try:
+            wait_condition(lambda: 'Microsoft account | Home'.lower() in self.browser.title.lower())
+        except Exception:
+            raise HotmailAccountNotCreated
 
     def check_account_suspended(self):
         not_suspended = lambda: 'unblock' not in self.browser.title.lower()

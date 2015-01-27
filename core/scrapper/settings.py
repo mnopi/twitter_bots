@@ -42,13 +42,8 @@ PAGE_READYSTATE_TIMEOUT = 200  # segundos que se espera a que el DOM de la pági
 RANDOM_OFFSETS_ON_EL_CLICK = False  # activar offset al hacer click con el ratón sobre un elemento dado
 TYPING_SPEED = (20, 40)  # en ms, el tiempo que pasa entre que se presiona/levanta una tecla
 WEBDRIVER = 'PH'
-### TOR MODE && TEST MODE !!
-###############
-TOR_MODE = False
-TEST_MODE = False
 FORCE_FIREFOX = False
 ###############
-FAST_MODE = False  # para saltarse los delays en testeo
 TAKE_SCREENSHOTS = False
 
 #
@@ -180,8 +175,3 @@ PROXIES_DIR = os.path.join(PROJECT_ROOT, 'core', 'proxies')
 # CH (chrome)
 # PH (phantomjs)
 # WEBDRIVER = 'FI'
-
-if TEST_MODE:
-    FAST_MODE = True
-    WEBDRIVER = 'FI'
-    TAKE_SCREENSHOTS = True
