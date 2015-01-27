@@ -1,11 +1,14 @@
 from optparse import make_option
-from core.models import TwitterBot
+from threading import Lock
+import threading
+from core.models import TwitterBot, Proxy
 from project.exceptions import FatalError
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
 
 set_logger(__name__)
 settings.TAKE_SCREENSHOTS = True
+mutex = Lock()
 
 from django.core.management.base import BaseCommand
 
@@ -22,17 +25,24 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         settings.LOGGER.info('-- INITIALIZED BOT CREATOR --')
 
-        TwitterBot.objects.clean_unregistered()
-        TwitterBot.objects.put_previous_being_created_to_false()
-
         try:
-            if args and '1' in args:
-                TwitterBot.objects.create_bot('dyn' in options)
-            else:
-                if args:
-                    TwitterBot.objects.create_bots(num_bots=int(args[0]), from_dyn_ip='dyn' in options)
-                else:
-                    TwitterBot.objects.create_bots(from_dyn_ip='dyn' in options)
+            threads = []
+            if settings.EXTRACT_FOLLOWERS:
+                threads.append(threading.Thread(target=Extractor.objects.extract_followers_for_running_projects))
+            # if settings.EXTRACT_HASHTAGS:
+                # threads.append(threading.Thread(target=Extractor.objects.extract_hashtags))
+            for th in threads:
+                th.start()
+
+            # to wait until all threads are finished
+            for th in threads:
+                th.join()
+
+
+            num_bots = int(args[0]) if args else None
+            TwitterBot.objects.create_bots(num_bots=num_bots)
+
+            TwitterBot.objects.finish_creations(num_bots=num_bots)
         except Exception as e:
             raise FatalError(e)
 

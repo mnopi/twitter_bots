@@ -69,43 +69,31 @@ class TwitterBotManager(models.Manager):
 
         bot.complete_creation()
 
-    def create_bots(self, num_bots=None, from_dyn_ip=False):
-
-        def create_from_proxies():
-            proxies = Proxy.objects.available_to_assign_bots_for_registration()
-            if proxies.exists():
-                subnets_24_count = len(Proxy.objects.get_subnets_24(proxies))
-
-                if num_bots and num_bots > subnets_24_count:
-                    settings.LOGGER.warning('The num_bots specified to create is higher than total /24 available subnets')
-                    num_bots = subnets_24_count
-                else:
-                    num_bots = num_bots or subnets_24_count
-
-                settings.LOGGER.info('There is %i available /24 subnets to create bots' % subnets_24_count)
-
-                pool = ThreadPool(settings.MAX_THREADS_CREATING_BOTS)
-                settings.LOGGER.info('Creating %d twitter bots..' % num_bots)
-                for task_num in range(num_bots):
-                    settings.LOGGER.info('Adding task %i' % task_num)
-                    pool.add_task(self.create_bot)
-                pool.wait_completion()
-            else:
-                raise NoMoreAvailableProxiesForRegistration()
-
-        def create_from_dyn_ip():
-            pass
-
-
+    def create_bots(self, num_bots=None):
         from core.models import Proxy
         self.clean_unregistered()
         self.put_previous_being_created_to_false()
 
-        if from_dyn_ip:
-            create_from_dyn_ip()
-        else:
-            create_from_proxies()
+        proxies = Proxy.objects.available_to_assign_bots_for_registration()
+        if proxies.exists():
+            subnets_24_count = len(Proxy.objects.get_subnets_24(proxies))
 
+            if num_bots and num_bots > subnets_24_count:
+                settings.LOGGER.warning('The num_bots specified to create is higher than total /24 available subnets')
+                num_bots = subnets_24_count
+            else:
+                num_bots = num_bots or subnets_24_count
+
+            settings.LOGGER.info('There is %i available /24 subnets to create bots' % subnets_24_count)
+
+            pool = ThreadPool(settings.MAX_THREADS_CREATING_BOTS)
+            settings.LOGGER.info('Creating %d twitter bots..' % num_bots)
+            for task_num in range(num_bots):
+                settings.LOGGER.info('Adding task %i' % task_num)
+                pool.add_task(self.create_bot)
+            pool.wait_completion()
+        else:
+            raise NoMoreAvailableProxiesForRegistration()
 
         # threads = []
         # for n in range(num_bots):
@@ -197,11 +185,16 @@ class TwitterBotManager(models.Manager):
 
         bots_to_finish_creation = self.pendant_to_finish_creation()  # sólo se eligen bots de grupos activos
         if bots_to_finish_creation.exists():
-            pool = ThreadPool(settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
-            bots_to_finish_creation = bots_to_finish_creation[:num_bots] if num_bots else bots_to_finish_creation
-            for bot in bots_to_finish_creation:
-                pool.add_task(bot.complete_creation)
-            pool.wait_completion()
+            if num_bots > 1:
+                # si son varios bots usamos hebras
+                pool = ThreadPool(settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
+                bots_to_finish_creation = bots_to_finish_creation[:num_bots] if num_bots else bots_to_finish_creation
+                for bot in bots_to_finish_creation:
+                    pool.add_task(bot.complete_creation)
+                pool.wait_completion()
+            else:
+                bot = bots_to_finish_creation.first()
+                bot.complete_creation()
 
             settings.LOGGER.info('Sleeping %d seconds to respawn bot_creation_finisher again..' %
                                  settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
@@ -226,8 +219,8 @@ class TwitterBotManager(models.Manager):
     def without_any_account_registered(self):
         return self.get_queryset().without_any_account_registered()
 
-    def usable(self):
-        return self.get_queryset().usable()
+    def usable_regardless_of_proxy(self):
+        return self.get_queryset().usable_regardless_of_proxy()
 
     def registrable(self):
         return self.get_queryset().registrable()
@@ -244,8 +237,8 @@ class TwitterBotManager(models.Manager):
     def completed(self):
         return self.get_queryset().completed()
 
-    def twitteable(self):
-        return self.get_queryset().twitteable()
+    def twitteable_regardless_of_proxy(self):
+        return self.get_queryset().twitteable_regardless_of_proxy()
 
     def without_tweet_to_send_queue_full(self):
         return self.get_queryset().without_tweet_to_send_queue_full()
@@ -273,6 +266,9 @@ class TwitterBotManager(models.Manager):
 
     def unmentioned_by_bot(self, bot):
         return self.get_queryset().unmentioned_by_bot(bot)
+
+    def annotate__mctweets_received_count(self):
+        return self.get_queryset().annotate__mctweets_received_count()
 
 
 class ProxyManager(MyManager):

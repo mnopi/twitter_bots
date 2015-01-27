@@ -60,7 +60,7 @@ class NoAvailableBots(Exception):
 
     def __init__(self):
         settings.LOGGER.warning('No available bots found. All are already in use, waiting time windows or '
-                                'waiting new feeds items.')
+                                'waiting new feeds items. Also check if create_tweets is running')
 
 
 class NoAvailableBot(Exception):

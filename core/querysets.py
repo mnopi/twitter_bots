@@ -13,7 +13,7 @@ class TwitterBotQuerySet(QuerySet):
     def without_any_account_registered(self):
         return self.filter(email_registered_ok=False, twitter_registered_ok=False)
 
-    def usable(self):
+    def usable_regardless_of_proxy(self):
         """
         Devuelve bots con capacidad de poder ser usados, independientemente de como esté su proxy
         """
@@ -88,12 +88,11 @@ class TwitterBotQuerySet(QuerySet):
                 is_suspended=False,
             ).distinct()
 
-    def twitteable(self):
+    def twitteable_regardless_of_proxy(self):
         """
-        Entre los completamente creados coge los que no sean extractores, para evitar que twitter detecte
-        actividad múltiple desde misma cuenta
+        Entre los que se pueden usar (indep. si funciona su proxy o no), excluye los que sean extractores
         """
-        return self.usable().filter(extractor=None)
+        return self.usable_regardless_of_proxy().filter(extractor=None)
 
     def _annotate_tweets_queued_to_send(self):
         """Anota en la queryset la cuenta de tweets encolados pendientes de enviar por el bot"""
@@ -111,7 +110,7 @@ class TwitterBotQuerySet(QuerySet):
         """Saca bots que no tengan llena su cola de tweets pendientes de enviar llena"""
         valid_pks = [
             bot.pk
-            for bot in self.twitteable()._annotate_tweets_queued_to_send()
+            for bot in self.twitteable_regardless_of_proxy()._annotate_tweets_queued_to_send()
             if bot.tweets_queued_to_send < settings.MAX_QUEUED_TWEETS_TO_SEND_PER_BOT
         ]
         return self.filter(pk__in=valid_pks)
@@ -164,6 +163,21 @@ class TwitterBotQuerySet(QuerySet):
 
     def unmentioned_by_bot(self, bot):
         return self.exclude(mentions__bot_used=bot)
+
+    def annotate__mctweets_received_count(self):
+        """
+        Anotamos la cuenta de mctweets que recibió cada twitterbot
+        http://timmyomahony.com/blog/filtering-annotations-django/
+        """
+        return self.extra(
+            select = {
+                'mctweets_received_count': """
+                Select count(*) from project_tweet as tweet
+                JOIN project_tweet_mentioned_bots as mctweet on mctweet.tweet_id=tweet.id
+                where mctweet.twitterbot_id=core_twitterbot.id
+                """
+            }
+        )
 
 
 class ProxyQuerySet(MyQuerySet):
@@ -219,7 +233,7 @@ class ProxyQuerySet(MyQuerySet):
         #   1.  De subnets /24 disponibles para hacer registros. Lo colocamos primero por si se
         #       cambiaron los proxies recientemente y habían de la misma subnet.
         #   2.  Que tengan conectividad ok
-        #   3.  Que permitan el registro de cuentas hotmail/outlook (is_unavailable_for_registration)
+        #   3.  Que permitan el registro de cuentas hotmail/outlook (is_unavailable_for_registration=False)
         #   4.  Que tengan asignado un grupo de proxies
         #   5.  Que su grupo tenga permitida la creación de nuevos bots
         #

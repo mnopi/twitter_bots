@@ -10,6 +10,7 @@ from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium import webdriver
+from core.managers import mutex
 from .delay import Delay
 from .exceptions import RequestAttemptsExceededException, ProxyConnectionError, ProxyTimeoutError, \
     InternetConnectionError, ProxyUrlRequestError, IncompatibleUserAgent, PageNotReadyState, NoElementToClick, \
@@ -104,7 +105,8 @@ class Scrapper(object):
             self.browser = my_phantomjs_webdriver.MyWebDriver(
                 settings.PHANTOMJS_BIN_PATH,
                 service_args=service_args,
-                desired_capabilities=dcap
+                desired_capabilities=dcap,
+                service_log_path=os.path.join(settings.LOGS_DIR, 'ghostdriver.log')
             )
 
         # si ya hay navegador antes de abrirlo nos aseguramos que esté cerrado para no acumular una instancia más
@@ -683,16 +685,19 @@ class Scrapper(object):
         try:
             if settings.TAKE_SCREENSHOTS or force_take:
                 mkdir_if_not_exists(settings.SCREENSHOTS_DIR)
-                user_dir = os.path.join(settings.SCREENSHOTS_DIR, self.user.real_name)
-                mkdir_if_not_exists(user_dir)
 
+                # ponemos que la captura cuelgue de la carpeta del usuario en cuestión
+                user_dir = os.path.join(settings.SCREENSHOTS_DIR, self.user.real_name + ' - ' + self.user.username)
+                mkdir_if_not_exists(user_dir)
                 dir = user_dir
 
                 if self.screenshots_dir:
                     dir = os.path.join(dir, self.screenshots_dir)
                     mkdir_if_not_exists(dir)
 
-                self.browser.save_screenshot(os.path.join(dir, '%i_%s.jpg' % (self.screenshot_num, title)))
+                screenshot_path = os.path.join(dir, '%i_%s.jpg' % (self.screenshot_num, title))
+                self.logger.debug('Taking screenshot: %s' % screenshot_path)
+                self.browser.save_screenshot(screenshot_path)
             self.screenshot_num += 1
         except Exception:
             self.logger.exception('Error shooting %i_%s.jpg' % (self.screenshot_num, title))

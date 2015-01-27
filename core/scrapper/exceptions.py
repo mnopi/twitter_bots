@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import time
+from core.managers import mutex
 import twitter_bots.settings as settings
 from utils import utc_now
 
@@ -67,10 +68,17 @@ class FailureReplyingMcTweet(Exception):
 class TweetAlreadySent(Exception):
     def __init__(self, scrapper, tweet, msg):
         settings.LOGGER.warning(msg)
-        scrapper.take_screenshot('tweet_already_sent', force_take=True)
-        tweet.sent_ok = True
-        tweet.save()
+        try:
+            mutex.acquire()
+            tweet.sent_ok = True
+            tweet.sending = False
+            if not tweet.date_sent:
+                tweet.date_sent = tweet.date_created
+            tweet.save()
+        finally:
+            mutex.release()
 
+        scrapper.take_screenshot('tweet_already_sent', force_take=True)
 
 class BotMustVerifyPhone(Exception):
     def __init__(self, scrapper):

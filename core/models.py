@@ -419,72 +419,97 @@ class TwitterBot(models.Model):
         # no podrá tuitear si está siendo usado
         if self.is_already_being_used():
             return False
-
         # tampoco si no pasó el tiempo suficiente desde que envió el último tweet
         elif not self.has_enough_time_passed_since_his_last_tweet():
             return False
-
         else:
             return True
 
-    def make_tweet_to_send(self, add_feed_item=False, only_mention_bots=False, ftweet=False):
+    def make_mctweet_to_send(self):
+        """
+        Crea tweet para enviar a otro bot
+        """
+        from project.models import Tweet
+
+        tweet_to_send = Tweet(
+            bot_used=self,
+            feed_item=self.get_item_to_send()
+        )
+        tweet_to_send.save()
+        tweet_to_send.add_bot_to_mention()
+
+        # todo: cambiar esto para alternar links de feeds con links de proyectos del bot
+        # bot_to_mention = tweet_to_send.mentioned_bots.first()
+        #
+        # # iteramos por los proyectos del bot buscando algún link que no se le haya enviado
+        # projects_with_this_bot = self.get_running_projects().order_by__queued_tweets()
+        # if projects_with_this_bot.exists():
+        #     for project in projects_with_this_bot:
+        #         try:
+        #             # miramos links
+        #             # for link in project.links.all():
+        #                 # if self.has_passed_timewindow_to_send_same_link(bot_to_mention, link)
+        #             if project.links.exists():
+        #                 tweet_to_send.add_link(project)
+        #                 tweet_to_send.project = project
+        #                 break
+        #             elif project.pagelinks.exists():
+        #                 tweet_to_send.add_page_announced(project)
+        #                 tweet_to_send.project = project
+        #                 break
+        #         except TweetCreationException:
+        #             continue
+        #     tweet_to_send.save()
+        # else:
+        #     settings.LOGGER.warning('Bot %s has no running projects assigned at this moment' % self.__unicode__())
+
+        return tweet_to_send
+
+    def make_ftweet_to_send(self):
+        from project.models import Tweet
+
+        tweet_to_send = Tweet(
+            bot_used=self,
+            feed_item=self.get_item_to_send()
+        )
+        tweet_to_send.save()
+        return tweet_to_send
+
+    def make_mutweet_to_send(self):
         """Crea un tweet con mención pendiente de enviar"""
         from project.models import Tweet, TwitterUser
 
         tweet_to_send = None
 
-        if ftweet:
-            # si sólo queremos crear el tweet desde un feed
-            tweet_to_send = Tweet(
-                bot_used=self,
-                feed_item=self.get_item_to_send()
-            )
-            tweet_to_send.save()
+        # saco proyectos asignados para el robot que actualmente estén ejecutándose, ordenados de menor a mayor
+        # número de tweets creados en la cola pendientes de enviar
+        projects_with_this_bot = self.get_running_projects().order_by__queued_tweets()
+        if projects_with_this_bot.exists():
+            for project in projects_with_this_bot:
+                try:
+                    tweet_to_send = Tweet(
+                        project=project,
+                        bot_used=self
+                    )
+                    tweet_to_send.save()
+                    bot_group = self.get_group()
+                    if bot_group.has_tweet_msg:
+                        tweet_to_send.add_tweet_msg(project)
+                    if bot_group.has_link:
+                        tweet_to_send.add_link(project)
+                    if bot_group.has_tweet_img:
+                        tweet_to_send.add_image(project)
+                    if bot_group.has_page_announced:
+                        tweet_to_send.add_page_announced(project)
+                    if bot_group.has_mentions:
+                        tweet_to_send.add_twitterusers_to_mention()
+
+                    # tras encontrar ese proyecto con el que hemos podido construir el tweet salimos del for
+                    break
+                except TweetCreationException:
+                    continue
         else:
-            # saco proyectos asignados para el robot que actualmente estén ejecutándose, ordenados de menor a mayor
-            # número de tweets creados en la cola pendientes de enviar
-            projects_with_this_bot = self.get_running_projects().order_by__queued_tweets()
-            if projects_with_this_bot.exists():
-                for project in projects_with_this_bot:
-
-                    # project.check_if_has_minimal_content()
-
-                    try:
-                        tweet_to_send = Tweet(
-                            project=project,
-                            bot_used=self
-                        )
-                        tweet_to_send.save()
-                        bot_group = self.get_group()
-
-                        if bot_group.has_tweet_msg:
-                            tweet_to_send.add_tweet_msg(project)
-                        if bot_group.has_link:
-                            tweet_to_send.add_link(project)
-                        if bot_group.has_tweet_img:
-                            tweet_to_send.add_image(project)
-                        if bot_group.has_page_announced:
-                            tweet_to_send.add_page_announced(project)
-                        if bot_group.has_mentions:
-                            if only_mention_bots:
-                                tweet_to_send.add_bots_to_mention()
-                            else:
-                                tweet_to_send.add_mentions()
-
-                        # si mandamos un item de los feeds entonces quitamos tweet_msg y ponemos feed_msg
-                        if add_feed_item:
-                            item_to_send = self.get_item_to_send()
-                            tweet_to_send.feed_item = item_to_send
-                            tweet_to_send.save()
-
-                        # tras encontrar ese proyecto con el que hemos podido construir el tweet salimos para
-                        # dar paso al siguiente bot
-                        break
-                    except TweetCreationException:
-                        continue
-
-            else:
-                settings.LOGGER.warning('Bot %s has no running projects assigned at this moment' % self.__unicode__())
+            settings.LOGGER.warning('Bot %s has no running projects assigned at this moment' % self.__unicode__())
 
         return tweet_to_send
 
@@ -653,9 +678,6 @@ class TwitterBot(models.Model):
     def get_or_create_mctweet(self):
         """El bot busca su tweet de verificación (mentioning check tweet). Si no existe crea uno"""
 
-        def create_mctweet():
-            self.make_tweet_to_send(add_feed_item=True, only_mention_bots=True)
-
         from project.models import Tweet, TweetCheckingMention
 
         # vemos si ya hay algún mctweet sin verificar
@@ -665,10 +687,10 @@ class TwitterBot(models.Model):
                 settings.LOGGER.warning('There were found multiple mentioning check tweets pending to send from '
                                       'bot %s and will be deleted' % self.username)
                 self.clear_not_sent_ok_mc_tweets()
-                create_mctweet()
+                self.make_mctweet_to_send()
         else:
             # si no existe dicho tweet de verificación el bot lo crea
-            create_mctweet()
+            self.make_mctweet_to_send()
 
         mctweet = mctweet_not_checked.first()
 
@@ -677,63 +699,35 @@ class TwitterBot(models.Model):
 
         return mctweet
 
-    def get_mentionable_bots(self):
-        """Devuelve una lista con los bots que puede mencionar"""
-
+    def get_rest_of_bots_under_same_group(self):
+        """Devuelve una lista de bots dentro de su mismo grupo de proxies (él no va incluido)"""
         group = self.get_group()
 
-        bots_under_same_group = TwitterBot.objects\
+        return TwitterBot.objects\
             .using_proxies_group(group)\
+            .twitteable_regardless_of_proxy()\
             .with_proxy_connecting_ok()\
-            .twitteable()\
             .exclude(pk=self.pk)
 
-        # ordenamos de menor a mayor número de mctweets fabricados
-        # http://timmyomahony.com/blog/filtering-annotations-django/
-        bots_under_same_group = bots_under_same_group.extra(
-            select = {
-                'mctweets_received_count': """
-                Select count(*) from project_tweet as tweet
-                JOIN project_tweet_mentioned_bots as mctweet on mctweet.tweet_id=tweet.id
-                where mctweet.twitterbot_id=core_twitterbot.id
-                """
-            }
-        ).order_by('mctweets_received_count')
+    def has_passed_timewindow_to_send_same_link(self, bot_to_mention, tweet):
+        """Comprueba si pasó el tiempo suficiente para mandar mismo link a mismo bot"""
 
-        # de estos quitamos los que este bot haya mencionado antes de pasado un intervalo
-        # de x tiempo
-        final_bots = []
-        for bot in bots_under_same_group:
-            # sacamos las menciones que este bot (self) hizo a cada bot
-            mentions = bot.mentions.filter(bot_used=self)
-            if mentions.exists():
-                secs = generate_random_secs_from_minute_interval(group.mctweet_to_same_bot_time_window)
-                time_window_passed = has_elapsed_secs_since_time_ago(
-                    mentions.latest('date_sent').date_sent,
-                    secs
-                )
-                if time_window_passed:
-                    final_bots.append(bot)
-            else:
-                final_bots.append(bot)
-
-        return final_bots
-        # # sacamos bots tras aplicar una segunda ordenación: de más antiguo a más nuevo mencionado por el bot,
-        # # los que aún no hayan sido mencionados los ponemos al principio
-        # bots_under_same_group = list(bots_under_same_group)
-        # without_mention_received = []
-        # with_mention_received = []
-        #
-        # for b in bots_under_same_group:
-        #     mentions_to_b = b.mentions.filter(bot_used=self)
-        #     if mentions_to_b.exists():
-        #         b.last_mention_received_by_bot_date = mentions_to_b.latest('date_sent').date_sent
-        #         with_mention_received.append(b)
+        # todo: por acabar
+        # for bot in bots_under_same_group:
+        #     # sacamos las menciones que este bot (self) hizo a cada bot
+        #     mentions = bot.mentions.filter(bot_used=self)
+        #     if mentions.exists():
+        #         secs = generate_random_secs_from_minute_interval(group.mctweet_to_same_bot_time_window)
+        #         time_window_passed = has_elapsed_secs_since_time_ago(
+        #             mentions.latest('date_sent').date_sent,
+        #             secs
+        #         )
+        #         if time_window_passed:
+        #             final_bots.append(bot)
         #     else:
-        #         without_mention_received.append(b)
-        #
-        # with_mention_received.sort(key=lambda b: b.last_mention_received_by_bot_date, reverse=False)
-        # return without_mention_received + with_mention_received
+        #         final_bots.append(bot)
+
+        raise NotImplementedError
 
     def has_enough_time_passed_since_his_last_tweet(self):
         """Nos dice si pasó el suficiente tiempo desde que el robot tuiteó por última vez a un usuario"""
@@ -822,7 +816,7 @@ class TwitterBot(models.Model):
                             # una vez que encontramos el último tweet enviado por ese bot vemos si coincide con el
                             # tweet que dice nuestra BD que se le mandó, sin contar con el link
                             mention_text = mention_el.find_element_by_css_selector('.js-tweet-text').text.strip()
-                            if tweet.compose(with_links=False) in mention_text:
+                            if tweet.compose(with_link=False) in mention_text:
                                 mention_received_ok_el = mention_el
                                 break
                         else:

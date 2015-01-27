@@ -166,17 +166,7 @@ class Project(models.Model):
     def get_twitteable_bots(self):
         """Saca, de sus grupos de proxies asignados, aquellos bots que las usen y puedan tuitear"""
         from core.models import TwitterBot
-        return TwitterBot.objects.using_in_project(self).twitteable()
-
-    def check_if_has_minimal_content(self):
-        """Verifica si el proyecto tiene asignado el contenido suficiente para poderse fabricar tweets para él"""
-        if not self.tweet_msgs.exists():
-            settings.LOGGER.error('Project "%s" has no tweet_mgs defined' % self.__unicode__())
-            raise Exception()
-
-        if not self.links.exists():
-            settings.LOGGER.error('Project "%s" has no links defined' % self.__unicode__())
-            raise Exception()
+        return TwitterBot.objects.using_in_project(self).twitteable_regardless_of_proxy()
 
 
 class TweetMsg(models.Model):
@@ -349,84 +339,59 @@ class Tweet(models.Model):
     def __unicode__(self):
         return self.compose()
 
-    def compose(self, with_links=True):
-        """with_links a False se usará para componer sin links a la hora de verificar mctweets"""
+    def compose(self, with_link=True):
+        """with_link a False se usará para componer sin links a la hora de verificar mctweets
+        en notificaciones del destinatario, donde se compararán sin link, ya que twitter pone otro"""
 
-        def compose_for_tumention():
+        def compose_with_mentions(mentions):
             compose_txt = ''
-            mu_txt = ''
+            m_txt = ''
             # solo se podrá consultar los usuarios mencionados si antes se guardó la instancia del tweet en BD
-            for mu in self.mentioned_users.all():
-                mu_txt += '@%s ' % mu.username
-            compose_txt += mu_txt
+            for m in mentions:
+                m_txt += '@%s ' % m.username
+            compose_txt += m_txt
 
             if self.tweet_msg:
                 compose_txt += self.tweet_msg.text
 
-            if self.link:
+            if with_link and self.link:
                 compose_txt += ' ' + self.link.url if self.link else ''
 
             if self.page_announced:
-
                 # si ya tiene agregado mensaje o link le metemos espacio para luego el pagelink
                 if self.tweet_msg or self.link:
                     compose_txt += ' '
+                compose_txt += self.page_announced.compose(with_link=with_link)
 
-                compose_txt += self.page_announced.compose()
-
-            return compose_txt
-
-        def compose_for_tbmention():
-            compose_txt = ''
-            mb_txt = ''
-            for mb in self.mentioned_bots.all():
-                mb_txt += '@%s ' % mb.username
-            compose_txt += mb_txt
-
-            # después de las menciones va el texto del feed_item
-            compose_txt += self.feed_item.text if self.feed_item else '<<no feed item>>'
-
-            # si el tweet tiene link o pagelink entonces se lo ponemos. de lo contrario ponemos el link del feed
-            if with_links:
-                if self.link:
-                    compose_txt += ' ' + self.link.url
-                elif self.page_announced and self.page_announced.page_link:
-                    compose_txt += ' ' + self.page_announced.page_link
+            if self.feed_item:
+                if with_link:
+                    compose_txt += self.feed_item.__unicode__()
+                else:
+                    compose_txt += self.feed_item.text
 
             return compose_txt
 
-        def compose_for_ftweet():
-            return self.feed_item.__unicode__()
-
-        if self.mentioned_users.exists():
-            return compose_for_tumention()
-        elif self.mentioned_bots.exists():
-            return compose_for_tbmention()
-        elif self.feed_item:
-            return compose_for_ftweet()
+        if self.is_mutweet():
+            mentions = self.mentioned_users.all()
+            return compose_with_mentions(mentions)
+        elif self.is_mctweet():
+            mentions = self.mentioned_bots.all()
+            return compose_with_mentions(mentions)
+        elif self.is_ftweet():
+            if with_link:
+                return self.feed_item.__unicode__()
+            else:
+                return self.feed_item.text
         else:
             return '<<wrong tweet construction !!>>'
 
     def length(self):
-        def mentioned_users_space():
-            length = 0
-            for mu in self.mentioned_users.all():
-                length += len(mu.username) + 2
-            return length
+        total_length = len(self.compose(with_link=False))
 
-        total_length = 0
-        if self.mentioned_users:
-            total_length += mentioned_users_space()
-        if self.tweet_msg:
-            total_length += len(self.tweet_msg.text)
-        if self.link:
-            total_length += 1 + settings.TWEET_LINK_MAX_LENGTH
-        if self.tweet_img:
+        if self.has_link():
+            total_length += 1 + settings.TWEET_LINK_LENGTH
+        if self.has_image():
             total_length += settings.TWEET_IMG_LENGTH
-        if self.page_announced:
-            if self.tweet_msg or self.link:
-                total_length += 1
-            total_length += self.page_announced.length()
 
         return total_length
 
@@ -441,32 +406,36 @@ class Tweet(models.Model):
         return self.tweet_img != None or (self.page_announced and self.page_announced.image != None)
     has_image.boolean = True
 
+    def has_link(self):
+        return self.link \
+               or (self.page_announced and self.page_announced.page_link)\
+               or (self.feed_item and self.feed_item.link)
+
     def get_image(self):
         return self.tweet_img or (self.page_announced.image if self.page_announced else None)
 
     def is_available(self):
         return not self.sending and not self.sent_ok
 
-    def add_bots_to_mention(self):
-        """Añade sobre el tweet los bots que se puedan mencionar"""
+    def add_bot_to_mention(self):
+        """Añade sobre el tweet un bot que se pueda mencionar"""
 
         from core.models import TwitterBot
 
         bot_used_group = self.bot_used.get_group()
 
-        mentionable_bots = self.bot_used.get_mentionable_bots()
-        if mentionable_bots:
-            for bot_to_mention in mentionable_bots[:bot_used_group.max_num_mentions_per_tweet]:
-                if self.length() + len(bot_to_mention.username) + 2 <= 140:
-                    self.mentioned_bots.add(bot_to_mention)
-                else:
-                    break
+        mentionable_bots = self.bot_used.get_rest_of_bots_under_same_group()
+        if mentionable_bots.exists():
+            # los ordenamos poniendo primero al que le llegaron menos mctweets desde este bot remitente (self.bot_used)
+            mentionable_bots = mentionable_bots.annotate__mctweets_received_count()\
+                .order_by('mctweets_received_count')
+            self.mentioned_bots.add(mentionable_bots.first())
         else:
             settings.LOGGER.warning('Bot %s has not bots to mention for group %s' %
                                     (self.bot_used.username, bot_used_group.__unicode__()))
             raise TweetCreationException(self)
 
-    def add_mentions(self):
+    def add_twitterusers_to_mention(self):
         if self.tweet_msg:
             language = self.tweet_msg.language
         else:
@@ -505,7 +474,7 @@ class Tweet(models.Model):
     def add_page_announced(self, project):
         active_pagelinks = project.pagelinks.filter(is_active=True)
         if active_pagelinks.exists():
-            page_announced = active_pagelinks.order_by('?')[0]
+            page_announced = active_pagelinks.order_by('?').first()
             if self.length() + page_announced.length() <= 140:
                 self.page_announced = page_announced
                 self.save()
@@ -560,10 +529,10 @@ class Tweet(models.Model):
             # si al intentar enviar el tweet el usuario no estaba realmente confirmado eliminamos su tweet
             self.bot_used.scrapper.logger.warning('Tweet %i will be deleted' % self.pk)
             self.delete()
-        except (ProxyUrlRequestError,
+        except (TweetAlreadySent,
+                ProxyUrlRequestError,
                 ConnectionError,
                 NoAvailableProxiesToAssignBotsForUse,
-                TweetAlreadySent,
                 FailureSendingTweetException):
             pass
         except Exception as e:
@@ -652,13 +621,6 @@ class Tweet(models.Model):
         if not self.is_well_constructed():
             raise TweetConstructionError(self)
 
-    def _has_errors(self):
-        try:
-            self._check_if_errors_on_construction()
-            return True
-        except TweetConstructionError:
-            return False
-
     def has_twitterusers_mentions(self):
         return self.mentioned_users.exists()
 
@@ -672,6 +634,7 @@ class Tweet(models.Model):
         """Comprueba si el tweet puede ser verificado por bot destino"""
 
         if self.has_twitterbots_mentions():
+            self._check_if_errors_on_construction()
             if not self.date_sent:
                 raise SentOkMcTweetWithoutDateSent(self)
             else:
@@ -698,20 +661,17 @@ class Tweet(models.Model):
     def get_or_create_ftweet_to_send(self):
         """Se busca un ftweet ya creado y que no se haya enviado. Si existe se crea"""
 
-        def create_ftweet():
-            return self.bot_used.make_tweet_to_send(ftweet=True)
-
         ftweet_to_send = self.tweets_from_feed.filter(tweet__sent_ok=False)
         if ftweet_to_send.exists():
             if ftweet_to_send.count() > 1:
                 settings.LOGGER.warning('There were found multiple ftweets pending to send from '
                                       'bot %s and will be deleted' % self.username)
                 self.clear_not_sent_ok_ftweets()
-                ftweet_to_send = create_ftweet()
+                ftweet_to_send = self.bot_used.make_ftweet_to_send()
             else:
                 ftweet_to_send = ftweet_to_send.first().tweet
         else:
-            ftweet_to_send = create_ftweet()
+            ftweet_to_send = self.bot_used.make_ftweet_to_send()
 
         # si el ftweet no tiene asociado el registro tff lo crea
         TweetFromFeed.objects.get_or_create(tweet=ftweet_to_send, tu_mention=self)
@@ -725,7 +685,7 @@ class Tweet(models.Model):
     def print_type(self):
         if self.is_mutweet():
             return 'TU_MENTION'
-        elif self.is_mbtweet():
+        elif self.is_mctweet():
             return 'MC_TWEET'
         elif self.is_ftweet():
             return 'F_TWEET'
@@ -733,18 +693,19 @@ class Tweet(models.Model):
             return '???'
 
     def is_mutweet(self):
-        return self.project and self.has_twitterusers_mentions() and not self.feed_item
+        return self.project and self.has_twitterusers_mentions()
 
-    def is_mbtweet(self):
-        return self.project and self.has_twitterbots_mentions() and self.feed_item
+    def is_mctweet(self):
+        return not self.project and self.has_twitterbots_mentions()
 
     def is_ftweet(self):
-        return not self.project and self.feed_item
+        return not self.project and self.feed_item and not self.mentioned_bots.exists()
 
     def is_well_constructed(self):
-        def has_project_content_ok():
-            """Dice si tiene contenido propio para el proyecto según se indicó en las propiedades
+        def content_ok_mutweet():
+            """Dice si el tweet tiene el contenido ok según se indicó en las propiedades
             del grupo para el bot remitente"""
+            sender_group = self.bot_used.get_group()
             wrong_msg = sender_group.has_tweet_msg and not self.tweet_msg
             wrong_link = sender_group.has_link and not self.link
             wrong_img = sender_group.has_tweet_img and not self.tweet_img
@@ -752,20 +713,20 @@ class Tweet(models.Model):
 
             return not wrong_msg and not wrong_link and not wrong_img and not wrong_page_announced
 
-        def has_not_project_content():
+        def content_ok_mctweet():
+            return content_ok_ftweet()
+
+        def content_ok_ftweet():
             return not self.tweet_msg and not self.link and not self.tweet_img and not self.page_announced
 
-        def mutweet_ok():
-            return self.is_mutweet() and has_project_content_ok()
-
-        def mbtweet_ok():
-            return self.is_mbtweet() and has_project_content_ok()
-
-        def ftweet_ok():
-            return self.is_ftweet() and has_not_project_content()
-
-        sender_group = self.bot_used.get_group()
-        return mutweet_ok() or mbtweet_ok() or ftweet_ok() or False
+        if self.is_mutweet():
+            return content_ok_mutweet()
+        elif self.is_mctweet():
+            return content_ok_mctweet()
+        elif self.is_ftweet():
+            return content_ok_ftweet()
+        else:
+            return False
 
 
 class TweetCheckingMention(models.Model):
@@ -1226,11 +1187,11 @@ class PageLink(models.Model):
     def __unicode__(self):
         return self.compose()
 
-    def compose(self):
+    def compose(self, with_link=True):
         elements = []
         if self.page_title:
             elements.append(self.page_title)
-        if self.page_link:
+        if with_link and self.page_link:
             elements.append(self.page_link)
         if self.hashtags.exists():
             elements.extend([hashtag.__unicode__() for hashtag in self.hashtags.all()])
@@ -1238,7 +1199,7 @@ class PageLink(models.Model):
         return ' '.join(elements)
 
     def length(self, p=None):
-        page_link_length = settings.TWEET_LINK_MAX_LENGTH
+        page_link_length = settings.TWEET_LINK_LENGTH
         if self.page_title:
             page_link_length += 1 + len(self.page_title)
         try:

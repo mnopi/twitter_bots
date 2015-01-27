@@ -132,7 +132,7 @@ class TweetMsgInlineFormset(forms.models.BaseInlineFormSet):
                         error_msg += " tweet_msg: " + longest_msg.text + ','
                     if group.has_link:
                         if project.links.all():
-                            tweet_length += settings.TWEET_LINK_MAX_LENGTH + 1
+                            tweet_length += settings.TWEET_LINK_LENGTH + 1
                             error_msg += " link: igoo.co/x " + ','
                     if group.has_mentions:
                         mentions_length = 17 * group.max_num_mentions_per_tweet
@@ -176,7 +176,7 @@ class ProjectAdminForm(forms.ModelForm):
                         error_msg += " tweet_msg: " + longest_msg.text + ','
                 if group.has_link:
                     if project.links.all():
-                        tweet_length += settings.TWEET_LINK_MAX_LENGTH + 1
+                        tweet_length += settings.TWEET_LINK_LENGTH + 1
                         error_msg += " link: igoo.co/x " + ','
                 # if group.has_page_announced:
                 #     if project.pagelink_set.all():
@@ -337,6 +337,8 @@ class TweetAdmin(admin.ModelAdmin):
         'date_created',
         'date_sent',
         'project',
+        'link',
+        'page_announced',
     )
     # ordering = ('-date',)
     # list_display_links = ('username',)

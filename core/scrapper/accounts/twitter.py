@@ -298,14 +298,12 @@ class TwitterScrapper(Scrapper):
 
                 # miramos si sale mensajito de 'you already sent this tweet'
                 if self.check_visibility('#message-drawer .message-text'):
-                    raise TweetAlreadySent(self, tweet,
-                        'Tweet %s was already sent by bot %s' % (print_tweet_id(), self.user.username))
+                    raise TweetAlreadySent(self, tweet, 'Tweet %s was already sent by bot %s' %
+                                           (print_tweet_id(), self.user.username))
                 else:
                     raise FailureSendingTweetException(self,
                         'Error on bot %s sending tweet %s' % (self.user.username, print_tweet_id()))
             else:
-                settings.LOGGER.info('Bot %s sent ok tweet %s [%s]' % (self.user.username, print_tweet_id(), print_tweet_type()))
-                self.take_screenshot('tweet_sent_ok', force_take=True)
 
                 try:
                     mutex.acquire()
@@ -315,6 +313,9 @@ class TwitterScrapper(Scrapper):
                 finally:
                     mutex.release()
 
+                settings.LOGGER.info('Bot %s sent ok tweet %s [%s]' % (self.user.username, print_tweet_id(), print_tweet_type()))
+                self.take_screenshot('tweet_sent_ok', force_take=True)
+
         self.click('#global-new-tweet-button')
 
         if is_plain_tweet():
@@ -322,7 +323,6 @@ class TwitterScrapper(Scrapper):
         else:
             self.send_keys(tweet.compose())
 
-            # Si el tweet contiene imagen la añade
             if tweet.has_image():
                 el = self.browser.find_element_by_xpath("//*[@id=\"global-tweet-dialog-dialog\"]"
                                                         "/div[2]/div[4]/form/div[2]/div[1]/div[1]/div/label/input")

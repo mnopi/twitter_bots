@@ -92,6 +92,17 @@ class TweetQuerySet(QuerySet):
             with_not_connectable_proxy | with_not_ok_bot
         )
 
+    def mctweets(self):
+        """Filtra por los que son mctweets"""
+        return self.filter(project__isnull=True, mentioned_bots__isnull=False)
+
+    def mctweets_not_verified(self):
+        """Filtra por los mctweets que aún no fueron verificados por bot destino"""
+        return self.mctweets().filter(
+            Q(tweet_checking_mention__isnull=True) |
+            Q(tweet_checking_mention__destination_bot_checked_mention=False)
+        )
+
 class MyQuerySet(QuerySet):
     def union(self, qs, limit=None, order_by=None):
         """Retorna la union entre qs self y la qs dada"""

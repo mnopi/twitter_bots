@@ -80,7 +80,7 @@ TOTAL_TASKS_SENDING_TWEETS = MAX_THREADS_SENDING_TWEETS  # número total de tare
 TIME_SLEEPING_AFTER_NO_BOTS_FOUND = 60  # tiempo que se duerme la hebra si no encuentra ningún bot disponible para lanzar tweet
 TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER = 15
 
-TWEET_LINK_MAX_LENGTH = 22
+TWEET_LINK_LENGTH = 22
 TWEET_IMG_LENGTH = 23
 
 #

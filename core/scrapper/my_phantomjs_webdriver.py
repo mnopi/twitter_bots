@@ -24,7 +24,7 @@ import time
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common import utils
 
-MAX_CONNECTION_RETRIES = 50
+MAX_CONNECTION_RETRIES = 10
 CONNECTION_POLL_TIME = 5
 
 

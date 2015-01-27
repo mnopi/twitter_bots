@@ -93,7 +93,8 @@ class TweetManager(models.Manager):
                             mctweet.tweet_checking_mention.destination_bot_is_checking_mention = True
                             mctweet.tweet_checking_mention.save()
                             raise McTweetMustBeVerified(mctweet)
-                        except (DestinationBotIsBeingUsed,
+                        except (TweetConstructionError,
+                                DestinationBotIsBeingUsed,
                                 VerificationTimeWindowNotPassed,
                                 SentOkMcTweetWithoutDateSent):
                             continue
@@ -138,8 +139,7 @@ class TweetManager(models.Manager):
 
         if Project.objects.running().exists():
             # dentro de los proyectos en ejecución tomamos sus bots
-            bots_in_running_projects = TwitterBot.objects\
-                .usable()\
+            bots_in_running_projects = TwitterBot.objects.usable_regardless_of_proxy()\
                 .using_in_running_projects()\
                 .with_proxy_connecting_ok()
 
@@ -149,7 +149,7 @@ class TweetManager(models.Manager):
             bots_with_free_queue = bots_in_running_projects.without_tweet_to_send_queue_full()
             if bots_with_free_queue.exists():
                 for bot in bots_with_free_queue:
-                    bot.make_tweet_to_send()
+                    bot.make_mutweet_to_send()
             else:
                 if bots_in_running_projects:
                     settings.LOGGER.info('Mention to send queue full for all twitteable bots at this moment. Waiting %d seconds..'
@@ -195,6 +195,28 @@ class TweetManager(models.Manager):
         self.put_sending_to_not_sending()
         TweetCheckingMention.objects.put_checking_to_not_checking()
 
+    def clear_queue_to_send(self):
+        not_sent_ok = self.filter(sent_ok=False)
+        count = not_sent_ok.count()
+        if count > 0:
+            not_sent_ok.delete()
+            settings.LOGGER.info('Tweet queue cleared (%d tweets not sent removed)' % count)
+        else:
+            settings.LOGGER.info('Tweet queue empty' % count)
+
+    def clear_mctweets_not_verified(self):
+        """Elimina aquellos mctweets pendientes de verificar. Esto es útil cuando cambiamos el mensaje
+        de un tweet, de manera que se vuelva a enviar mctweet y no compararlo en el bot receptor con el
+        mensaje antiguo"""
+        mctweets_not_verified = self.mctweets_not_verified()
+        count = mctweets_not_verified.count()
+        if count > 0:
+            mctweets_not_verified.delete()
+            settings.LOGGER.info('Deleted %d mctweets not verified' % count)
+        else:
+            settings.LOGGER.info('There are no mctweets not verified to delete')
+
+
     #
     # proxy queryset methods
     #
@@ -219,6 +241,12 @@ class TweetManager(models.Manager):
 
     def with_not_ok_bots(self):
         return self.get_queryset().with_not_ok_bots()
+
+    def mctweets(self):
+        return self.get_queryset().mctweets()
+
+    def mctweets_not_verified(self):
+        return self.get_queryset().mctweets_not_verified()
 
 
 class ProjectManager(models.Manager):
