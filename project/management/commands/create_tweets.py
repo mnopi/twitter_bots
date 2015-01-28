@@ -30,6 +30,7 @@ class Command(BaseCommand):
                 else:
                     raise FatalError(e)
             finally:
+                settings.LOGGER.info('Sleeping 10 secs..')
                 time.sleep(10)
 
         settings.LOGGER.info('-- FINISHED %s --' % MODULE_NAME)

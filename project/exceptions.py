@@ -28,13 +28,13 @@ class NoRunningProjects(Exception):
 
 
 class ProjectFullOfUnmentionedTwitterusers(Exception):
-    def __init__(self, project, valid_langs, unmentioned_count, unmentioned_limit):
+    def __init__(self, project, valid_langs, unmentioned_count):
         # si hay algún mensaje en inglés entonces cualquier lang es válido
         langs_msg = ' with valid langs: %s' % ', '.join(project.get_langs_using()) \
             if valid_langs and not 'en' in valid_langs else ''
 
         settings.LOGGER.info('Project %s is full of unmentioned twitterusers%s (has: %d, max: %d)' %
-                             (project.name, langs_msg, unmentioned_count, unmentioned_limit))
+                             (project.name, langs_msg, unmentioned_count, project.get_max_unmentioned_twitterusers()))
 
 class ExtractorReachedMaxConsecutivePagesRetrievedPerTUser(Exception):
     def __init__(self, extractor):
@@ -59,8 +59,7 @@ class NoAvailableBots(Exception):
     hebra o por tener que esperar algún periodo ventana"""
 
     def __init__(self):
-        settings.LOGGER.warning('No available bots found. All are already in use, waiting time windows or '
-                                'waiting new feeds items. Also check if create_tweets is running')
+        settings.LOGGER.warning('No available bots found. All already in use or waiting time windows.')
 
 
 class NoAvailableBot(Exception):
@@ -114,9 +113,20 @@ class FatalError(Exception):
 
 
 class TweetCreationException(Exception):
-    def __init__(self, tweet):
-        settings.LOGGER.warning('Error creating tweet %i and will be deleted' % tweet.pk)
-        tweet.delete()
+    pass
+
+
+class ProjectWithoutUnmentionedTwitterusers(TweetCreationException):
+    def __init__(self, project):
+        settings.LOGGER.warning('Project %s has no more unmentioned users and will be stopped' %  project.name)
+        project.is_running = False
+        project.save()
+
+
+class BotWithoutBotsToMention(TweetCreationException):
+    def __init__(self, bot):
+        settings.LOGGER.warning('Bot %s has not bots to mention (group: %s)' %
+                                (bot.username, bot.get_group().__unicode__()))
 
 
 class BotHasToCheckIfMentioningWorks(Exception):

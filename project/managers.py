@@ -3,9 +3,12 @@
 import time
 import random
 from django.db.models import Q, Count
+from django.db.models.query import QuerySet
 from tweepy import TweepError
 from core.decorators import mlocked
 from core.managers import MyManager
+from core.scrapper.exceptions import TwitterAccountSuspended, ProxyConnectionError, \
+    TargetUserWasSuspended, InternetConnectionError
 from core.scrapper.utils import has_elapsed_secs_since_time_ago
 from core.scrapper.utils import generate_random_secs_from_minute_interval
 from project.exceptions import RateLimitedException, AllFollowersExtracted, NoAvailableBots, \
@@ -137,7 +140,11 @@ class TweetManager(models.Manager):
         from project.models import Project
         from core.models import TwitterBot
 
-        if Project.objects.running().exists():
+        running_projects = Project.objects.running()
+        if running_projects.exists():
+            settings.LOGGER.info('Creating tweets for running project(s): %s' %
+                                 Project.objects.get_names_list(running_projects))
+
             # dentro de los proyectos en ejecución tomamos sus bots
             bots_in_running_projects = TwitterBot.objects.usable_regardless_of_proxy()\
                 .using_in_running_projects()\
@@ -262,6 +269,15 @@ class ProjectManager(models.Manager):
             else:
                 raise ProjectRunningWithoutBots(project)
 
+    def get_names_list(self, projects):
+        """Imprime los nombres de los proyectos dados separando por ,"""
+        try:
+            list = [project.name for project in projects]
+        except TypeError:
+            list =  projects.values_list('name', flat=True)
+
+        return ', '.join(list)
+
     # QUERYSET
 
     def get_queryset(self):
@@ -269,6 +285,7 @@ class ProjectManager(models.Manager):
 
     def running(self):
         return self.get_query_set().running()
+
 
     def with_bot(self, bot):
         return self.get_queryset().with_bot(bot)
@@ -312,13 +329,14 @@ class ExtractorManager(MyManager):
                 else:
                     project_targetusers = TargetUser.objects.for_project(project)
                     if project_targetusers.exists():
-                        # sacamos el targetuser con última extracción
+                        # sacamos el targetuser con última extracción, poniendo delante los que no se extrajeron nunca
                         targetusers_available_to_extract = project_targetusers\
                             .available_to_extract()\
                             .extra(select={'date_le_null': 'date_last_extraction IS NULL',})\
                             .order_by('date_last_extraction', 'date_le_null')
                         if targetusers_available_to_extract.exists():
-                            settings.LOGGER.info('Extracting followers from project "%s"' % project.name)
+                            # tu = targetusers_available_to_extract.filter(next_cursor__isnull=True).order_by('?').first()
+                            # self.extract_followers_from_tu(tu)
                             self.extract_followers_from_tu(targetusers_available_to_extract.first())
                         else:
                             settings.LOGGER.warning('Project "%s" has all targetusers extracted' % project.name)
@@ -331,10 +349,12 @@ class ExtractorManager(MyManager):
         time.sleep(20)
 
     def extract_followers_from_tu(self, target_user):
-        from project.models import Extractor
+        from project.models import Extractor, Project
 
         available_follower_extractors = self.available(Extractor.FOLLOWER_MODE)
         if available_follower_extractors.exists():
+            settings.LOGGER.info('Extracting followers from targetuser: %s (project(s): %s)' %
+                                 (target_user.username, Project.objects.get_names_list(target_user.get_projects())))
             for extractor in available_follower_extractors:
                 try:
                     self.log_extractor_being_used(extractor, mode=Extractor.FOLLOWER_MODE)
@@ -342,14 +362,18 @@ class ExtractorManager(MyManager):
                     extractor.extract_followers_from_tuser(target_user)
                 except TweepError as e:
                     if 'Cannot connect to proxy' in e.reason:
-                        settings.LOGGER.exception('')
+                        settings.LOGGER.exception('Extractor %s can\'t connect to proxy %s' %
+                                                  (extractor.twitter_bot.username,
+                                                   extractor.twitter_bot.proxy_for_usage.__unicode__()))
                         continue
                     else:
                         raise e
                 except (AllFollowersExtracted,
-                        ExtractorReachedMaxConsecutivePagesRetrievedPerTUser):
+                        ExtractorReachedMaxConsecutivePagesRetrievedPerTUser,
+                        TargetUserWasSuspended):
                     break
-                except RateLimitedException:
+                except (RateLimitedException,
+                        InternetConnectionError):
                     continue
         else:
             settings.LOGGER.error('No available follower extractors. Sleeping..')

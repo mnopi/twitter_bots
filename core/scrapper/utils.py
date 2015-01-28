@@ -11,6 +11,7 @@ import datetime
 import requests
 from requests.packages.urllib3 import Timeout
 import shutil
+from selenium.common.exceptions import TimeoutException
 import simplejson
 
 
@@ -263,3 +264,17 @@ def create_gitignored_folders():
     utils.mkdir_if_not_exists(settings.PHANTOMJS_COOKIES_DIR)
     utils.mkdir_if_not_exists(settings.LOGS_DIR)
     utils.mkdir_if_not_exists(settings.SUPERVISOR_LOGS_DIR)
+
+
+def check_internet_connection_works():
+    from selenium import webdriver
+    from twitter_bots import settings
+    from core.scrapper.exceptions import InternetConnectionError
+
+    browser = webdriver.PhantomJS(settings.PHANTOMJS_BIN_PATH)
+    try:
+        browser.get('http://google.com')
+        if not 'google' in browser.title.lower():
+            raise InternetConnectionError
+    except TimeoutException:
+        raise InternetConnectionError

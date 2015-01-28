@@ -292,12 +292,12 @@ class TwitterBot(models.Model):
                 else:
                     settings.LOGGER.info('Bot "%s" completed sucessfully in %s seconds' % (self.username, diff_secs))
 
-            except (HotmailAccountNotCreated,
+            except (TwitterAccountSuspended,
+                    HotmailAccountNotCreated,
                     NoAvailableProxiesToAssignBotsForUse,
                     ProfileStillNotCompleted,
                     NoMoreAvailableProxiesForRegistration,
                     TwitterAccountDead,
-                    TwitterAccountSuspended,
                     TwitterEmailNotConfirmed):
                 pass
             except Exception as ex:
@@ -484,6 +484,7 @@ class TwitterBot(models.Model):
                         bot_used=self
                     )
                     tweet_to_send.save()
+
                     bot_group = self.get_group()
                     if bot_group.has_tweet_msg:
                         tweet_to_send.add_tweet_msg(project)
@@ -499,6 +500,8 @@ class TwitterBot(models.Model):
                     # tras encontrar ese proyecto con el que hemos podido construir el tweet salimos del for
                     break
                 except TweetCreationException:
+                    settings.LOGGER.warning('Error creating tweet %i and will be deleted' % tweet_to_send.pk)
+                    tweet_to_send.delete()
                     continue
         else:
             settings.LOGGER.warning('Bot %s has no running projects assigned at this moment' % self.__unicode__())

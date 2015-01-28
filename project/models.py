@@ -8,18 +8,19 @@ import simplejson
 import time
 import tweepy
 from core.scrapper.exceptions import ConnectionError, TweetAlreadySent, FailureSendingTweetException, \
-    ProxyUrlRequestError, TwitterEmailNotConfirmed
+    ProxyUrlRequestError, TwitterEmailNotConfirmed, TwitterAccountSuspended, TargetUserWasSuspended
 from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted, TweetCreationException, \
     TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
     McTweetMustBeVerified, BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, \
     DestinationBotIsBeingUsed, McTweetMustBeSent, NoAvailableProxiesToAssignBotsForUse, MuTweetHasNotSentFTweetsEnough, \
     MethodOnlyAppliesToTuMentions, MethodOnlyAppliesToTbMentions, SentOkMcTweetWithoutDateSent, \
-    ExtractorReachedMaxConsecutivePagesRetrievedPerTUser, ProjectFullOfUnmentionedTwitterusers
+    ExtractorReachedMaxConsecutivePagesRetrievedPerTUser, ProjectFullOfUnmentionedTwitterusers, BotWithoutBotsToMention, \
+    ProjectWithoutUnmentionedTwitterusers
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
     TwitterUserManager, McTweetManager, FeedItemManager
 from core.scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago, naive_to_utc, \
     generate_random_secs_from_minute_interval, has_elapsed_secs_since_time_ago, str_interval_to_random_num, \
-    format_source
+    format_source, check_internet_connection_works
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
 
@@ -40,7 +41,13 @@ class Project(models.Model):
     def __unicode__(self):
         return self.name
 
-    # GETTERS
+    def get_max_tweets_to_send_queue_length(self):
+        """Saca el máximo tamaño que puede tener la cola de tweets pendientes de enviar para el proyecto"""
+        return self.get_twitteable_bots().count() * settings.MAX_QUEUED_TWEETS_TO_SEND_PER_BOT
+
+    def get_max_unmentioned_twitterusers(self):
+        """Saca el máximo de twitterusers sin mencionar que puede tener el proyecto"""
+        return self.get_max_tweets_to_send_queue_length() * settings.EXTRACTION_FACTOR
 
     def check_if_full_of_unmentioned_twitterusers(self):
         # contamos aquellos twitterusers cuyo idioma coincida con el del lenguaje de los mensajes y pagelinks
@@ -51,12 +58,8 @@ class Project(models.Model):
         else:
             unmentioned_count = self.get_unmentioned_users().filter(language__in=valid_langs).count()
 
-        # límite de twitterusers no mencionados por proyecto
-        bots_count = self.get_twitteable_bots().count()
-        unmentioned_limit = bots_count * settings.MAX_QUEUED_TWEETS_TO_SEND_PER_BOT
-
-        if unmentioned_count >= unmentioned_limit:
-            raise ProjectFullOfUnmentionedTwitterusers(self, valid_langs, unmentioned_count, unmentioned_limit)
+        if unmentioned_count >= self.get_max_unmentioned_twitterusers():
+            raise ProjectFullOfUnmentionedTwitterusers(self, valid_langs, unmentioned_count)
 
     def get_langs_using(self):
         tweet_msgs_langs = self.tweet_msgs.values_list('language', flat=True).distinct()
@@ -195,6 +198,7 @@ class TargetUser(models.Model):
     num_consecutive_pages_without_enough_new_followers = models.PositiveIntegerField(null=True, default=0)
 
     is_active = models.BooleanField(default=True)
+    is_suspended = models.BooleanField(default=False)
 
     # REL
     twitter_users = models.ManyToManyField('TwitterUser', through='Follower',
@@ -232,6 +236,12 @@ class TargetUser(models.Model):
         else:
             self.num_consecutive_pages_without_enough_new_followers = 0
         self.save()
+
+    def get_projects(self):
+        return Project.objects.filter(
+            Q(tu_groups__target_users=self) |
+            Q(target_users=self)
+        ).distinct()
 
 
 class Follower(models.Model):
@@ -337,53 +347,40 @@ class Tweet(models.Model):
     objects = TweetManager()
 
     def __unicode__(self):
-        return self.compose()
+        return self.compose() or '<< empty tweet >>'
 
     def compose(self, with_link=True):
         """with_link a False se usará para componer sin links a la hora de verificar mctweets
         en notificaciones del destinatario, donde se compararán sin link, ya que twitter pone otro"""
 
-        def compose_with_mentions(mentions):
-            compose_txt = ''
-            m_txt = ''
-            # solo se podrá consultar los usuarios mencionados si antes se guardó la instancia del tweet en BD
-            for m in mentions:
-                m_txt += '@%s ' % m.username
-            compose_txt += m_txt
+        compose_txt = ''
 
-            if self.tweet_msg:
-                compose_txt += self.tweet_msg.text
+        mentions = self.mentioned_users.all() or self.mentioned_bots.all()
+        m_txt = ''
+        # solo se podrá consultar los usuarios mencionados si antes se guardó la instancia del tweet en BD
+        for m in mentions:
+            m_txt += '@%s ' % m.username
+        compose_txt += m_txt
 
-            if with_link and self.link:
-                compose_txt += ' ' + self.link.url if self.link else ''
+        if self.tweet_msg:
+            compose_txt += self.tweet_msg.text
 
-            if self.page_announced:
-                # si ya tiene agregado mensaje o link le metemos espacio para luego el pagelink
-                if self.tweet_msg or self.link:
-                    compose_txt += ' '
-                compose_txt += self.page_announced.compose(with_link=with_link)
+        if with_link and self.link:
+            compose_txt += ' ' + self.link.url if self.link else ''
 
-            if self.feed_item:
-                if with_link:
-                    compose_txt += self.feed_item.__unicode__()
-                else:
-                    compose_txt += self.feed_item.text
+        if self.page_announced:
+            # si ya tiene agregado mensaje o link le metemos espacio para luego el pagelink
+            if self.tweet_msg or self.link:
+                compose_txt += ' '
+            compose_txt += self.page_announced.compose(with_link=with_link)
 
-            return compose_txt
-
-        if self.is_mutweet():
-            mentions = self.mentioned_users.all()
-            return compose_with_mentions(mentions)
-        elif self.is_mctweet():
-            mentions = self.mentioned_bots.all()
-            return compose_with_mentions(mentions)
-        elif self.is_ftweet():
+        if self.feed_item:
             if with_link:
-                return self.feed_item.__unicode__()
+                compose_txt += self.feed_item.__unicode__()
             else:
-                return self.feed_item.text
-        else:
-            return '<<wrong tweet construction !!>>'
+                compose_txt += self.feed_item.text
+
+        return compose_txt
 
     def length(self):
         total_length = len(self.compose(with_link=False))
@@ -431,9 +428,7 @@ class Tweet(models.Model):
                 .order_by('mctweets_received_count')
             self.mentioned_bots.add(mentionable_bots.first())
         else:
-            settings.LOGGER.warning('Bot %s has not bots to mention for group %s' %
-                                    (self.bot_used.username, bot_used_group.__unicode__()))
-            raise TweetCreationException(self)
+            raise BotWithoutBotsToMention(self.bot_used)
 
     def add_twitterusers_to_mention(self):
         if self.tweet_msg:
@@ -458,9 +453,7 @@ class Tweet(models.Model):
                                  (self.project.__unicode__(), self.bot_used.__unicode__(), self.compose()))
             # break
         else:
-            settings.LOGGER.warning('Bot %s has not more users to mention for project %s' %
-                                    (self.bot_used.username, self.project.name))
-            raise TweetCreationException(self)
+            raise ProjectWithoutUnmentionedTwitterusers(self.project)
 
     def add_tweet_msg(self, project):
         tweet_message = project.tweet_msgs.order_by('?').first()
@@ -622,7 +615,7 @@ class Tweet(models.Model):
             raise TweetConstructionError(self)
 
     def has_twitterusers_mentions(self):
-        return self.mentioned_users.exists()
+        return self.mentioned_users.all().exists()
 
     def has_twitterbots_mentions(self):
         return self.mentioned_bots.exists()
@@ -786,6 +779,9 @@ class Extractor(models.Model):
     is_rate_limited = models.BooleanField(default=False)
     minutes_window = models.PositiveIntegerField(null=True)
 
+    is_suspended = models.BooleanField(default=False)
+    date_suspended = models.DateTimeField(null=True, blank=True)
+
     FOLLOWER_MODE = 1
     HASHTAG_MODE = 2
     MODES = (
@@ -916,18 +912,18 @@ class Extractor(models.Model):
 
         from project.management.commands.run_extractors import mutex
 
-        self.update_target_user_data(target_user)
-
-        params = {
-            'screen_name': target_user.username,
-            'count': 200,
-        }
-        if target_user.next_cursor:
-            params.update({'cursor': target_user.next_cursor})
-
-        cursor = tweepy.Cursor(self.api.followers, **params)
-
         try:
+            self.update_target_user_data(target_user)
+
+            params = {
+                'screen_name': target_user.username,
+                'count': 200,
+            }
+            if target_user.next_cursor:
+                params.update({'cursor': target_user.next_cursor})
+
+            cursor = tweepy.Cursor(self.api.followers, **params)
+
             num_pages_retrieved = 0
 
             for page in cursor.pages():
@@ -962,13 +958,29 @@ class Extractor(models.Model):
                 if num_pages_retrieved == settings.MAX_CONSECUTIVE_PAGES_RETRIEVED_PER_TARGET_USER:
                     raise ExtractorReachedMaxConsecutivePagesRetrievedPerTUser(self)
 
-        except tweepy.error.TweepError as ex:
-            if hasattr(ex.response, 'status_code') and ex.response.status_code == 429:
-                raise RateLimitedException(self)
+        except tweepy.error.TweepError as e:
+            if not e.response and 'Cannot connect to proxy' in e.reason:
+                check_internet_connection_works()
+            elif hasattr(e.response, 'status_code'):
+
+                # rate limited
+                if e.response.status_code == 429:
+                    raise RateLimitedException(self)
+
+                # targetuser suspended
+                elif e.response.status_code == 403:
+                    r = simplejson.loads(e.response.text)
+                    targ_user_suspended = 'errors' in r and 'code' in r['errors'][0] and r['errors'][0]['code'] == 63
+                    if targ_user_suspended:
+                        raise TargetUserWasSuspended(target_user)
+
+                # over capacity
+                elif e.response.status_code == 503:
+                    pass
             else:
                 settings.LOGGER.exception('tweepy error')
                 time.sleep(7)
-                raise ex
+                raise e
 
     def extract_hashtag_users(self, hashtag):
         from project.management.commands.run_extractors import mutex
@@ -1076,7 +1088,9 @@ class Extractor(models.Model):
     def is_available(self):
         """Si fue marcadado como rate limited se mira si pasaron más de 15 minutos.
         En ese caso se desmarca y se devielve True"""
-        if self.is_rate_limited:
+        if self.is_suspended:
+            return False
+        elif self.is_rate_limited:
             time_window_passed = has_elapsed_secs_since_time_ago(self.last_request_date, self.minutes_window * 60)
             if time_window_passed:
                 self.is_rate_limited = False
@@ -1087,6 +1101,12 @@ class Extractor(models.Model):
         else:
             return True
 
+    def mark_as_suspended(self):
+        """Se marca como suspendido el extractor, no el bot en sí"""
+        self.is_suspended = True
+        self.date_suspended = utc_now()
+        self.save()
+        settings.LOGGER.warning('Extractor %s has marked as suspended' % self.__unicode__())
 
 class Hashtag(models.Model):
     q = models.CharField(max_length=140, null=False)
@@ -1119,10 +1139,11 @@ class TUGroup(models.Model):
     projects = models.ManyToManyField(Project, related_name='tu_groups', null=False, blank=False)
 
     def __unicode__(self):
-        tu_group_string = ' -'
-        for tu in self.target_users.all():
-            tu_group_string += ' @' + tu.username
-        return self.name + tu_group_string
+        return self.name
+        # tu_group_string = ' -'
+        # for tu in self.target_users.all():
+        #     tu_group_string += ' @' + tu.username
+        # return self.name + tu_group_string
 
 
 class HashtagGroup(models.Model):

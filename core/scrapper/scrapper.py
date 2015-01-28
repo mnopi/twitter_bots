@@ -394,9 +394,9 @@ class Scrapper(object):
                 raise ProxyUrlRequestError(self, url)
             elif internet_connection_works():
                 # si el proxy no funciona y sí la conexión a internet
-                raise ProxyConnectionError(self)
+                raise ProxyConnectionError(self.user)
             else:
-                raise InternetConnectionError(self)
+                raise InternetConnectionError()
         except Exception, e:
             settings.LOGGER.exception('error')
             raise e

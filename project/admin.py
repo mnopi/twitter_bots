@@ -11,6 +11,7 @@ class TargetUserAdmin(admin.ModelAdmin):
     list_display = (
         'username',
         'is_active',
+        'is_suspended',
         'next_cursor',
         'followers_count',
         'followers_saved_today',
@@ -37,11 +38,18 @@ class TargetUserAdmin(admin.ModelAdmin):
     def followers_mentioned_total(self, obj):
         return obj.get_followers_mentioned().count()
 
-    search_fields = ('username', 'next_cursor')
-    list_display_links = ('username',)
+    search_fields = (
+        'username',
+        'next_cursor'
+    )
+
+    list_display_links = (
+        'username',
+    )
 
     list_filter = (
         'is_active',
+        'tu_groups',
     )
 
     actions = [
@@ -425,6 +433,8 @@ class ExtractorAdmin(admin.ModelAdmin):
         'date_created',
         'last_request_date',
         'is_rate_limited',
+        'is_suspended',
+        'date_suspended',
     )
 
     search_fields = (
@@ -434,6 +444,8 @@ class ExtractorAdmin(admin.ModelAdmin):
         'date_created',
         'last_request_date',
         'is_rate_limited',
+        'is_suspended',
+        'date_suspended',
         'mode',
     )
 

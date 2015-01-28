@@ -24,9 +24,17 @@ class HotmailAccountNotCreated(Exception):
 
 
 class TwitterAccountSuspended(Exception):
-    def __init__(self, scrapper):
-        scrapper.user.mark_as_suspended()
-        scrapper.logger.warning('Twitter account suspended')
+    def __init__(self, bot):
+        bot.mark_as_suspended()
+        settings.LOGGER.error('Twitter account suspended for bot %s behind proxy %s'
+                              % (bot.username, bot.proxy_for_usage.__unicode__()))
+
+
+class TargetUserWasSuspended(Exception):
+    def __init__(self, target_user):
+        target_user.is_suspended = True
+        target_user.save()
+        settings.LOGGER.info('Target user %s was suspended' % target_user.username)
 
 
 class TwitterAccountSuspendedAfterTryingUnsuspend(Exception):
@@ -111,16 +119,14 @@ class ConnectionError(Exception):
 
 class ProxyConnectionError(ConnectionError):
     """Cuando no se puede conectar al proxy"""
-    def __init__(self, scrapper):
-        scrapper.logger.error('Can\'t connect to proxy: %s' % scrapper.user.proxy_for_usage.__unicode__())
-        # scrapper.user.proxy_for_usage.mark_as_unavailable_for_use()
-        time.sleep(10)
+    def __init__(self, bot):
+        settings.LOGGER.error('Bot %s can\'t connect to proxy: %s' % (bot.username, bot.proxy_for_usage.__unicode__()))
 
 
 class InternetConnectionError(ConnectionError):
     """Cuando, aun sin usar proxy, no se puede conectar a Internet"""
-    def __init__(self, scrapper):
-        scrapper.logger.error('Error connecting to Internet')
+    def __init__(self):
+        settings.LOGGER.error('Error connecting to Internet')
         time.sleep(100)
 
 

@@ -6,10 +6,6 @@ PROJECT_ROOT = os.path.abspath(os.path.dirname(os.path.dirname(os.path.dirname(_
 
 MNOPI_PROXY = "54.197.231.98:8000"
 
-TOR_CTRL_PORT = 9051
-TOR_PORT = 9050
-TOR_PROXY = "127.0.0.1:%s" % str(TOR_PORT)
-
 CHROMEDRIVER_PATH = '/Users/rmaja/chromedriver'
 
 
@@ -49,6 +45,7 @@ TAKE_SCREENSHOTS = False
 #
 # EXTRACTORS
 MAX_DAYS_TO_STAY_UNMENTIONED = 90  # máximo de días que un twitteruser puede estar en BD sin ser mencionado
+EXTRACTION_FACTOR = 10  # factor de extracción. Multiplica el máximo de followers que podemos extraer de cada proyecto
 ## followers
 EXTRACT_FOLLOWERS = True
 MAX_DAYS_SINCE_REGISTERED_ON_TWITTER_WITHOUT_TWEETS = 50  # máximo de días desde que el usuario se registró y todavía no envió ningún tweet
@@ -66,7 +63,7 @@ MAX_USER_COUNT_FOR_HASHTAGS = 5000
 TIME_WAITING_FREE_QUEUE = 20  # cada x segundos se comprueba si hay espacio en la cola para crear nuevos tweets
 TIME_WAITING_NEW_TWITTEABLE_BOTS = 120
 MAX_MENTIONS_PER_TWEET = 1
-MAX_QUEUED_TWEETS_TO_SEND_PER_BOT = 4
+MAX_QUEUED_TWEETS_TO_SEND_PER_BOT = 3
 
 #
 # TWEET SENDER

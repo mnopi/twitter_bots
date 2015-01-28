@@ -51,7 +51,7 @@ class ProjectQuerySet(QuerySet):
 
 class TargetUserQuerySet(QuerySet):
     def available_to_extract(self):
-        return self.filter(is_active=True).exclude(next_cursor=None)
+        return self.filter(is_active=True, is_suspended=False).exclude(next_cursor=None)
 
     def for_project(self, project):
         return self.filter(
