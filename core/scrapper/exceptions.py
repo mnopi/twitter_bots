@@ -23,6 +23,24 @@ class HotmailAccountNotCreated(Exception):
         scrapper.take_screenshot('failure_registering_hotmail', force_take=True)
 
 
+class EmailExistsOnTwitter(Exception):
+    """Se lanza cuando intentamos registrarnos en twitter y sale que ya hay un usuario registrado con ese email"""
+    def __init__(self, email):
+        from core.models import TwitterBot
+        settings.LOGGER.exception('Email %s exists on twitter' % email)
+        bot = TwitterBot.objects.get(email=email)
+        bot.email_registered_ok = False
+        bot.generate_email()
+        bot.save()
+
+
+class NotInEmailInbox(Exception):
+    """Se lanza cuando esperamos estar en la bandeja de entrada del email del bot pero no es así"""
+    def __init__(self, scrapper):
+        scrapper.logger.error('Not in email inbox')
+        scrapper.take_screenshot('not_in_email_inbox')
+
+
 class TwitterAccountSuspended(Exception):
     def __init__(self, bot):
         bot.mark_as_suspended()

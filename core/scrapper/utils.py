@@ -278,3 +278,13 @@ def check_internet_connection_works():
             raise InternetConnectionError
     except TimeoutException:
         raise InternetConnectionError
+
+
+def get_th_tasks(args):
+    num_threads = int(args[0]) if args else None
+    try:
+        num_tasks = int(args[1])
+    except IndexError:
+        num_tasks = None
+
+    return num_threads, num_tasks

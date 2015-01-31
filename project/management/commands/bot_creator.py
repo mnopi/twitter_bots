@@ -2,6 +2,7 @@ from optparse import make_option
 from threading import Lock
 import threading
 from core.models import TwitterBot, Proxy
+from core.scrapper.utils import get_th_tasks
 from project.exceptions import FatalError
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
@@ -29,8 +30,8 @@ class Command(BaseCommand):
         settings.LOGGER.info('-- INITIALIZED BOT CREATOR --')
 
         try:
-            num_bots = int(args[0]) if args else None
-            TwitterBot.objects.create_bots(num_bots=num_bots)
+            num_threads, num_tasks = get_th_tasks(args)
+            TwitterBot.objects.create_bots(num_threads=num_threads, num_tasks=num_tasks)
         except Exception as e:
             raise FatalError(e)
 

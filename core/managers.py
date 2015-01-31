@@ -69,27 +69,27 @@ class TwitterBotManager(models.Manager):
 
         bot.complete_creation()
 
-    def create_bots(self, num_bots=None):
+    def create_bots(self, num_threads=None, num_tasks=None):
         from core.models import Proxy
         self.clean_unregistered()
         self.put_previous_being_created_to_false()
 
         proxies = Proxy.objects.available_to_assign_bots_for_registration()
         if proxies.exists():
-            if num_bots == 1:
+            if num_threads == 1:
                 self.create_bot()
             else:
                 subnets_24_count = len(Proxy.objects.get_subnets_24(proxies))
 
-                if num_bots and num_bots > subnets_24_count:
-                    settings.LOGGER.warning('The num_bots specified to create is higher than total /24 available subnets')
+                if num_tasks and num_tasks > subnets_24_count:
+                    settings.LOGGER.warning('The num_tasks specified to create is higher than total /24 available subnets')
                     num_bots = subnets_24_count
                 else:
-                    num_bots = num_bots or subnets_24_count
+                    num_bots = num_tasks or subnets_24_count
 
                 settings.LOGGER.info('There is %i available /24 subnets to create bots' % subnets_24_count)
 
-                pool = ThreadPool(settings.MAX_THREADS_CREATING_BOTS)
+                pool = ThreadPool(num_threads or settings.MAX_THREADS_CREATING_BOTS)
                 settings.LOGGER.info('Creating %d twitter bots..' % num_bots)
                 for task_num in range(num_bots):
                     settings.LOGGER.info('Adding task %i' % task_num)
@@ -182,21 +182,21 @@ class TwitterBotManager(models.Manager):
         # for thread in threads:
         #     thread.join()
 
-    def finish_creations(self, num_bots=None):
+    def finish_creations(self, num_threads=None, num_tasks=None, bot=None):
         """Mira qué robots aparecen incompletos y termina de hacer en cada uno lo que quede"""
         from project.models import ProxiesGroup
 
         bots_to_finish_creation = self.pendant_to_finish_creation()  # sólo se eligen bots de grupos activos
         if bots_to_finish_creation.exists():
-            if num_bots > 1:
+            if not bot and num_tasks > 1:
                 # si son varios bots usamos hebras
-                pool = ThreadPool(settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
-                bots_to_finish_creation = bots_to_finish_creation[:num_bots] if num_bots else bots_to_finish_creation
+                pool = ThreadPool(num_threads or settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
+                bots_to_finish_creation = bots_to_finish_creation[:num_tasks] if num_tasks else bots_to_finish_creation
                 for bot in bots_to_finish_creation:
                     pool.add_task(bot.complete_creation)
                 pool.wait_completion()
             else:
-                bot = bots_to_finish_creation.first()
+                bot = bots_to_finish_creation.get(username=bot) if bot else bots_to_finish_creation.first()
                 bot.complete_creation()
 
             settings.LOGGER.info('Sleeping %d seconds to respawn bot_creation_finisher again..' %

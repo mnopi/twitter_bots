@@ -4,7 +4,8 @@ from Queue import Full
 from optparse import make_option
 import time
 from core.models import TwitterBot
-from project.models import Tweet, TweetCheckingMention, TweetFromFeed, Project
+from core.scrapper.utils import get_th_tasks
+from project.models import Tweet, Project
 from project.exceptions import FatalError, ProjectRunningWithoutBots
 from twitter_bots import settings
 from django.core.management.base import BaseCommand
@@ -35,11 +36,7 @@ class Command(BaseCommand):
                 if 'bot' in options and options['bot'] \
                 else None
 
-            num_threads = int(args[0]) if args else None
-            try:
-                num_tasks = int(args[1])
-            except IndexError:
-                num_tasks = None
+            num_threads, num_tasks = get_th_tasks(args)
 
             TwitterBot.objects.send_mentions_from_queue(bot=bot, num_threads=num_threads, num_tasks=num_tasks)
 

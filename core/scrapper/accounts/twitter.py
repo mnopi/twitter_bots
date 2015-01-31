@@ -5,7 +5,8 @@ from core.scrapper.scrapper import Scrapper
 from core.scrapper.captcha_resolvers import DeathByCaptchaResolver
 from core.scrapper.exceptions import BotMustVerifyPhone, TwitterBotDontExistsOnTwitterException, \
     FailureSendingTweetException, TwitterEmailNotConfirmed, TwitterAccountDead, ProfileStillNotCompleted, \
-    PageNotReadyState, TwitterAccountSuspendedAfterTryingUnsuspend, ConnectionError, TweetAlreadySent
+    PageNotReadyState, TwitterAccountSuspendedAfterTryingUnsuspend, ConnectionError, TweetAlreadySent, \
+    EmailExistsOnTwitter
 from core.scrapper.utils import *
 from selenium.common.exceptions import MoveTargetOutOfBoundsException
 from twitter_bots import settings
@@ -20,11 +21,7 @@ class TwitterScrapper(Scrapper):
                 if self.check_visibility('.prompt.email .sidetip .checking.active'):
                     self.delay.seconds(0.5)
                 elif self.check_visibility('.prompt.email .sidetip .error.active'):
-                    fucked_email = self.user.email
-                    # self.user.email_registered_ok = False
-                    # self.user.save()
-                    raise Exception('Email %s exists on twitter' % fucked_email)
-
+                    raise EmailExistsOnTwitter(self.user.email)
                 elif self.check_visibility('.prompt.email .sidetip .ok.active'):
                     break
 
@@ -139,6 +136,9 @@ class TwitterScrapper(Scrapper):
 
             self.clear_local_storage()
             self.check_account_suspended()
+        except TwitterEmailNotConfirmed as e:
+            self.take_screenshot('twitter_email_not_confirmed_after_login', force_take=True)
+            raise e
         except (ConnectionError,
                 PageNotReadyState) as e:
             raise e

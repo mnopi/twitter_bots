@@ -11,7 +11,7 @@ from core.scrapper.accounts.hotmail import HotmailScrapper
 from core.scrapper.accounts.twitter import TwitterScrapper
 from core.scrapper.exceptions import TwitterEmailNotFound, \
     TwitterAccountDead, TwitterAccountSuspended, ProfileStillNotCompleted, FailureReplyingMcTweet, \
-    TwitterEmailNotConfirmed, HotmailAccountNotCreated
+    TwitterEmailNotConfirmed, HotmailAccountNotCreated, EmailExistsOnTwitter
 from core.scrapper.utils import *
 from core.managers import TwitterBotManager, ProxyManager, mutex
 from twitter_bots import settings
@@ -261,6 +261,7 @@ class TwitterBot(models.Model):
                     except TwitterEmailNotFound:
                         self.twitter_scr.set_screenshots_dir('resend_conf_email')
                         try:
+                            # nos logueamos para volver a pedir el email de confirmación
                             self.twitter_scr.login()
                         except TwitterEmailNotConfirmed:
                             pass
@@ -298,7 +299,8 @@ class TwitterBot(models.Model):
                     ProfileStillNotCompleted,
                     NoMoreAvailableProxiesForRegistration,
                     TwitterAccountDead,
-                    TwitterEmailNotConfirmed):
+                    TwitterEmailNotConfirmed,
+                    EmailExistsOnTwitter):
                 pass
             except Exception as ex:
                 settings.LOGGER.exception('Error completing creation for bot %s' % self.username)

@@ -4,7 +4,7 @@ from selenium.webdriver.common.keys import Keys
 from core.scrapper.scrapper import Scrapper
 from core.scrapper.captcha_resolvers import DeathByCaptchaResolver
 from core.scrapper.exceptions import TwitterEmailNotFound, EmailAccountSuspended, EmailAccountNotFound, \
-    HotmailAccountNotCreated
+    HotmailAccountNotCreated, NotInEmailInbox
 from core.scrapper.utils import *
 from twitter_bots import settings
 
@@ -130,7 +130,7 @@ class HotmailScrapper(Scrapper):
         try:
             wait_condition(lambda: 'Microsoft account | Home'.lower() in self.browser.title.lower())
         except Exception:
-            raise HotmailAccountNotCreated
+            raise HotmailAccountNotCreated(self)
 
     def check_account_suspended(self):
         not_suspended = lambda: 'unblock' not in self.browser.title.lower()
@@ -214,6 +214,7 @@ class HotmailScrapper(Scrapper):
         def get_email_title_on_inbox():
             return get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm your'))
 
+        self.logger.info('Confirming twitter email %s..' % self.user.email)
         self.login()
 
         # vemos si realmente estamos en la bandeja de entrada
@@ -232,45 +233,48 @@ class HotmailScrapper(Scrapper):
             skip_confirmation_shit()
             emails = self.get_css_elements(inbox_msgs_css)
 
-        if len(emails) < 2:
-            self.logger.warning('No twitter email arrived, resending twitter email..')
-            raise TwitterEmailNotFound()
-        else:
-            #twitter_email_title = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm'))
-            try:
-                twitter_email_title = get_email_title_on_inbox()
-            except:
-                skip_confirmation_shit()
-                twitter_email_title = get_email_title_on_inbox()
+        if emails:
+            if len(emails) < 2:
+                self.logger.warning('No twitter email arrived, resending twitter email..')
+                raise TwitterEmailNotFound()
+            else:
+                #twitter_email_title = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm'))
+                try:
+                    twitter_email_title = get_email_title_on_inbox()
+                except:
+                    skip_confirmation_shit()
+                    twitter_email_title = get_email_title_on_inbox()
 
-            self.click(twitter_email_title)
+                self.click(twitter_email_title)
 
-            self.delay.seconds(2)
+                self.delay.seconds(2)
 
-            # si sigue estando en la inbox
-            if get_email_title_on_inbox():
-                self.logger.debug('still on inbox, reclicking confirm email title..')
-                self.click(get_email_title_on_inbox())
-                # si no se ha clickeado bien y aparece el menu de notif
-                if self.check_visibility('#notificationContainer div'):
-                    self.click('#notificationContainer')
+                # si sigue estando en la inbox
+                if get_email_title_on_inbox():
+                    self.logger.debug('still on inbox, reclicking confirm email title..')
                     self.click(get_email_title_on_inbox())
+                    # si no se ha clickeado bien y aparece el menu de notif
+                    if self.check_visibility('#notificationContainer div'):
+                        self.click('#notificationContainer')
+                        self.click(get_email_title_on_inbox())
 
-            self.wait_to_page_readystate()
-            skip_confirmation_shit()
+                self.wait_to_page_readystate()
+                skip_confirmation_shit()
 
-            confirm_btn = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm now'))
-            self.click(confirm_btn)
+                confirm_btn = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm now'))
+                self.click(confirm_btn)
 
-            self.delay.seconds(3)
-            self.switch_to_window(-1)
-            self.wait_to_page_readystate()
-            self.delay.seconds(3)
+                self.delay.seconds(3)
+                self.switch_to_window(-1)
+                self.wait_to_page_readystate()
+                self.delay.seconds(3)
 
-            # por si nos pide meter usuario y contraseña
-            if not self.check_visibility('#global-new-tweet-button'):
-                self.send_keys(self.user.username)
-                self.send_special_key(Keys.TAB)
-                self.send_keys(self.user.password_twitter)
-                self.send_special_key(Keys.ENTER)
-                self.delay.seconds(7)
+                # por si nos pide meter usuario y contraseña
+                if not self.check_visibility('#global-new-tweet-button'):
+                    self.send_keys(self.user.username)
+                    self.send_special_key(Keys.TAB)
+                    self.send_keys(self.user.password_twitter)
+                    self.send_special_key(Keys.ENTER)
+                    self.delay.seconds(7)
+        else:
+            raise NotInEmailInbox(self)

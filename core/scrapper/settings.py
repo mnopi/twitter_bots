@@ -121,7 +121,7 @@ BIRTH_INTERVAL = (1975, 1995)  # intervalo para elegir aleatoriamente la fecha d
 EMAIL_ACCOUNT_TYPE = 'hotmail.com'
 REGISTER_EMAIL = True  # para activar o no el registro del email
 TW_CONFIRM_EMAIL = True  # para activar o no el leer el email de confirmación de twitter
-TW_SET_PROFILE = False
+TW_SET_PROFILE = True
 TW_SET_AVATAR = True
 TW_SET_BIO = True
 # si no activamos registro de email evidentemente no haremos la confirmación

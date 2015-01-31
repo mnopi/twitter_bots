@@ -179,16 +179,20 @@ class TweetManager(models.Manager):
 
             return False
 
-        all_in_queue = self.filter(sending=False, sent_ok=False, mentioned_users__isnull=False)
+        all_in_queue = self.filter(
+            sending=False,
+            sent_ok=False,
+            mentioned_users__isnull=False
+        )
 
         if by_bot:
             all_in_queue = all_in_queue.by_bot(by_bot)
 
-        # esta será la cola final con 1 tweet por bot
+        # esta será la cola final con 1 tweet por bot sin estar siendo usado por otra hebra
         final_queue = []
 
         for tweet in all_in_queue:
-            if not bot_already_exists_on_final_queue(tweet):
+            if not tweet.sending and not bot_already_exists_on_final_queue(tweet):
                 final_queue.append(tweet)
             else:
                 continue

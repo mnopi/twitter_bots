@@ -581,11 +581,11 @@ class Tweet(models.Model):
 
         sender_bot = self.bot_used
 
+        # if sender_bot.is_already_being_used():
+        #     raise BotIsAlreadyBeingUsed(sender_bot)
+
         if not self.bot_used.has_enough_time_passed_since_his_last_tweet():
             raise BotHasNotEnoughTimePassedToTweetAgain(sender_bot)
-
-        if sender_bot.is_already_being_used():
-            raise BotIsAlreadyBeingUsed(sender_bot)
 
         if not self.has_enough_ftweets_sent():
             raise MuTweetHasNotSentFTweetsEnough(self)
