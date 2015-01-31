@@ -172,8 +172,16 @@ class TweetManager(models.Manager):
         """Devuelve los tweets encolados pendientes de enviar a los twitter users. Si salen varios tweets por bots
         dejamos sólo 1 por bot, ya que no puede enviar varios a la vez"""
 
+        def el_has_bot_repeated(el):
+            """Nos dice si el dict {pk:x, bot_used:y} ya está añadido en la lista final f_els"""
+            for f_el in els_with_not_repeated_bot:
+                if f_el['bot_used'] == el['bot_used']:
+                    return True
+
+            return False
+
         def bot_already_exists_on_final_queue(tweet):
-            for f_tweet in final_queue:
+            for f_tweet in tweets_not_repeated_bot:
                 if f_tweet.bot_used == tweet.bot_used:
                     return True
 
@@ -182,22 +190,29 @@ class TweetManager(models.Manager):
         all_in_queue = self.filter(
             sending=False,
             sent_ok=False,
-            mentioned_users__isnull=False
+            mentioned_users__isnull=False,
         )
 
         if by_bot:
             all_in_queue = all_in_queue.by_bot(by_bot)
 
-        # esta será la cola final con 1 tweet por bot sin estar siendo usado por otra hebra
-        final_queue = []
+        # dejamos que salga sólo 1 tweet por bot en la cola, es decir, quitamos bots duplicados
+        els = all_in_queue.values('pk', 'bot_used').distinct()
+        els_with_not_repeated_bot = []  # final els [{'pk':x, 'bot_used'=y}, ...] sin repetir bot_used
+        for el in els:
+            if not el_has_bot_repeated(el):
+                els_with_not_repeated_bot.append(el)
 
-        for tweet in all_in_queue:
-            if not tweet.sending and not bot_already_exists_on_final_queue(tweet):
-                final_queue.append(tweet)
-            else:
-                continue
+        pks = [f_el['pk'] for f_el in els_with_not_repeated_bot]
+        tweets_not_repeated_bot = self.filter(pk__in=pks).select_related('bot_used')
 
-        return final_queue
+        # quitamos bots que estén siendo usados
+        final = []
+        for tweet in tweets_not_repeated_bot:
+            if not tweet.bot_used.is_already_being_used():
+                final.append(tweet)
+
+        return final
 
     def clean_not_ok(self):
         from project.models import TweetCheckingMention
