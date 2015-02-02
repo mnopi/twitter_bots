@@ -100,15 +100,11 @@ class FailureReplyingMcTweet(Exception):
 class TweetAlreadySent(Exception):
     def __init__(self, scrapper, tweet, msg):
         settings.LOGGER.warning(msg)
-        try:
-            mutex.acquire()
-            tweet.sent_ok = True
-            tweet.sending = False
-            if not tweet.date_sent:
-                tweet.date_sent = tweet.date_created
-            tweet.save()
-        finally:
-            mutex.release()
+        tweet.sent_ok = True
+        tweet.sending = False
+        if not tweet.date_sent:
+            tweet.date_sent = tweet.date_created
+        tweet.save()
 
         scrapper.take_screenshot('tweet_already_sent', force_take=True)
 

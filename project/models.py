@@ -536,12 +536,8 @@ class Tweet(models.Model):
         finally:
             # si el tweet sigue en BD se desmarca como enviando
             if Tweet.objects.filter(pk=self.pk).exists():
-                try:
-                    mutex.acquire()
-                    self.sending = False
-                    self.save()
-                finally:
-                    mutex.release()
+                self.sending = False
+                self.save()
 
             self.bot_used.scrapper.close_browser()
 
