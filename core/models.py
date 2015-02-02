@@ -496,8 +496,12 @@ class TwitterBot(models.Model):
                         tweet_to_send.add_image(project)
                     if bot_group.has_page_announced:
                         tweet_to_send.add_page_announced(project)
+
                     if bot_group.has_mentions:
                         tweet_to_send.add_twitterusers_to_mention()
+                    else:
+                        tweet_to_send.delete()
+                        raise Exception('Bot group %s has not market "has_mentions"' % bot_group.name)
 
                     # tras encontrar ese proyecto con el que hemos podido construir el tweet salimos del for
                     break

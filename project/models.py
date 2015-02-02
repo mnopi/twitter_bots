@@ -62,8 +62,9 @@ class Project(models.Model):
             raise ProjectFullOfUnmentionedTwitterusers(self, valid_langs, unmentioned_count)
 
     def get_langs_using(self):
-        tweet_msgs_langs = self.tweet_msgs.values_list('language', flat=True).distinct()
-        pagelinks_langs = self.pagelinks.values_list('language', flat=True).distinct()
+        """Saca los lenguajes que se usan para el proyecto"""
+        tweet_msgs_langs = [lang for lang in self.tweet_msgs.values_list('language', flat=True).distinct() if lang]
+        pagelinks_langs = [lang for lang in self.pagelinks.values_list('language', flat=True).distinct() if lang]
         return list(set(list(tweet_msgs_langs) + list(pagelinks_langs)))
 
     def get_twitter_users_unmentioned_by_bot(self, bot, limit=None):
