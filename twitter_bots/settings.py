@@ -65,6 +65,7 @@ DATABASES = {
         "USER": "root",
         "PASSWORD": "1aragon1",
         "HOST": "127.0.0.1",
+        # "HOST": "88.26.212.82",
         "PORT": "3306",
 
         # "NAME": "twitter_bots_dev",
@@ -132,7 +133,7 @@ LOGGING = {
     },
     'handlers': {
         'console_info': {
-            'level': 'INFO',
+            'level': 'DEBUG',
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
             'stream': sys.stdout,
@@ -196,6 +197,8 @@ elif sys.platform == 'linux2':
     PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_dev_linux_bin')
 else:
     PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_mac_bin_1_9_8')
+
+TAKE_SCREENSHOTS = True
 
 
 def set_logger(name):

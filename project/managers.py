@@ -11,13 +11,7 @@ from core.scrapper.exceptions import TwitterAccountSuspended, ProxyConnectionErr
     TargetUserWasSuspended, InternetConnectionError
 from core.scrapper.utils import has_elapsed_secs_since_time_ago
 from core.scrapper.utils import generate_random_secs_from_minute_interval
-from project.exceptions import RateLimitedException, AllFollowersExtracted, NoAvailableBots, \
-    EmptyMentionQueue, TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
-    BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, McTweetMustBeSent, BotCantSendMctweet, \
-    DestinationBotIsBeingUsed, LastMctweetFailedTimeWindowNotPassed, MuTweetHasNotSentFTweetsEnough, FTweetMustBeSent, \
-    McTweetMustBeVerified, SentOkMcTweetWithoutDateSent, NoAvailableBot, \
-    ExtractorReachedMaxConsecutivePagesRetrievedPerTUser, NoRunningProjects, ProjectFullOfUnmentionedTwitterusers, \
-    ProjectRunningWithoutBots
+from project.exceptions import *
 from project.querysets import ProjectQuerySet, TwitterUserQuerySet, TweetQuerySet, ExtractorQuerySet, TargetUserQuerySet, \
     FeedItemQuerySet
 from twitter_bots import settings
@@ -42,7 +36,7 @@ class TargetUserManager(models.Manager):
 
 
 
-class TweetManager(models.Manager):
+class TweetManager(MyManager):
     def all_sent_ok(self):
         "Devuelve si en BD todos los tweets están marcados como enviados"
         return self.get_sent_ok().count() == self.all().count()
@@ -70,8 +64,10 @@ class TweetManager(models.Manager):
         """Mira en la cola de menciones por enviar a usuarios de twitter y devuelve una que se pueda enviar.
         Todo este método se ejecuta en exclusión mutua"""
 
+        settings.LOGGER.debug('Getting mention ready to send..')
+
         pending_mentions = self.get_queued_twitteruser_mentions_to_send(by_bot=bot)
-        if pending_mentions:
+        if pending_mentions.exists():
             mention_ready_to_send = None
 
             for mention in pending_mentions:
@@ -115,6 +111,13 @@ class TweetManager(models.Manager):
                     ftweet.sending = True
                     ftweet.save()
                     raise FTweetMustBeSent(ftweet)
+
+                except SenderBotHasToFollowPeople as e:
+                    e.sender_bot.is_following = True
+                    e.sender_bot.save()
+                    # marcamos los twitterusers a seguir por el bot
+                    e.sender_bot.mark_twitterusers_to_follow_at_once()
+                    raise e
 
                 except Exception as e:
                     settings.LOGGER.error('Error getting tumention from queue for bot %s: %s' %
@@ -172,47 +175,43 @@ class TweetManager(models.Manager):
         """Devuelve los tweets encolados pendientes de enviar a los twitter users. Si salen varios tweets por bots
         dejamos sólo 1 por bot, ya que no puede enviar varios a la vez"""
 
-        def el_has_bot_repeated(el):
-            """Nos dice si el dict {pk:x, bot_used:y} ya está añadido en la lista final f_els"""
-            for f_el in els_with_not_repeated_bot:
-                if f_el['bot_used'] == el['bot_used']:
-                    return True
+        queue = self.raw_as_qs("""
+            select project_tweet.id,
+            (select count(project_tweet.id) > 0 AS sender_already_sending
+                from project_tweet where project_tweet.sending=True and project_tweet.bot_used_id = core_twitterbot.id
+            ) as sender_already_sending,
+            (select count(project_tweetcheckingmention.id) > 0 AS sender_verifying
+                from project_tweet
+                inner join project_tweet_mentioned_bots on project_tweet.id = project_tweet_mentioned_bots.tweet_id
+                inner JOIN project_tweetcheckingmention ON project_tweet.id = project_tweetcheckingmention.tweet_id
+                where
+                project_tweet_mentioned_bots.twitterbot_id = core_twitterbot.id
+                and project_tweetcheckingmention.destination_bot_is_checking_mention = True
+            ) sender_verifying
 
-            return False
+            from project_tweet
 
-        def bot_already_exists_on_final_queue(tweet):
-            for f_tweet in tweets_not_repeated_bot:
-                if f_tweet.bot_used == tweet.bot_used:
-                    return True
+            inner join core_twitterbot on project_tweet.bot_used_id=core_twitterbot.id
+            left outer JOIN project_tweet_mentioned_users ON (project_tweet.id = project_tweet_mentioned_users.tweet_id)
 
-            return False
+            where
+                project_tweet.sending=False
+                and project_tweet.sent_ok=False
+                and project_tweet_mentioned_users.twitteruser_id is not null
+                and core_twitterbot.is_following=False
 
-        all_in_queue = self.filter(
-            sending=False,
-            sent_ok=False,
-            mentioned_users__isnull=False,
+            group by core_twitterbot.id
+
+            having
+                sender_already_sending = False
+                and sender_verifying = False
+            """
         )
 
         if by_bot:
-            all_in_queue = all_in_queue.by_bot(by_bot)
+            queue = queue.by_bot(by_bot)
 
-        # dejamos que salga sólo 1 tweet por bot en la cola, es decir, quitamos bots duplicados
-        els = all_in_queue.values('pk', 'bot_used').distinct()
-        els_with_not_repeated_bot = []  # final els [{'pk':x, 'bot_used'=y}, ...] sin repetir bot_used
-        for el in els:
-            if not el_has_bot_repeated(el):
-                els_with_not_repeated_bot.append(el)
-
-        pks = [f_el['pk'] for f_el in els_with_not_repeated_bot]
-        tweets_not_repeated_bot = self.filter(pk__in=pks).select_related('bot_used')
-
-        # quitamos bots que estén siendo usados
-        final = []
-        for tweet in tweets_not_repeated_bot:
-            if not tweet.bot_used.is_already_being_used():
-                final.append(tweet)
-
-        return final
+        return queue
 
     def clean_not_ok(self):
         from project.models import TweetCheckingMention
@@ -560,6 +559,9 @@ class TwitterUserManager(MyManager):
 
     def saved_lte_days(self, days):
         return self.get_queryset().saved_lte_days(days)
+
+    def not_followed(self):
+        return self.get_queryset().not_followed()
 
 
 class McTweetManager(MyManager):

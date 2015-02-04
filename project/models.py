@@ -7,15 +7,8 @@ import feedparser
 import simplejson
 import time
 import tweepy
-from core.scrapper.exceptions import ConnectionError, TweetAlreadySent, FailureSendingTweetException, \
-    ProxyUrlRequestError, TwitterEmailNotConfirmed, TwitterAccountSuspended, TargetUserWasSuspended
-from project.exceptions import RateLimitedException, AllFollowersExtracted, AllHashtagsExtracted, TweetCreationException, \
-    TweetConstructionError, BotIsAlreadyBeingUsed, BotHasReachedConsecutiveTUMentions, \
-    McTweetMustBeVerified, BotHasNotEnoughTimePassedToTweetAgain, VerificationTimeWindowNotPassed, \
-    DestinationBotIsBeingUsed, McTweetMustBeSent, NoAvailableProxiesToAssignBotsForUse, MuTweetHasNotSentFTweetsEnough, \
-    MethodOnlyAppliesToTuMentions, MethodOnlyAppliesToTbMentions, SentOkMcTweetWithoutDateSent, \
-    ExtractorReachedMaxConsecutivePagesRetrievedPerTUser, ProjectFullOfUnmentionedTwitterusers, BotWithoutBotsToMention, \
-    ProjectWithoutUnmentionedTwitterusers
+from core.scrapper.exceptions import *
+from project.exceptions import *
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
     TwitterUserManager, McTweetManager, FeedItemManager
 from core.scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago, naive_to_utc, \
@@ -507,6 +500,8 @@ class Tweet(models.Model):
         if not settings.LOGGER:
             set_logger('tweet_sender')
 
+        scr = self.bot_used.scrapper
+
         try:
             settings.LOGGER.info('Bot %s sending tweet %i [%s]: >> %s' %
                                  (self.bot_used.__unicode__(),
@@ -515,13 +510,13 @@ class Tweet(models.Model):
                                   self.compose())
             )
             screenshots_dir = '%d_%s' % (self.pk, self.print_type())
-            self.bot_used.scrapper.set_screenshots_dir(screenshots_dir)
-            self.bot_used.scrapper.open_browser()
-            self.bot_used.scrapper.login()
-            self.bot_used.scrapper.send_tweet(self)
+            scr.set_screenshots_dir(screenshots_dir)
+            scr.open_browser()
+            scr.login()
+            scr.send_tweet(self)
         except TwitterEmailNotConfirmed:
             # si al intentar enviar el tweet el usuario no estaba realmente confirmado eliminamos su tweet
-            self.bot_used.scrapper.logger.warning('Tweet %i will be deleted' % self.pk)
+            scr.logger.warning('Tweet %i will be deleted' % self.pk)
             self.delete()
         except (TweetAlreadySent,
                 ProxyUrlRequestError,
@@ -536,11 +531,13 @@ class Tweet(models.Model):
             raise e
         finally:
             # si el tweet sigue en BD se desmarca como enviando
+            scr.logger.debug('writing DB: sending=False..')
             if Tweet.objects.filter(pk=self.pk).exists():
                 self.sending = False
                 self.save()
+            scr.logger.debug('..written ok')
 
-            self.bot_used.scrapper.close_browser()
+            scr.close_browser()
 
     def enough_time_passed_since_last(self):
         """
@@ -578,10 +575,10 @@ class Tweet(models.Model):
 
         sender_bot = self.bot_used
 
-        # if sender_bot.is_already_being_used():
-        #     raise BotIsAlreadyBeingUsed(sender_bot)
+        if sender_bot.has_to_follow_people():
+            raise SenderBotHasToFollowPeople(sender_bot)
 
-        if not self.bot_used.has_enough_time_passed_since_his_last_tweet():
+        if not sender_bot.has_enough_time_passed_since_his_last_tweet():
             raise BotHasNotEnoughTimePassedToTweetAgain(sender_bot)
 
         if not self.has_enough_ftweets_sent():
@@ -1270,6 +1267,18 @@ class ProxiesGroup(models.Model):
     # tiempo mínimo que ha de pasar para que un bot pueda mandar mctweet otra vez a un mismo bot
     mctweet_to_same_bot_time_window = models.CharField(max_length=10, null=False, blank=False, default='60-120')
 
+    #
+    # following behaviour
+    #
+    # si se pone a seguir o no a gente
+    has_following_activated = models.BooleanField(default=False)
+    # máximo de following en relación a seguidores
+    following_ratio = models.CharField(max_length=10, null=False, blank=False, default='0.5-3')
+    # periodo ventana (en horas) para comprobar ratio y seguir a gente si es bajo
+    time_window_to_follow = models.CharField(max_length=10, null=False, blank=False, default='12-48')
+    # máximo de usuarios que sigue de una tacada
+    max_num_users_to_follow_at_once = models.CharField(max_length=10, null=False, blank=False, default='1-8')
+
     # webdriver
     FIREFOX = 'FI'
     CHROME = 'CH'
@@ -1354,3 +1363,18 @@ class FTweetsNumPerTuMention(models.Model):
     number = models.PositiveIntegerField(null=False, blank=False, default=0)
     tu_mention = models.OneToOneField('Tweet', related_name='ftweets_num')
 
+
+class TwitterBotFollowing(models.Model):
+    # si el bot le dió o no a seguir
+    performed_follow = models.BooleanField(default=False)
+
+    # si se produjo el seguimiento correctamente
+    followed_ok = models.BooleanField(default=False)
+
+    date_followed = models.DateTimeField(null=True, blank=True)
+
+    bot = models.ForeignKey('core.TwitterBot', related_name='tb_followings')
+    twitteruser = models.ForeignKey('TwitterUser', related_name='tb_followings')
+
+    def __unicode__(self):
+        return self.bot.username + ' -> ' + self.twitteruser.username

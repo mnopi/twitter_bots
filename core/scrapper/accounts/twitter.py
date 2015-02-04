@@ -316,9 +316,11 @@ class TwitterScrapper(Scrapper):
                     raise FailureSendingTweetException(self,
                         'Error on bot %s sending tweet %s' % (self.user.username, print_tweet_id()))
             else:
+                settings.LOGGER.debug('Writing DB: sent_ok=True, date_sent..')
                 tweet.sent_ok = True
                 tweet.date_sent = utc_now()
                 tweet.save()
+                settings.LOGGER.debug('..written ok')
 
                 settings.LOGGER.info('Bot %s sent ok tweet %s [%s]' % (self.user.username, print_tweet_id(), print_tweet_type()))
                 # self.take_screenshot('tweet_sent_ok', force_take=True)

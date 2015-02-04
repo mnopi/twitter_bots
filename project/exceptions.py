@@ -253,3 +253,9 @@ class SentOkMcTweetWithoutDateSent(Exception):
         settings.LOGGER.warning('Sent ok mctweet %d without date sent! setting to utc_now..' % mctweet.pk)
         mctweet.date_sent = utc_now()
         mctweet.save()
+
+
+class SenderBotHasToFollowPeople(Exception):
+    def __init__(self, sender_bot):
+        self.sender_bot = sender_bot
+        settings.LOGGER.info('Sender bot %s has to follow people' % sender_bot.__unicode__())

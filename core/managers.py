@@ -8,7 +8,7 @@ from django.db import models, connection
 from core.querysets import TwitterBotQuerySet, ProxyQuerySet
 from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableBots, EmptyMentionQueue, McTweetMustBeSent, \
     McTweetMustBeVerified, NoAvailableProxiesToAssignBotsForUse, MuTweetHasNotSentFTweetsEnough, FTweetMustBeSent, \
-    NoAvailableBot
+    NoAvailableBot, SenderBotHasToFollowPeople
 from core.scrapper.thread_pool import ThreadPool
 from core.scrapper.utils import utc_now
 from twitter_bots import settings
@@ -147,6 +147,9 @@ class TwitterBotManager(models.Manager):
 
         except FTweetMustBeSent as e:
             e.ftweet.send()
+
+        except SenderBotHasToFollowPeople as e:
+            e.sender_bot.follow_twitterusers()
 
         except Exception as e:
             settings.LOGGER.exception('Error sending tweet')

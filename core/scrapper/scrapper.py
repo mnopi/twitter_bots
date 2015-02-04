@@ -144,8 +144,9 @@ class Scrapper(object):
 
     def close_browser(self):
         try:
+            self.logger.debug('%s instance closing..' % self.user.get_webdriver())
             self.browser.quit()
-            self.logger.debug('%s instance closed sucessfully' % self.user.get_webdriver())
+            self.logger.debug('..%s instance closed ok' % self.user.get_webdriver())
         except Exception as ex:
             if not self.browser:
                 self.logger.warning('%s instance was not opened browser' % self.user.get_webdriver())

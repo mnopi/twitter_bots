@@ -248,9 +248,21 @@ def generate_random_secs_from_minute_interval(minute_interval):
     return random.randint(60 * int(interval[0]), 60 * int(interval[1]))
 
 
+def generate_random_secs_from_hour_interval(hour_interval):
+    interval = hour_interval.split('-')
+    return random.randint(60 * 60 * int(interval[0]), 60 * 60 * int(interval[1]))
+
+
 def str_interval_to_random_num(str_interval):
     interval = str_interval.split('-')
     return random.randint(int(interval[0]), int(interval[1]))
+
+
+def str_interval_to_random_double(str_interval):
+    interval = str_interval.split('-')
+    i0 = float(interval[0]) * 100
+    i1 = float(interval[1]) * 100
+    return float(random.randint(i0, i1))/100
 
 
 def create_gitignored_folders():
@@ -288,3 +300,7 @@ def get_th_tasks(args):
         num_tasks = None
 
     return num_threads, num_tasks
+
+
+def utc_now_to_str():
+    return datetime.datetime.strftime(utc_now(), '%Y%m%d_%H%M')

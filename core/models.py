@@ -4,6 +4,8 @@ import feedparser
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver import ActionChains
+from selenium.webdriver.common.keys import Keys
 from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableProxiesToAssignBotsForUse,\
     TweetCreationException, LastMctweetFailedTimeWindowNotPassed
 from core.scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
@@ -14,6 +16,7 @@ from core.scrapper.exceptions import TwitterEmailNotFound, \
     TwitterEmailNotConfirmed, HotmailAccountNotCreated, EmailExistsOnTwitter
 from core.scrapper.utils import *
 from core.managers import TwitterBotManager, ProxyManager, mutex
+from project.models import TwitterBotFollowing
 from twitter_bots import settings
 from django.core.exceptions import ObjectDoesNotExist
 
@@ -63,6 +66,11 @@ class TwitterBot(models.Model):
     twitter_confirmed_email_ok = models.BooleanField(default=False)
     twitter_avatar_completed = models.BooleanField(default=False)
     twitter_bio_completed = models.BooleanField(default=False)
+
+    # si está siguiendo ahora a gente y cuando fue la última vez que terminó de ponerse a seguir
+    is_following = models.BooleanField(default=False)
+    date_last_following = models.DateTimeField(null=True, blank=True)
+    following_ratio = models.DecimalField(null=True, blank=True, max_digits=2, decimal_places=1)
 
     # RELATIONSHIPS
     proxy_for_registration = models.ForeignKey('Proxy', null=True, blank=True, related_name='twitter_bots_registered', on_delete=models.DO_NOTHING)
@@ -405,7 +413,7 @@ class TwitterBot(models.Model):
         ).exists()
 
     def is_already_being_used(self):
-        return self.is_already_sending_tweet() or self.is_already_checking_mention()
+        return self.is_already_sending_tweet() or self.is_already_checking_mention() or self.is_following
 
     def can_tweet(self):
         """Nos dice si el bot puede tuitear"""
@@ -845,6 +853,178 @@ class TwitterBot(models.Model):
                 tcm.destination_bot_is_checking_mention = False
                 tcm.save()
 
+    def has_to_follow_people(self):
+        """Nos dice si el robot tiene que ponerse a seguir gente, es decir, si su grupo está configurado
+        para seguir gente y ha pasado el periodo ventana desde la última vez que se puso a seguir"""
+        bot_group = self.get_group()
+        if bot_group.has_following_activated:
+            time_window_to_follow = bot_group.time_window_to_follow
+            tw_secs = generate_random_secs_from_hour_interval(time_window_to_follow)
+            return not self.date_last_following or \
+                   has_elapsed_secs_since_time_ago(self.date_last_following, tw_secs)
+        else:
+            return False
+
+    def follow_twitterusers(self):
+        """Se pone el bot a seguir gente"""
+
+        def get_ratio():
+
+            def get_count(what):
+                """Scrapea cuenta de seguidos o seguidores según se indique"""
+                if what != 'following' and what != 'followers':
+                    raise Exception('Invalid type to count (only accepts following/followers)')
+                else:
+                    el = scr.get_css_element('.ProfileNav-list .ProfileNav-item--%s .ProfileNav-value' % what)
+                    if el:
+                        return int(el.text)
+                    else:
+                        return 0
+
+            # asignamos un ratio al bot si no se le asignó ya
+            if not self.following_ratio:
+                self.following_ratio = str_interval_to_random_double(self.get_group().following_ratio)
+                self.save()
+
+            num_following = get_count('following')
+            num_followers = get_count('followers')
+
+            if not num_following and not num_followers:
+                # si no tiene gente siguiendo ni seguidores entonces el ratio será 0
+                return 0
+            elif num_following and not num_followers:
+                # si tiene siguiendo pero sin seguidores el ratio será los que vaya siguiendo
+                return num_following
+            else:
+                return num_following / num_followers
+
+        def follow_twitteruser(twitteruser):
+            try:
+                scr.logger.debug('performing following %s' % twitteruser.username)
+
+                scr.go_to(settings.URLS['twitter_login'] + twitteruser.username)
+
+                # scr.fill_input_text('#search-query', '@' + twitteruser.username)
+                #
+                # # si el user está entre los posibles resultados..
+                # twuser_on_minibox = scr.get_css_element('li[data-user-screenname="%s"]' % twitteruser.username)
+                # if twuser_on_minibox:
+                #     scr.move_mouse_to_el(twuser_on_minibox)
+                #     scr.delay.seconds(2)
+                #     ActionChains(scr.browser).click().perform()
+                #
+                # # si no aparece en la cajita damos enter y buscamos entre las personas..
+                # else:
+                #     scr.send_special_key(Keys.ENTER)
+                #     scr.wait_to_page_readystate()
+                #     scr.delay.seconds(3)
+                #     search_people_btn_css = '.dashboard.dashboard-left li.search-navigation a[data-nav="users"]'
+                #     scr.click(search_people_btn_css)
+                #
+                #     # miramos en cada uno de los resultados a ver cual es el usuario en cuestión @..
+                #     search_people_results = scr.get_css_elements('ol#stream-items-id li')
+                #     if search_people_results:
+                #         for el in search_people_results:
+                #             el_username = el.find_element_by_css_selector('span.username')
+                #             if el_username and el_username.text.strip('@') == twitteruser.username:
+                #                 scr.click(el_username)
+                #                 break
+                #     else:
+                #         scr.take_screenshot('no_search_results_error')
+                #         raise Exception('No search results for twuser %s' % twitteruser.username)
+
+                # sale el perfil del twuser
+                scr.delay.seconds(3)
+                scr.wait_to_page_readystate()
+
+                # ya en la página del perfil vemos si se está siguiendo o no, por si lo siguió pero no se guardó en BD
+                follow_btn_css = 'li.ProfileNav-item.ProfileNav-item--userActions .follow-button'
+                follow_btn_visible = scr.check_visibility('%s span.follow-text' % follow_btn_css)
+                already_following_btn_visible = scr.check_visibility('%s span.following-text' % follow_btn_css)
+
+                # se hará click sólo si no se dió antes, por si se dió pero no se guardó en BD
+                if follow_btn_visible:
+                    scr.click('%s span.follow-text' % follow_btn_css)
+                    already_following_btn_visible = scr.check_visibility('%s span.following-text' % follow_btn_css)
+
+                # una vez que ya aparece el botón de seguir como pulsado se guarda el seguimiento en BD
+                if already_following_btn_visible:
+                    tb_following = twitteruser.tb_followings.get(bot=self)
+                    tb_following.performed_follow = True
+                    tb_following.followed_ok = True
+                    if not tb_following.date_followed:
+                        tb_following.date_followed = utc_now()
+                    tb_following.save()
+
+                scr.delay.seconds(5)
+
+                scr.take_screenshot('%s_followed_ok' % twitteruser.username)
+                scr.logger.debug('%s followed ok' % twitteruser.username)
+            except Exception as e:
+                scr.take_screenshot('error_following_user_%s' % twitteruser.username)
+                scr.logger.exception('Error following user %s' % twitteruser.username)
+                raise e
+
+        scr = self.scrapper
+        scr.set_screenshots_dir('following_people_%s' % utc_now_to_str())
+
+        try:
+            scr.open_browser()
+            scr.login()
+            scr.click('.DashboardProfileCard-name a')
+
+            # miramos qué ratio tiene de following/followers. Si inferior al del bot entonces
+            # lo ponemos a seguir los que se marcaron como pendientes durante el mutex
+            ratio = get_ratio()
+            ratio_is_below = ratio < self.following_ratio
+            if ratio_is_below:
+                twusers_to_follow = self.get_twitterusers_to_follow_at_once()
+                settings.LOGGER.info('Bot %s following %d twitterusers..' % (self.username, twusers_to_follow.count()))
+                for twitteruser in twusers_to_follow:
+                    follow_twitteruser(twitteruser)
+                settings.LOGGER.info('Bot %s followed %d twitterusers ok' % (self.username, twusers_to_follow.count()))
+            else:
+                settings.LOGGER.info('%s not have to follow anyone for now. current ratio: %.1f, max ratio: %.1f' %
+                                      (self.username, ratio, self.following_ratio))
+            self.date_last_following = utc_now()
+            self.save()
+        except Exception as e:
+            settings.LOGGER.exception('Error on bot %s following twitterusers' % self.username)
+            raise e
+        finally:
+            scr.close_browser()
+
+    def mark_twitterusers_to_follow_at_once(self):
+        """Reserva dentro del mutex los twitterusers que el bot ha de seguir de una vez"""
+        from project.models import TwitterUser
+
+        # vemos si quedan seguimientos pendientes por hacer
+        follows_pending = self.tb_followings.filter(performed_follow=False)
+        if not follows_pending.exists():
+            # si no quedaban pendientes sacamos un proyecto al azar donde opere su grupo de bots
+            random_project = self.get_group().projects.order_by('?').first()
+
+            # escogemos n twitterusers de ese proyecto que aún no hayan sido seguidos por ningún bot
+            max_followings = str_interval_to_random_num(self.get_group().max_num_users_to_follow_at_once)
+            twusers_to_follow = TwitterUser.objects\
+                .for_project(random_project)\
+                .not_followed()\
+                .order_by('-last_tweet_date')\
+                [:max_followings]
+
+            following_entries = []
+            for twuser in twusers_to_follow:
+                following_entries.append(TwitterBotFollowing(bot=self, twitteruser=twuser))
+
+            TwitterBotFollowing.objects.bulk_create(following_entries)
+
+    def get_twitterusers_to_follow_at_once(self):
+        """Saca twitterusers pendientes de ser seguidos por el bot"""
+
+        from project.models import TwitterUser
+
+        to_follow_pks = self.tb_followings.filter(performed_follow=False).values_list('twitteruser', flat=True)
+        return TwitterUser.objects.filter(pk__in=to_follow_pks)
 
 class Proxy(models.Model):
     proxy = models.CharField(max_length=21, null=False, blank=True)

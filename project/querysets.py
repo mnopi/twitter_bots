@@ -188,6 +188,10 @@ class TwitterUserQuerySet(MyQuerySet):
         """Saca los usuarios que fueron guardados hace :days o más días"""
         return self.filter(date_saved__lte=utc_now() - datetime.timedelta(days=days))
 
+    def not_followed(self):
+        """Saca los que nunca fueron seguidos por ningún bot"""
+        return self.filter(tb_followings__isnull=True)
+
 
 class FeedItemQuerySet(MyQuerySet):
     def not_sent_by_bot(self, bot):

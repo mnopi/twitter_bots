@@ -485,6 +485,7 @@ class ProxiesGroupAdmin(admin.ModelAdmin):
         'has_tweet_img',
         'has_page_announced',
         'has_mentions',
+        'has_following_activated',
 
         'total_proxies',
         'proxies_avaiable_for_usage_num',
@@ -585,6 +586,21 @@ class TUGroupAdmin(admin.ModelAdmin):
     }
 
 
+class TwitterBotFollowingAdmin(admin.ModelAdmin):
+    list_display = (
+        '__unicode__',
+        'performed_follow',
+        'followed_ok',
+        'date_followed',
+    )
+
+    list_filter = (
+        'performed_follow',
+        'followed_ok',
+        'date_followed',
+    )
+
+
 # Register your models here.
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(TweetMsg, TweetMsgAdmin)
@@ -607,6 +623,8 @@ admin.site.register(TweetCheckingMention, TweetCheckingMentionAdmin)
 admin.site.register(Feed)
 admin.site.register(FeedsGroup)
 admin.site.register(FeedItem)
+
+admin.site.register(TwitterBotFollowing, TwitterBotFollowingAdmin)
 
 
 
