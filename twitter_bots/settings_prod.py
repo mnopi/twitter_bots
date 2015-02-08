@@ -13,7 +13,8 @@ DATABASES = {
         "NAME": "twitter_bots_prod",
         "USER": "root",
         "PASSWORD": "1aragon1",
-        "HOST": "localhost",
+        "HOST": "88.26.212.82",
+        # "HOST": "localhost",
         "PORT": "3306",
     }
 }

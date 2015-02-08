@@ -1,7 +1,8 @@
 from optparse import make_option
 from core.models import TwitterBot
-from core.scrapper.utils import get_th_tasks
+from core.scrapper.utils import get_2_args
 from project.exceptions import FatalError
+from project.models import Tweet
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
 
@@ -23,7 +24,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         settings.LOGGER.info('-- INITIALIZED BOT CREATION FINISHER --')
 
-        num_threads, num_tasks = get_th_tasks(args)
+        num_threads, num_tasks = get_2_args(args)
         bot = TwitterBot.objects.get(username=options['bot']) \
             if 'bot' in options and options['bot'] \
             else None

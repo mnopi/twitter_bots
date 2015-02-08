@@ -64,8 +64,8 @@ DATABASES = {
         "NAME": "twitter_bots_dev",
         "USER": "root",
         "PASSWORD": "1aragon1",
-        "HOST": "127.0.0.1",
-        # "HOST": "88.26.212.82",
+        # "HOST": "127.0.0.1",
+        "HOST": "88.26.212.82",
         "PORT": "3306",
 
         # "NAME": "twitter_bots_dev",
@@ -159,6 +159,14 @@ LOGGING = {
             'maxBytes': 1024*1024*5, # 5 MB
             'backupCount': 5,
             'formatter':'verbose',
+        },
+        'db_log': {
+            'level':'DEBUG',
+            'class':'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs/db.log'),
+            'maxBytes': 1024*1024*5, # 5 MB
+            'backupCount': 5,
+            'formatter':'verbose',
         }
     },
     'loggers': {
@@ -174,6 +182,11 @@ LOGGING = {
         },
         'default': {
             'handlers': ['console_info', 'console_error'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'django.db': {
+            'handlers': ['db_log'],
             'level': 'DEBUG',
             'propagate': False,
         },

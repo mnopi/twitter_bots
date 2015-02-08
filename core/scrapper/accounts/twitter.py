@@ -76,18 +76,27 @@ class TwitterScrapper(Scrapper):
                 self.fill_input_text('#email', self.user.email)
                 check_email()
                 if not self.check_visibility('#password'):
-                    checkbox_css = 'div.prompt:nth-child(4) > label:nth-child(1) > input:nth-child(1)'
-                    self.try_to_click(checkbox_css)
-                    self.click('#submit_button')
-                self.fill_input_text('#password', self.user.password_twitter)
-                self.try_to_click('#submit_button')
-                self.fill_input_text('#username', self.user.username)
-                check_username()
-                self.try_to_click('input[name="submit_button"]', 'input#submit_button')
+                    if self.check_visibility('#username'):
+                        self.fill_input_text('#username', self.user.username)
+                        check_username()
 
-                # si sale un cartelito "that's you" picamos en alguna de las sugerencias de username
-                if self.check_visibility('#message-drawer .message-text'):
-                    self.click('#skip_link')
+                        checkbox_css1 = 'div.prompt:nth-child(4) > label:nth-child(1) > input:nth-child(1)'
+                        checkbox_css2 = 'input[name="user[use_cookie_personalization]"]'
+                        self.try_to_click(checkbox_css1, checkbox_css2)
+                        self.click('#submit_button')
+                        self.delay.seconds(4)
+                        self.fill_input_text('#password', self.user.password_twitter)
+                        self.click('#submit_button')
+                    else:
+                        self.fill_input_text('#password', self.user.password_twitter)
+                        self.try_to_click('#submit_button')
+                        self.fill_input_text('#username', self.user.username)
+                        check_username()
+                        self.try_to_click('input[name="submit_button"]', 'input#submit_button')
+
+                        # si sale un cartelito "that's you" picamos en alguna de las sugerencias de username
+                        if self.check_visibility('#message-drawer .message-text'):
+                            self.click('#skip_link')
 
             self.delay.seconds(10)
 
@@ -133,6 +142,11 @@ class TwitterScrapper(Scrapper):
 
             self.wait_to_page_readystate()
             self.check_account_exists()
+
+            # si no estaba en BD como registrado en twitter se marca que sí
+            if not self.user.twitter_registered_ok:
+                self.user.twitter_registered_ok = True
+                self.user.save()
 
             self.clear_local_storage()
             self.check_account_suspended()
@@ -180,7 +194,12 @@ class TwitterScrapper(Scrapper):
         self.click(self.get_css_element('#account-suspended a'))
         self.wait_to_page_readystate()
         cr = DeathByCaptchaResolver(self)
-        submit_unsuspension(attempt=0)
+
+        try:
+            submit_unsuspension(attempt=0)
+        except Exception as e:
+            self.logger.error('error lifting suspension')
+            raise e
 
     def check_account_suspended(self):
         """Una vez logueado miramos si fue suspendida la cuenta"""
@@ -192,14 +211,24 @@ class TwitterScrapper(Scrapper):
                 self.delay.seconds(4)
                 raise TwitterEmailNotConfirmed(self)
             else:
+                if not self.user.twitter_confirmed_email_ok:
+                    self.user.twitter_confirmed_email_ok = True
+                    self.user.save()
+
                 self.lift_suspension()
         elif self.check_visibility('.resend-confirmation-email-link'):
             self.click('.resend-confirmation-email-link')
             self.delay.seconds(4)
             raise TwitterEmailNotConfirmed(self)
         else:
-            self.user.is_suspended = False
-            self.user.save()
+            if self.user.is_suspended:
+                self.user.is_suspended = False
+                self.user.save()
+
+            # si no estaba en BD como email confirmado también se marca
+            if not self.user.twitter_confirmed_email_ok:
+                self.user.twitter_confirmed_email_ok = True
+                self.user.save()
 
     def check_account_exists(self):
         "Mira si tras intentar loguearse el usuario existe o no en twitter"

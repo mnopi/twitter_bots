@@ -13,7 +13,8 @@ from core.scrapper.accounts.hotmail import HotmailScrapper
 from core.scrapper.accounts.twitter import TwitterScrapper
 from core.scrapper.exceptions import TwitterEmailNotFound, \
     TwitterAccountDead, TwitterAccountSuspended, ProfileStillNotCompleted, FailureReplyingMcTweet, \
-    TwitterEmailNotConfirmed, HotmailAccountNotCreated, EmailExistsOnTwitter
+    TwitterEmailNotConfirmed, HotmailAccountNotCreated, EmailExistsOnTwitter, ErrorOpeningTwitterConfirmationLink, \
+    TwitterBotDontExistsOnTwitterException, EmailAccountNotFound
 from core.scrapper.utils import *
 from core.managers import TwitterBotManager, ProxyManager, mutex
 from project.models import TwitterBotFollowing
@@ -222,8 +223,11 @@ class TwitterBot(models.Model):
         else:
             raise Exception(INVALID_EMAIL_DOMAIN_MSG)
 
-    def complete_creation(self):
+    def complete_creation(self, first_time=False):
         if self.has_to_complete_creation():
+            self.is_being_created = True
+            self.save()
+
             t1 = utc_now()
             settings.LOGGER.info('Completing creation for bot %s (%s) behind proxy %s' %
                                  (self.username, self.real_name, self.proxy_for_usage.__unicode__()))
@@ -233,28 +237,42 @@ class TwitterBot(models.Model):
 
             try:
                 # init scrappers
+                self.email_scr = self.get_email_scrapper()
+                self.email_scr.open_browser()
                 self.twitter_scr = TwitterScrapper(self)
                 self.twitter_scr.open_browser()
 
                 if self.has_to_register_email() or self.has_to_register_twitter() or self.has_to_confirm_tw_email():
                     self.twitter_scr.check_proxy_works_ok()
-                    self.email_scr = self.get_email_scrapper()
-                    self.email_scr.open_browser()
 
                 # 1_signup_email
                 if self.has_to_register_email():
-                    self.email_scr.set_screenshots_dir('1_signup_email')
-                    self.email_scr.sign_up()
-                    self.email_registered_ok = True
-                    self.save()
-                    self.email_scr.take_screenshot('signed_up_sucessfully', force_take=True)
-                    self.email_scr.delay.seconds(7)
-                    self.email_scr.logger.info('%s signed up ok' % self.email)
+                    if not first_time:
+                        try:
+                            self.email_scr.login()
+                        except EmailAccountNotFound:
+                            pass
+
+                    if self.has_to_register_email():
+                        self.email_scr.set_screenshots_dir('1_signup_email')
+                        self.email_scr.sign_up()
+                        self.email_registered_ok = True
+                        self.save()
+                        self.email_scr.take_screenshot('signed_up_sucessfully', force_take=True)
+                        self.email_scr.delay.seconds(7)
+                        self.email_scr.logger.info('%s signed up ok' % self.email)
 
                 # 2_signup_twitter
                 if self.has_to_register_twitter():
-                    self.twitter_scr.set_screenshots_dir('2_signup_twitter')
-                    self.twitter_scr.sign_up()
+                    if not first_time:
+                        try:
+                            self.twitter_scr.login()
+                        except TwitterBotDontExistsOnTwitterException:
+                            pass
+
+                    if self.has_to_register_twitter():
+                        self.twitter_scr.set_screenshots_dir('2_signup_twitter')
+                        self.twitter_scr.sign_up()
 
                 # 3_confirm_tw_email
                 if self.has_to_confirm_tw_email():
@@ -266,33 +284,34 @@ class TwitterBot(models.Model):
                         self.email_scr.delay.seconds(8)
                         settings.LOGGER.info('Confirmed twitter email %s for user %s' % (self.email, self.username))
                         self.email_scr.take_screenshot('tw_email_confirmed_sucessfully', force_take=True)
-                    except TwitterEmailNotFound:
+                    except (TwitterEmailNotFound,
+                            TwitterAccountSuspended,
+                            ErrorOpeningTwitterConfirmationLink):
                         self.twitter_scr.set_screenshots_dir('resend_conf_email')
-                        try:
-                            # nos logueamos para volver a pedir el email de confirmación
-                            self.twitter_scr.login()
-                        except TwitterEmailNotConfirmed:
-                            pass
-                        self.email_scr.confirm_tw_email()
-                        self.twitter_confirmed_email_ok = True
-                        self.save()
-                        settings.LOGGER.info('Confirmed twitter email %s for user %s after resending confirmation' % (self.email, self.username))
+                        # nos logueamos para volver a pedir el email de confirmación
+                        self.twitter_scr.login()
+                        if self.has_to_confirm_tw_email():
+                            self.email_scr.confirm_tw_email()
+                            self.twitter_confirmed_email_ok = True
+                            self.save()
+                            settings.LOGGER.info('Confirmed twitter email %s for user %s after resending confirmation' % (self.email, self.username))
                     except Exception as ex:
                         settings.LOGGER.exception('Error on bot %s confirming email %s' %
                                                   (self.username, self.email))
                         self.email_scr.take_screenshot('tw_email_confirmation_failure', force_take=True)
                         raise ex
 
-                # 4_profile_completion
-                if self.has_to_complete_tw_profile():
-                    self.twitter_scr.set_screenshots_dir('4_tw_profile_completion')
-                    self.twitter_scr.set_profile()
-
-                # 5_lift_suspension
+                # 4_lift_suspension
                 if self.is_suspended:
                     settings.LOGGER.info('Lifting suspension for bot %s' % self.username)
-                    self.twitter_scr.set_screenshots_dir('5_tw_lift_suspension')
+                    self.twitter_scr.set_screenshots_dir('4_tw_lift_suspension')
                     self.twitter_scr.login()
+
+                # 5_profile_completion
+                if self.has_to_complete_tw_profile():
+                    self.twitter_scr.set_screenshots_dir('5_tw_profile_completion')
+                    self.twitter_scr.set_profile()
+
 
                 t2 = utc_now()
                 diff_secs = (t2 - t1).seconds
@@ -318,7 +337,8 @@ class TwitterBot(models.Model):
                 try:
                     if hasattr(self, 'email_scr'):
                         self.email_scr.close_browser()
-                    self.twitter_scr.close_browser()
+                    if hasattr(self, 'email_scr'):
+                        self.twitter_scr.close_browser()
                     self.is_being_created = False
                     self.save()
                 except Exception as ex:
@@ -527,9 +547,11 @@ class TwitterBot(models.Model):
 
         from project.models import Project, Tweet, TweetMsg, Link, FeedItem
 
+        settings.LOGGER.debug('Bot %s getting item to send..' % self.username)
         # saco un item de los feeds disponibles para el grupo del bot
         # si ese item ya lo mandó el bot sacamos otro
         items_not_sent = self.get_feed_items_not_sent_yet()
+
         if not items_not_sent.exists():
             # Si no hay item se consultan todos los feeds hasta que se cree uno nuevo
             self.save_new_item_from_feeds()
@@ -553,15 +575,15 @@ class TwitterBot(models.Model):
         que todavía éste no haya enviado."""
 
         from project.models import FeedItem
-
         proxies_group_for_bot = self.get_group()
-        pg_items = FeedItem.objects.filter(
-            feed__feeds_groups__proxies_groups=proxies_group_for_bot,
-        )
-        items_not_sent_by_bot = pg_items\
-            .exclude(Q(tweets__bot_used=self) & Q(tweets__sent_ok=True))
 
-        return items_not_sent_by_bot
+        feeditems_sent_by_bot = FeedItem.objects.filter(tweets__bot_used=self, tweets__sent_ok=True)\
+            .values_list('pk', flat=True).distinct()
+
+        # devolvemos todos los feeds en BD para el bot excluyendo los ya enviados en algún tweet
+        return FeedItem.objects.filter(
+            feed__feeds_groups__proxies_groups=proxies_group_for_bot,
+        ).exclude(pk__in=feeditems_sent_by_bot)
 
     def save_new_item_from_feeds(self):
         """Consulta en todos los feeds para el bot cual item no está en BD y lo guarda"""
@@ -603,7 +625,7 @@ class TwitterBot(models.Model):
             :return tweet último o None si nunca envió tweet
         """
         tweets_sent = self.get_sent_ok_tweets()
-        if tweets_sent:
+        if tweets_sent.exists():
             return tweets_sent.latest('date_sent')
         else:
             return None
@@ -961,7 +983,7 @@ class TwitterBot(models.Model):
                 scr.take_screenshot('%s_followed_ok' % twitteruser.username)
                 scr.logger.debug('%s followed ok' % twitteruser.username)
             except Exception as e:
-                scr.take_screenshot('error_following_user_%s' % twitteruser.username)
+                scr.take_screenshot('error_following_user_%s' % twitteruser.username, force_take=True)
                 scr.logger.exception('Error following user %s' % twitteruser.username)
                 raise e
 

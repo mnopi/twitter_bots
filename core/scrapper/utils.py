@@ -136,7 +136,10 @@ def generate_random_desktop_user_agent():
     try:
         return get_from_w3schools()
     except Timeout:
-        settings.LOGGER.warning('w3schools.com not accesible now, getting from user_agentes.json')
+        settings.LOGGER.warning('w3schools.com not accesible now, getting from user_agents.json')
+        return get_from_json()
+    except Exception:
+        settings.LOGGER.warning('error using fakeuseragent, getting from user_agents.json')
         return get_from_json()
 
 
@@ -243,6 +246,10 @@ def has_elapsed_secs_since_time_ago(datetime_ago, secs):
     return is_lte_than_seconds_ago(datetime_ago, secs)
 
 
+def has_elapsed_days_since_time_ago(datetime_ago, days):
+    return is_lte_than_days_ago(datetime_ago, days)
+
+
 def generate_random_secs_from_minute_interval(minute_interval):
     interval = minute_interval.split('-')
     return random.randint(60 * int(interval[0]), 60 * int(interval[1]))
@@ -292,14 +299,14 @@ def check_internet_connection_works():
         raise InternetConnectionError
 
 
-def get_th_tasks(args):
-    num_threads = int(args[0]) if args else None
+def get_2_args(args):
+    arg1 = int(args[0]) if args else None
     try:
-        num_tasks = int(args[1])
+        arg2 = int(args[1])
     except IndexError:
-        num_tasks = None
+        arg2 = None
 
-    return num_threads, num_tasks
+    return arg1, arg2
 
 
 def utc_now_to_str():

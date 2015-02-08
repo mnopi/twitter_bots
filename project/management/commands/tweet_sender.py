@@ -3,8 +3,9 @@ from Queue import Full
 
 from optparse import make_option
 import time
+import psutil
 from core.models import TwitterBot
-from core.scrapper.utils import get_th_tasks
+from core.scrapper.utils import get_2_args
 from project.models import Tweet, Project
 from project.exceptions import FatalError, ProjectRunningWithoutBots
 from twitter_bots import settings
@@ -37,9 +38,9 @@ class Command(BaseCommand):
                 if 'bot' in options and options['bot'] \
                 else None
 
-            num_threads, num_tasks = get_th_tasks(args)
+            num_threads, max_lookups = get_2_args(args)
 
-            TwitterBot.objects.send_mentions_from_queue(bot=bot, num_threads=num_threads, num_tasks=num_tasks)
+            TwitterBot.objects.perform_sending_tweets(bot=bot, num_threads=num_threads, max_lookups=max_lookups)
 
             time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER)
         except Full as e:
@@ -49,6 +50,11 @@ class Command(BaseCommand):
             pass
         except Exception as e:
             raise FatalError(e)
+        finally:
+            # quitamos todos los phantomjs que hubiera ejecutando
+            for proc in psutil.process_iter():
+                if 'phantomjs' in proc.name():
+                    proc.kill()
 
         settings.LOGGER.info('-- FINISHED %s --' % MODULE_NAME)
 

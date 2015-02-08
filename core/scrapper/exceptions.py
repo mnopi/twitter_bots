@@ -17,6 +17,10 @@ class TwitterEmailNotConfirmed(Exception):
         scrapper.logger.warning('Twitter email not confirmed yet')
 
 
+class ErrorOpeningTwitterConfirmationLink(Exception):
+    pass
+
+
 class HotmailAccountNotCreated(Exception):
     def __init__(self, scrapper):
         scrapper.logger.error('Hotmail account can not be created')
@@ -44,7 +48,7 @@ class NotInEmailInbox(Exception):
 class TwitterAccountSuspended(Exception):
     def __init__(self, bot):
         bot.mark_as_suspended()
-        settings.LOGGER.error('Twitter account suspended for bot %s behind proxy %s'
+        settings.LOGGER.warning('Twitter account suspended for bot %s behind proxy %s'
                               % (bot.username, bot.proxy_for_usage.__unicode__()))
 
 

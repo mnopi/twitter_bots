@@ -7,6 +7,7 @@ import feedparser
 import simplejson
 import time
 import tweepy
+from core.managers import sem_mutweet_checking
 from core.scrapper.exceptions import *
 from project.exceptions import *
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
@@ -323,9 +324,9 @@ class TwitterUser(models.Model):
 
 class Tweet(models.Model):
     date_created = models.DateTimeField(auto_now_add=True)  # la fecha en la que se crea y se mete en la cola
-    date_sent = models.DateTimeField(null=True, blank=True)
-    sending = models.BooleanField(default=False)
-    sent_ok = models.BooleanField(default=False)
+    date_sent = models.DateTimeField(null=True, blank=True, db_index=True)
+    sending = models.BooleanField(default=False, db_index=True)
+    sent_ok = models.BooleanField(default=False, db_index=True)
 
     # RELATIONSHIPS
     tweet_msg = models.ForeignKey('TweetMsg', null=True, blank=True, on_delete=models.PROTECT)
@@ -571,15 +572,15 @@ class Tweet(models.Model):
     def check_if_can_be_sent(self):
         """Comprueba si el tweet puede enviarse o no"""
 
-        self._check_if_errors_on_construction()
+        # self._check_if_errors_on_construction()
 
         sender_bot = self.bot_used
 
         if sender_bot.has_to_follow_people():
             raise SenderBotHasToFollowPeople(sender_bot)
 
-        if not sender_bot.has_enough_time_passed_since_his_last_tweet():
-            raise BotHasNotEnoughTimePassedToTweetAgain(sender_bot)
+        # if not sender_bot.has_enough_time_passed_since_his_last_tweet():
+        #     raise BotHasNotEnoughTimePassedToTweetAgain(sender_bot)
 
         if not self.has_enough_ftweets_sent():
             raise MuTweetHasNotSentFTweetsEnough(self)
@@ -648,7 +649,10 @@ class Tweet(models.Model):
     def get_or_create_ftweet_to_send(self):
         """Se busca un ftweet ya creado y que no se haya enviado. Si existe se crea"""
 
+        settings.LOGGER.debug('getting ftweet_to_send..')
         ftweet_to_send = self.tweets_from_feed.filter(tweet__sent_ok=False)
+        settings.LOGGER.debug('..ok')
+
         if ftweet_to_send.exists():
             if ftweet_to_send.count() > 1:
                 settings.LOGGER.warning('There were found multiple ftweets pending to send from '
@@ -714,6 +718,71 @@ class Tweet(models.Model):
             return content_ok_ftweet()
         else:
             return False
+
+    def process(self, pool):
+        """Procesa el tweet de la cola para ver qué tarea tenemos que enviar al pool de threads"""
+
+        def log_task_adding(task_name):
+            settings.LOGGER.debug('Adding task [%s] (total unfinished: %d)' % (task_name, pool.tasks.unfinished_tasks))
+
+        try:
+            self.check_if_can_be_sent()
+            self.sending = True
+            self.save()
+            log_task_adding('SEND MU_TWEET')
+            pool.add_task(self.send)
+        except (TweetConstructionError,
+                BotIsAlreadyBeingUsed,
+                BotHasNotEnoughTimePassedToTweetAgain):
+            pass
+
+        except BotHasReachedConsecutiveTUMentions as e:
+            mctweet_sender_bot = e.bot
+            mctweet = mctweet_sender_bot.get_or_create_mctweet()
+
+            if mctweet.sent_ok:
+                try:
+                    mctweet.check_if_can_be_verified()
+                    mctweet.tweet_checking_mention.destination_bot_is_checking_mention = True
+                    mctweet.tweet_checking_mention.save()
+                    mentioned_bot = mctweet.mentioned_bots.first()
+                    log_task_adding('VERIFY MC_TWEET')
+                    pool.add_task(mentioned_bot.verify_tweet_if_received_ok, mctweet)
+                except (TweetConstructionError,
+                        DestinationBotIsBeingUsed,
+                        VerificationTimeWindowNotPassed,
+                        SentOkMcTweetWithoutDateSent):
+                    pass
+            else:
+                try:
+                    mctweet_sender_bot.check_if_can_send_mctweet()
+                    mctweet.sending = True
+                    mctweet.save()
+                    log_task_adding('SEND MC_TWEET')
+                    pool.add_task(mctweet.send)
+                except LastMctweetFailedTimeWindowNotPassed:
+                    pass
+
+        except MuTweetHasNotSentFTweetsEnough as e:
+            ftweet = e.mutweet.get_or_create_ftweet_to_send()
+            ftweet.sending = True
+            ftweet.save()
+            log_task_adding('SEND F_TWEET')
+            pool.add_task(ftweet.send)
+
+        except SenderBotHasToFollowPeople as e:
+            sender_bot = e.sender_bot
+            sender_bot.is_following = True
+            sender_bot.save()
+            # marcamos los twitterusers a seguir por el bot
+            sender_bot.mark_twitterusers_to_follow_at_once()
+            log_task_adding('FOLLOW PEOPLE')
+            pool.add_task(sender_bot.follow_twitterusers)
+
+        except Exception as e:
+            settings.LOGGER.error('Error getting tumention from queue for bot %s: %s' %
+                                  (self.bot_used.username, self.compose()))
+            raise e
 
 
 class TweetCheckingMention(models.Model):

@@ -69,7 +69,7 @@ MAX_QUEUED_TWEETS_TO_SEND_PER_BOT = 3
 # TWEET SENDER
 MAX_THREADS_SENDING_TWEETS = 8  # máximo de hilos para enviar tweets
 TOTAL_TASKS_SENDING_TWEETS = MAX_THREADS_SENDING_TWEETS  # número total de tareas para las hebras por cada vez que se ejecuta el proceso de enviar tweets
-TIME_SLEEPING_AFTER_NO_BOTS_FOUND = 60  # tiempo que se duerme la hebra si no encuentra ningún bot disponible para lanzar tweet
+TIME_SLEEPING_AFTER_NO_BOTS_FOUND = 120  # tiempo que se duerme la hebra si no encuentra ningún bot disponible para lanzar tweet
 TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER = 15
 
 TWEET_LINK_LENGTH = 22

@@ -12,8 +12,10 @@ from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailabl
 from core.scrapper.thread_pool import ThreadPool
 from core.scrapper.utils import utc_now
 from twitter_bots import settings
-from threading import Lock
+from threading import Lock, BoundedSemaphore
 mutex = Lock()
+
+sem_mutweet_checking = BoundedSemaphore(value=3)
 
 
 # https://djangosnippets.org/snippets/562/
@@ -71,7 +73,7 @@ class TwitterBotManager(models.Manager):
 
     def create_bots(self, num_threads=None, num_tasks=None):
         from core.models import Proxy
-        self.clean_unregistered()
+        #self.clean_unregistered()
         self.put_previous_being_created_to_false()
 
         proxies = Proxy.objects.available_to_assign_bots_for_registration()
@@ -116,55 +118,56 @@ class TwitterBotManager(models.Manager):
     def put_previous_being_created_to_false(self):
             self.filter(is_being_created=True).update(is_being_created=False)
 
-    def send_twusermention_from_pending_queue(self, bot=None):
-        """Escoge un tweet pendiente de enviar cuyo robot no esté enviando actualmente"""
+    def queue_tasks_from_mention_queue(self, pool, bot=None):
+        """Consulta la cola de menciones para añadirlas a la cola de tareas"""
         from project.models import Tweet
+        import random
 
-        try:
-            connection.close()
+        def pr():
+            """Esto solo lo usamos para probar el threadpool"""
+            settings.LOGGER.debug('starting..')
+            time.sleep(random.randint(5,10))
+            settings.LOGGER.debug('..done!')
 
-            try:
-                mutex.acquire()
-                tweet_to_send = Tweet.objects.get_mention_ready_to_send(bot=bot)
-            finally:
-                mutex.release()
-
-            tweet_to_send.send()
-
-        except (NoAvailableBots,
-                NoAvailableBot,
-                EmptyMentionQueue):
-            # si no se puede enviar nada ponemos la hebra a esperar un momento
-            settings.LOGGER.debug('Sleeping %d seconds..' % settings.TIME_SLEEPING_AFTER_NO_BOTS_FOUND)
-            time.sleep(settings.TIME_SLEEPING_AFTER_NO_BOTS_FOUND)
-
-        except McTweetMustBeSent as e:
-            e.mc_tweet.send()
-
-        except McTweetMustBeVerified as e:
-            mentioned_bot = e.mctweet.mentioned_bots.first()
-            mentioned_bot.verify_tweet_if_received_ok(e.mctweet)
-
-        except FTweetMustBeSent as e:
-            e.ftweet.send()
-
-        except SenderBotHasToFollowPeople as e:
-            e.sender_bot.follow_twitterusers()
-
-        except Exception as e:
-            settings.LOGGER.exception('Error sending tweet')
-            time.sleep(60)
-            raise e
-
-    def send_mentions_from_queue(self, bot=None, num_threads=None, num_tasks=None):
-        if num_threads == 1:
-            self.send_twusermention_from_pending_queue(bot)
+        pending_mentions = Tweet.objects.get_queued_twitteruser_mentions_to_send(by_bot=bot)\
+            .select_related('bot_used').select_related('bot_used__proxy_for_usage__proxies_group')
+        if pending_mentions.exists():
+            settings.LOGGER.info('Processing %d pending mentions..' % pending_mentions.count())
+            for mention in pending_mentions:
+                mention.process(pool)
+                # pool.add_task(pr)
         else:
-            pool = ThreadPool(num_threads or settings.MAX_THREADS_SENDING_TWEETS, timeout=60*10)
+            if Tweet.objects.filter(sending=False, sent_ok=False).exists():
+                if bot:
+                    raise NoAvailableBot(bot)
+                else:
+                    raise NoAvailableBots
+            else:
+                raise EmptyMentionQueue(bot=bot)
 
-            for task_num in range(num_tasks or settings.TOTAL_TASKS_SENDING_TWEETS):
-                pool.add_task(self.send_twusermention_from_pending_queue, bot)
-            pool.wait_completion()
+
+    def perform_sending_tweets(self, bot=None, num_threads=None, max_lookups=None):
+        """Mira n veces (max_lookups) en la cola de menciones cada x segundos y encola tweets a enviar"""
+
+        pool = ThreadPool(num_threads or settings.MAX_THREADS_SENDING_TWEETS, timeout=60*10)
+
+        for l in xrange(max_lookups):
+            settings.LOGGER.info('LOOKUP %d' % (l+1))
+            try:
+                self.queue_tasks_from_mention_queue(pool, bot=bot)
+            except (EmptyMentionQueue,
+                    NoAvailableBot,
+                    NoAvailableBots):
+                pass
+
+            time.sleep(settings.TIME_WAITING_NEW_TWITTEABLE_BOTS)
+
+        settings.LOGGER.debug('Waiting completing tasks..')
+        pool.wait_completion()
+
+            # for task_num in range(num_tasks or settings.TOTAL_TASKS_SENDING_TWEETS):
+            #     pool.add_task(self.send_twusermention_from_pending_queue, bot)
+            # pool.wait_completion()
 
         # manager = multiprocessing.Manager()
         # lock = manager.Lock()
@@ -189,15 +192,21 @@ class TwitterBotManager(models.Manager):
         """Mira qué robots aparecen incompletos y termina de hacer en cada uno lo que quede"""
         from project.models import ProxiesGroup
 
+         # ponemos a false todos los is_being_created
+        self.put_previous_being_created_to_false()
+
         bots_to_finish_creation = self.pendant_to_finish_creation()  # sólo se eligen bots de grupos activos
         if bots_to_finish_creation.exists():
-            if not bot and num_tasks > 1:
-                # si son varios bots usamos hebras
-                pool = ThreadPool(num_threads or settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
-                bots_to_finish_creation = bots_to_finish_creation[:num_tasks] if num_tasks else bots_to_finish_creation
-                for bot in bots_to_finish_creation:
-                    pool.add_task(bot.complete_creation)
-                pool.wait_completion()
+            if not bot and (num_tasks > 1 or not num_tasks):
+                if num_threads == 1:
+                    bot = bots_to_finish_creation.first()
+                    bot.complete_creation()
+                else:
+                    pool = ThreadPool(num_threads or settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
+                    bots_to_finish_creation = bots_to_finish_creation[:num_tasks] if num_tasks else bots_to_finish_creation
+                    for bot in bots_to_finish_creation:
+                        pool.add_task(bot.complete_creation)
+                    pool.wait_completion()
             else:
                 bot = bots_to_finish_creation.get(username=bot) if bot else bots_to_finish_creation.first()
                 bot.complete_creation()
