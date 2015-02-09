@@ -424,15 +424,20 @@ class Tweet(models.Model):
 
             # comprobamos si el que le llegaron menos mctweets pasó el timewindow para poder ser mencionado de nuevo
             for bot in mentionable_bots:
-                latest_mctweet_to_bot = bot.mentions.latest('date_created')
-                timewindow = generate_random_secs_from_minute_interval(
-                    bot_used_group.mctweet_to_same_bot_time_window)
-
-                timewindow_passed = has_elapsed_secs_since_time_ago(
-                    latest_mctweet_to_bot.date_created, timewindow)
-                if timewindow_passed:
+                if not bot.mentions.exists():
+                    # si el bot no fue mencionado nunca, entonces se añade
                     self.mentioned_bots.add(bot)
                     break
+                else:
+                    latest_mctweet_to_bot = bot.mentions.latest('date_created')
+                    timewindow = generate_random_secs_from_minute_interval(
+                        bot_used_group.mctweet_to_same_bot_time_window)
+
+                    timewindow_passed = has_elapsed_secs_since_time_ago(
+                        latest_mctweet_to_bot.date_created, timewindow)
+                    if timewindow_passed:
+                        self.mentioned_bots.add(bot)
+                        break
                 # else:
                 #     settings.LOGGER.debug('Bot %s can\'t be mentioned because not passed '
                 #                           'mctweet_to_same_bot_time_window (%s min)' %
