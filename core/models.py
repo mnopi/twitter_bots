@@ -831,17 +831,20 @@ class TwitterBot(models.Model):
                                      (mentioned_bot.username, reply_msg, mctweet.bot_used.username))
                 scr.take_screenshot('mention_replied_ok', force_take=True)
 
-            reply_btn = mention_received_ok_el.find_element_by_css_selector('.js-actionReply')
-            scr.click(reply_btn)
+            try:
+                reply_btn = mention_received_ok_el.find_element_by_css_selector('.js-actionReply')
+                scr.click(reply_btn)
 
-            input_text = mention_received_ok_el.find_element_by_css_selector('#tweet-box-template')
-            reply_msg = scr.get_random_reply()
-            scr.fill_input_text(input_text, reply_msg)
+                input_text = mention_received_ok_el.find_element_by_css_selector('#tweet-box-template')
+                reply_msg = scr.get_random_reply()
+                scr.fill_input_text(input_text, reply_msg)
 
-            tweet_btn = mention_received_ok_el.find_element_by_css_selector('.tweet-button .btn')
-            scr.click(tweet_btn)
-            scr.delay.seconds(5)
-            check_replied_ok()
+                tweet_btn = mention_received_ok_el.find_element_by_css_selector('.tweet-button .btn')
+                scr.click(tweet_btn)
+                scr.delay.seconds(5)
+                check_replied_ok()
+            except Exception:
+                settings.LOGGER.exception('Error replying bot %s to %s' % (mentioned_bot.username, mctweet.bot_used.username))
 
         from project.models import TweetCheckingMention
 
@@ -886,12 +889,12 @@ class TwitterBot(models.Model):
                     scr.take_screenshot('mention_arrived_ok', force_take=True)
                     settings.LOGGER.info('Bot %s received mention ok from %s' %
                                          (mentioned_bot.username, mctweet.bot_used.username))
+                    tcm.mentioning_works = True
                     try:
                         do_reply()
                     except FailureReplyingMcTweet:
                         # de momento sólo sacamos mensajito si no se pudo responder
                         pass
-                    tcm.mentioning_works = True
                 else:
                     scr.take_screenshot('mention_not_arrived', force_take=True)
                     settings.LOGGER.error('Bot %s not received mention from %s tweeting: %s' %
@@ -900,6 +903,7 @@ class TwitterBot(models.Model):
 
                 tcm.destination_bot_checked_mention = True
                 tcm.destination_bot_checked_mention_date = utc_now()
+                tcm.save()
             except TwitterEmailNotConfirmed:
                 settings.LOGGER.debug('Verifier %s has to confirm email first. Deleting mctweet %d sent from %s' %
                                       (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
