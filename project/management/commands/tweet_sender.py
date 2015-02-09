@@ -51,7 +51,7 @@ class Command(BaseCommand):
         except Exception as e:
             raise FatalError(e)
         finally:
-            # quitamos todos los phantomjs que hubiera ejecutando
+            # quitamos todos los phantomjs que hayan quedado ejecutándose
             for proc in psutil.process_iter():
                 if 'phantomjs' in proc.name():
                     proc.kill()

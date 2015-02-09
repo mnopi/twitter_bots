@@ -87,7 +87,7 @@ class TwitterScrapper(Scrapper):
                         self.delay.seconds(4)
                         self.fill_input_text('#password', self.user.password_twitter)
                         self.click('#submit_button')
-                    else:
+                    elif self.check_visibility('#password'):
                         self.fill_input_text('#password', self.user.password_twitter)
                         self.try_to_click('#submit_button')
                         self.fill_input_text('#username', self.user.username)
@@ -97,6 +97,25 @@ class TwitterScrapper(Scrapper):
                         # si sale un cartelito "that's you" picamos en alguna de las sugerencias de username
                         if self.check_visibility('#message-drawer .message-text'):
                             self.click('#skip_link')
+                    else:
+                        self.try_to_click('input[name="submit_button"]', 'input#submit_button')
+                else:
+                    self.fill_input_text('#password', self.user.password_twitter)
+                    if self.check_visibility('#username'):
+                        self.fill_input_text('#username', self.user.username)
+                        check_username()
+                        self.try_to_click('input[name="submit_button"]', 'input#submit_button')
+                    else:
+                        self.try_to_click('input[name="submit_button"]', 'input#submit_button')
+                        self.delay.seconds(10)
+                        self.fill_input_text('#username', self.user.username)
+                        check_username()
+                        self.try_to_click('input[name="submit_button"]', 'input#submit_button')
+
+                        # si sale un cartelito "that's you" picamos en alguna de las sugerencias de username
+                        if self.check_visibility('#message-drawer .message-text'):
+                            self.click('#skip_link')
+
 
             self.delay.seconds(10)
 
@@ -118,6 +137,7 @@ class TwitterScrapper(Scrapper):
 
             # finalmente lo ponemos como registrado en twitter
             self.user.twitter_registered_ok = True
+            self.user.date = utc_now()
             self.user.save()
             self.logger.info('Twitter account registered successfully')
         except Exception, e:

@@ -208,10 +208,13 @@ class HotmailScrapper(Scrapper):
                     self.fill_input_text('#idDiv_PWD_PasswordExample', self.user.password_email)
                     self.click('#idSIButton9')
                     self.wait_to_page_readystate()
-                    self.click('#idBtn_SAOTCS_Cancel')
+                    self.try_to_click('#idBtn_SAOTCS_Cancel', 'a#iShowSkip')
                     self.wait_to_page_readystate()
                 elif self.check_visibility('#idBtn_SAOTCS_Cancel'):
                     self.click('#idBtn_SAOTCS_Cancel')
+                    self.wait_to_page_readystate()
+                elif self.check_visibility('a#iShowSkip'):
+                    self.click('a#iShowSkip')
                     self.wait_to_page_readystate()
                 else:
                     break

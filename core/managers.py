@@ -76,6 +76,7 @@ class TwitterBotManager(models.Manager):
         #self.clean_unregistered()
         self.put_previous_being_created_to_false()
 
+        settings.LOGGER.info('Retrieving proxies available for registering bots..')
         proxies = Proxy.objects.available_to_assign_bots_for_registration()
         if proxies.exists():
             if num_threads == 1:
@@ -149,9 +150,10 @@ class TwitterBotManager(models.Manager):
     def perform_sending_tweets(self, bot=None, num_threads=None, max_lookups=None):
         """Mira n veces (max_lookups) en la cola de menciones cada x segundos y encola tweets a enviar"""
 
-        pool = ThreadPool(num_threads or settings.MAX_THREADS_SENDING_TWEETS, timeout=60*10)
+        pool = ThreadPool(num_threads or settings.MAX_THREADS_SENDING_TWEETS, timeout=60*10) \
+            if num_threads > 1 else None
 
-        for l in xrange(max_lookups):
+        for l in xrange(max_lookups or 1):
             settings.LOGGER.info('LOOKUP %d' % (l+1))
             try:
                 self.queue_tasks_from_mention_queue(pool, bot=bot)
@@ -160,10 +162,12 @@ class TwitterBotManager(models.Manager):
                     NoAvailableBots):
                 pass
 
-            time.sleep(settings.TIME_WAITING_NEW_TWITTEABLE_BOTS)
+            time.sleep(settings.TIME_WAITING_NEXT_LOOKUP)
 
         settings.LOGGER.debug('Waiting completing tasks..')
-        pool.wait_completion()
+
+        if pool:
+            pool.wait_completion()
 
             # for task_num in range(num_tasks or settings.TOTAL_TASKS_SENDING_TWEETS):
             #     pool.add_task(self.send_twusermention_from_pending_queue, bot)
@@ -203,13 +207,19 @@ class TwitterBotManager(models.Manager):
                     bot.complete_creation()
                 else:
                     pool = ThreadPool(num_threads or settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
+                    # ponemos bots sin subnets repetidas para evitar varios registros desde misma subnet
+                    bots_to_finish_creation = bots_to_finish_creation.one_per_subnet()
                     bots_to_finish_creation = bots_to_finish_creation[:num_tasks] if num_tasks else bots_to_finish_creation
                     for bot in bots_to_finish_creation:
                         pool.add_task(bot.complete_creation)
                     pool.wait_completion()
             else:
-                bot = bots_to_finish_creation.get(username=bot) if bot else bots_to_finish_creation.first()
-                bot.complete_creation()
+                try:
+                    bot = bots_to_finish_creation.get(username=bot) if bot else bots_to_finish_creation.first()
+                    bot.complete_creation()
+                except self.model.DoesNotExist:
+                    bot = self.get(username=bot)
+                    bot.log_reason_to_not_complete_creation()
 
             settings.LOGGER.info('Sleeping %d seconds to respawn bot_creation_finisher again..' %
                                  settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
@@ -223,6 +233,13 @@ class TwitterBotManager(models.Manager):
     def check_proxies(self, bots):
         for bot in bots:
             bot.check_proxy_ok()
+
+    def get_distinct_proxies(self, bots):
+        """Devuelve los distintos proxies que tienen los bots (se pasan por parámetro en formato queryset)"""
+        from core.models import Proxy
+
+        distinct_proxies = bots.values_list('proxy_for_usage__proxy', flat=True).distinct()
+        return Proxy.objects.filter(proxy__in=distinct_proxies)
 
     #
     # Proxy methods to queryset
@@ -281,6 +298,9 @@ class TwitterBotManager(models.Manager):
 
     def unmentioned_by_bot(self, bot):
         return self.get_queryset().unmentioned_by_bot(bot)
+
+    def one_per_subnet(self):
+        return self.get_queryset().one_per_subnet()
 
     def annotate__mctweets_received_count(self):
         return self.get_queryset().annotate__mctweets_received_count()
@@ -436,8 +456,10 @@ class ProxyManager(MyManager):
         return self.get_queryset().invalid_for_assign_proxies_group()
 
     def with_completed_bots(self):
-        return  self.get_queryset().with_completed_bots()
+        return self.get_queryset().with_completed_bots()
 
     def without_completed_bots(self):
-        return  self.get_queryset().without_completed_bots()
+        return self.get_queryset().without_completed_bots()
 
+    def with_distinct_subnets(self):
+        return self.get_queryset().with_distinct_subnets()

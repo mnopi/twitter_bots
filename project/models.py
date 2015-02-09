@@ -572,7 +572,7 @@ class Tweet(models.Model):
     def check_if_can_be_sent(self):
         """Comprueba si el tweet puede enviarse o no"""
 
-        # self._check_if_errors_on_construction()
+        self._check_if_errors_on_construction()
 
         sender_bot = self.bot_used
 
@@ -719,7 +719,7 @@ class Tweet(models.Model):
         else:
             return False
 
-    def process(self, pool):
+    def process(self, pool=None):
         """Procesa el tweet de la cola para ver qué tarea tenemos que enviar al pool de threads"""
 
         def log_task_adding(task_name):
@@ -729,8 +729,11 @@ class Tweet(models.Model):
             self.check_if_can_be_sent()
             self.sending = True
             self.save()
-            log_task_adding('SEND MU_TWEET')
-            pool.add_task(self.send)
+            if pool:
+                log_task_adding('SEND MU_TWEET')
+                pool.add_task(self.send)
+            else:
+                self.send()
         except (TweetConstructionError,
                 BotIsAlreadyBeingUsed,
                 BotHasNotEnoughTimePassedToTweetAgain):
@@ -746,8 +749,11 @@ class Tweet(models.Model):
                     mctweet.tweet_checking_mention.destination_bot_is_checking_mention = True
                     mctweet.tweet_checking_mention.save()
                     mentioned_bot = mctweet.mentioned_bots.first()
-                    log_task_adding('VERIFY MC_TWEET')
-                    pool.add_task(mentioned_bot.verify_tweet_if_received_ok, mctweet)
+                    if pool:
+                        log_task_adding('VERIFY MC_TWEET')
+                        pool.add_task(mentioned_bot.verify_mctweet_if_received_ok, mctweet)
+                    else:
+                        mentioned_bot.verify_mctweet_if_received_ok(mctweet)
                 except (TweetConstructionError,
                         DestinationBotIsBeingUsed,
                         VerificationTimeWindowNotPassed,
@@ -758,8 +764,11 @@ class Tweet(models.Model):
                     mctweet_sender_bot.check_if_can_send_mctweet()
                     mctweet.sending = True
                     mctweet.save()
-                    log_task_adding('SEND MC_TWEET')
-                    pool.add_task(mctweet.send)
+                    if pool:
+                        log_task_adding('SEND MC_TWEET')
+                        pool.add_task(mctweet.send)
+                    else:
+                        mctweet.send()
                 except LastMctweetFailedTimeWindowNotPassed:
                     pass
 
@@ -767,8 +776,11 @@ class Tweet(models.Model):
             ftweet = e.mutweet.get_or_create_ftweet_to_send()
             ftweet.sending = True
             ftweet.save()
-            log_task_adding('SEND F_TWEET')
-            pool.add_task(ftweet.send)
+            if pool:
+                log_task_adding('SEND F_TWEET')
+                pool.add_task(ftweet.send)
+            else:
+                ftweet.send()
 
         except SenderBotHasToFollowPeople as e:
             sender_bot = e.sender_bot
@@ -776,11 +788,14 @@ class Tweet(models.Model):
             sender_bot.save()
             # marcamos los twitterusers a seguir por el bot
             sender_bot.mark_twitterusers_to_follow_at_once()
-            log_task_adding('FOLLOW PEOPLE')
-            pool.add_task(sender_bot.follow_twitterusers)
+            if pool:
+                log_task_adding('FOLLOW PEOPLE')
+                pool.add_task(sender_bot.follow_twitterusers)
+            else:
+                sender_bot.follow_twitterusers()
 
         except Exception as e:
-            settings.LOGGER.error('Error getting tumention from queue for bot %s: %s' %
+            settings.LOGGER.exception('Error getting tumention from queue for bot %s: %s' %
                                   (self.bot_used.username, self.compose()))
             raise e
 

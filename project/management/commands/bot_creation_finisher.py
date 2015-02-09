@@ -25,9 +25,7 @@ class Command(BaseCommand):
         settings.LOGGER.info('-- INITIALIZED BOT CREATION FINISHER --')
 
         num_threads, num_tasks = get_2_args(args)
-        bot = TwitterBot.objects.get(username=options['bot']) \
-            if 'bot' in options and options['bot'] \
-            else None
+        bot = options.get('bot', None)
 
         try:
             TwitterBot.objects.finish_creations(num_threads=num_threads, num_tasks=num_tasks, bot=bot)

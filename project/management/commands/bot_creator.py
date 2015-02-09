@@ -32,8 +32,6 @@ class Command(BaseCommand):
         try:
             num_threads, num_tasks = get_2_args(args)
             TwitterBot.objects.create_bots(num_threads=num_threads, num_tasks=num_tasks)
-
-
         except Exception as e:
             raise FatalError(e)
 

@@ -179,6 +179,24 @@ class TwitterBotQuerySet(QuerySet):
             }
         )
 
+    def one_per_subnet(self):
+        """Filtra los bots para que no salgan varios de una misma subnet"""
+
+        from core.models import TwitterBot, Proxy
+
+        # saca los distintos proxies para estos bots
+        distinct_proxies = TwitterBot.objects.get_distinct_proxies(self)
+
+        # saca las distintas subnets de los bots
+        distinct_subnets = Proxy.objects.get_subnets_24(distinct_proxies)
+
+        twitter_bots_pks = []
+        for subnet in distinct_subnets:
+            bot = self.filter(proxy_for_usage__proxy__istartswith=subnet).values('pk').first()
+            twitter_bots_pks.append(bot['pk'])
+
+        return self.filter(pk__in=twitter_bots_pks)
+
 
 class ProxyQuerySet(MyQuerySet):
     q__without_any_suspended_bot = ~(

@@ -7,7 +7,7 @@ from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver import ActionChains
 from selenium.webdriver.common.keys import Keys
 from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableProxiesToAssignBotsForUse,\
-    TweetCreationException, LastMctweetFailedTimeWindowNotPassed
+    TweetCreationException, LastMctweetFailedTimeWindowNotPassed, BotCantBeRegistered
 from core.scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from core.scrapper.accounts.hotmail import HotmailScrapper
 from core.scrapper.accounts.twitter import TwitterScrapper
@@ -223,7 +223,15 @@ class TwitterBot(models.Model):
         else:
             raise Exception(INVALID_EMAIL_DOMAIN_MSG)
 
+    def check_if_can_be_registered(self):
+        """Nos dice si el bot se registrar su cuenta email/twitter"""
+        if not self.proxy_for_usage.can_register_bots():
+            raise BotCantBeRegistered(self)
+
     def complete_creation(self, first_time=False):
+        """Hace los registros de email/twitter para el bot, confirma email en twitter y rellena perfil (avatar y bio).
+        También intenta levantar suspensión si estaba suspendido"""
+
         if self.has_to_complete_creation():
             self.is_being_created = True
             self.save()
@@ -254,6 +262,7 @@ class TwitterBot(models.Model):
                             pass
 
                     if self.has_to_register_email():
+                        self.check_if_can_be_registered()
                         self.email_scr.set_screenshots_dir('1_signup_email')
                         self.email_scr.sign_up()
                         self.email_registered_ok = True
@@ -271,6 +280,7 @@ class TwitterBot(models.Model):
                             pass
 
                     if self.has_to_register_twitter():
+                        self.check_if_can_be_registered()
                         self.twitter_scr.set_screenshots_dir('2_signup_twitter')
                         self.twitter_scr.sign_up()
 
@@ -287,9 +297,11 @@ class TwitterBot(models.Model):
                     except (TwitterEmailNotFound,
                             TwitterAccountSuspended,
                             ErrorOpeningTwitterConfirmationLink):
-                        self.twitter_scr.set_screenshots_dir('resend_conf_email')
-                        # nos logueamos para volver a pedir el email de confirmación
-                        self.twitter_scr.login()
+                        try:
+                            self.twitter_scr.login()
+                        except TwitterEmailNotConfirmed:
+                            pass
+
                         if self.has_to_confirm_tw_email():
                             self.email_scr.confirm_tw_email()
                             self.twitter_confirmed_email_ok = True
@@ -327,7 +339,8 @@ class TwitterBot(models.Model):
                     NoMoreAvailableProxiesForRegistration,
                     TwitterAccountDead,
                     TwitterEmailNotConfirmed,
-                    EmailExistsOnTwitter):
+                    EmailExistsOnTwitter,
+                    BotCantBeRegistered):
                 pass
             except Exception as ex:
                 settings.LOGGER.exception('Error completing creation for bot %s' % self.username)
@@ -348,10 +361,26 @@ class TwitterBot(models.Model):
     def generate_email(self):
         self.email = generate_random_username(self.real_name) + '@' + settings.EMAIL_ACCOUNT_TYPE
 
+    def log_reason_to_not_complete_creation(self):
+        if not self.has_to_complete_creation():
+            settings.LOGGER.info('Bot %s is completed' % self.username)
+        elif self.proxy_for_usage.is_unavailable_for_registration:
+            settings.LOGGER.info('Bot %s has proxy %s unavailable for registration' %
+                                 (self.username, self.proxy_for_usage.__unicode__()))
+        elif self.proxy_for_usage.is_unavailable_for_registration:
+            settings.LOGGER.info('Bot %s has proxy %s unavailable for usage' %
+                                 (self.username, self.proxy_for_usage.__unicode__()))
+        elif self.proxy_for_usage.is_phone_required:
+            settings.LOGGER.info('Bot %s has proxy %s phone required' %
+                                 (self.username, self.proxy_for_usage.__unicode__()))
+        elif not self.get_group().reuse_proxies_with_suspended_bots:
+            settings.LOGGER.info('Bot %s has proxiesgroup %s with reuse_proxies_with_suspended_bots=False' %
+                                 (self.username. self.get_group().__unicode__()))
+
     def populate(self):
         try:
+            settings.LOGGER.info('Populating bot %d..' % self.pk)
             self.gender = random.randint(0, 1)
-
             gender_str = 'female' if self.gender == 1 else 'male'
             self.real_name = names.get_full_name(gender=gender_str)
             self.generate_email()
@@ -787,7 +816,7 @@ class TwitterBot(models.Model):
             if not mentioning_fail_timewindow_is_passed:
                 raise LastMctweetFailedTimeWindowNotPassed(self)
 
-    def verify_tweet_if_received_ok(self, tweet):
+    def verify_mctweet_if_received_ok(self, mctweet):
         """Comprueba si le llegó ok la mención del tweet dado por parámetro"""
 
         def do_reply():
@@ -796,10 +825,10 @@ class TwitterBot(models.Model):
                 try:
                     mention_received_ok_el.find_element_by_css_selector('ol.expanded-conversation')
                 except NoSuchElementException:
-                    raise FailureReplyingMcTweet(scr, tweet)
+                    raise FailureReplyingMcTweet(scr, mctweet)
 
                 settings.LOGGER.info('Bot %s replied ok "%s" to mention from %s' %
-                                     (mentioned_bot.username, reply_msg, tweet.bot_used.username))
+                                     (mentioned_bot.username, reply_msg, mctweet.bot_used.username))
                 scr.take_screenshot('mention_replied_ok', force_take=True)
 
             reply_btn = mention_received_ok_el.find_element_by_css_selector('.js-actionReply')
@@ -816,18 +845,18 @@ class TwitterBot(models.Model):
 
         from project.models import TweetCheckingMention
 
-        if not tweet.mentioned_bots.exists():
-            raise Exception('You can\'t check mention over tweet %i without bot mentions' % tweet.pk)
+        if not mctweet.mentioned_bots.exists():
+            raise Exception('You can\'t check mention over tweet %i without bot mentions' % mctweet.pk)
         else:
-            tcm = TweetCheckingMention.objects.get(tweet=tweet)
+            tcm = TweetCheckingMention.objects.get(tweet=mctweet)
             try:
                 # nos logueamos con el bot destino y comprobamos
-                mentioned_bot = tweet.mentioned_bots.all()[0]
+                mentioned_bot = mctweet.mentioned_bots.first()
                 settings.LOGGER.info('Bot %s verifying tweet sent from %s..' %
-                                     (mentioned_bot.username, tweet.bot_used.username))
+                                     (mentioned_bot.username, mctweet.bot_used.username))
                 scr = mentioned_bot.scrapper
 
-                scr.set_screenshots_dir('checking_mention_%s_from_%s' % (tweet.pk, tweet.bot_used.username))
+                scr.set_screenshots_dir('checking_mention_%s_from_%s' % (mctweet.pk, mctweet.bot_used.username))
                 scr.open_browser()
                 scr.login()
                 scr.click('li.notifications')
@@ -843,11 +872,11 @@ class TwitterBot(models.Model):
                     user_mentioning_is_bot = TwitterBot.objects.filter(username=user_mentioning).exists()
 
                     if user_mentioning_is_bot:
-                        if user_mentioning == tweet.bot_used.username:
+                        if user_mentioning == mctweet.bot_used.username:
                             # una vez que encontramos el último tweet enviado por ese bot vemos si coincide con el
                             # tweet que dice nuestra BD que se le mandó, sin contar con el link
                             mention_text = mention_el.find_element_by_css_selector('.js-tweet-text').text.strip()
-                            if tweet.compose(with_link=False) in mention_text:
+                            if mctweet.compose(with_link=False) in mention_text:
                                 mention_received_ok_el = mention_el
                                 break
                         else:
@@ -856,7 +885,7 @@ class TwitterBot(models.Model):
                 if mention_received_ok_el:
                     scr.take_screenshot('mention_arrived_ok', force_take=True)
                     settings.LOGGER.info('Bot %s received mention ok from %s' %
-                                         (mentioned_bot.username, tweet.bot_used.username))
+                                         (mentioned_bot.username, mctweet.bot_used.username))
                     try:
                         do_reply()
                     except FailureReplyingMcTweet:
@@ -866,14 +895,26 @@ class TwitterBot(models.Model):
                 else:
                     scr.take_screenshot('mention_not_arrived', force_take=True)
                     settings.LOGGER.error('Bot %s not received mention from %s tweeting: %s' %
-                                          (mentioned_bot.username, tweet.bot_used.username, tweet.compose()))
+                                          (mentioned_bot.username, mctweet.bot_used.username, mctweet.compose()))
                     tcm.mentioning_works = False
 
                 tcm.destination_bot_checked_mention = True
                 tcm.destination_bot_checked_mention_date = utc_now()
+            except TwitterEmailNotConfirmed:
+                settings.LOGGER.debug('Verifier %s has to confirm email first. Deleting mctweet %d sent from %s' %
+                                      (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
+                mctweet.delete()
+            except Exception as e:
+                settings.LOGGER.exception('Error on bot %s verifying mctweet %d sent from %s' %
+                                          (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
+                raise e
             finally:
-                tcm.destination_bot_is_checking_mention = False
-                tcm.save()
+                try:
+                    tcm = TweetCheckingMention.objects.get(tweet=mctweet)
+                    tcm.destination_bot_is_checking_mention = False
+                    tcm.save()
+                except TweetCheckingMention.DoesNotExist:
+                    pass
 
     def has_to_follow_people(self):
         """Nos dice si el robot tiene que ponerse a seguir gente, es decir, si su grupo está configurado
@@ -1014,6 +1055,8 @@ class TwitterBot(models.Model):
             settings.LOGGER.exception('Error on bot %s following twitterusers' % self.username)
             raise e
         finally:
+            self.is_following = False
+            self.save()
             scr.close_browser()
 
     def mark_twitterusers_to_follow_at_once(self):
@@ -1102,3 +1145,26 @@ class Proxy(models.Model):
             self.date_unavailable_for_use = utc_now()
             self.save()
             settings.LOGGER.warning('Proxy %s marked as unavailable for use' % self.__unicode__())
+
+    def get_proxies_under_same_subnet(self):
+        proxy_subnet = self.get_subnet_24()
+        return self.__class__.objects.filter(proxy__istartswith=proxy_subnet)
+
+    def get_bots_registered_under_same_subnet(self):
+        same_subn_proxies = self.get_proxies_under_same_subnet()
+        return TwitterBot.objects.filter(proxy_for_registration__in=same_subn_proxies)
+
+    def get_bots_registered_under_same_subnet_since_days(self, days):
+        """Saca los bots que fueron registrados hace x dias"""
+        return self.get_bots_registered_under_same_subnet().filter(date__gte=utc_now() - datetime.timedelta(days=days))
+
+    def can_register_bots(self):
+        """Nos dice si el proxy puede registrar bots, ya que establecemos unos dias ventana entre registro y registro
+        sobre misma subnet"""
+        days_window = self.proxies_group.min_days_between_registrations_per_proxy_under_same_subnet
+        # si no hay ningun bot registrado en esos dias bajo la misma subnet, entonces podra registrar nuevos bots
+        return not self.get_bots_registered_under_same_subnet_since_days(days_window).exists()
+
+    def get_days_left_to_allow_registrations(self):
+        latest_bot = self.get_bots_registered_under_same_subnet().latest('date')
+        days_window = self.proxies_group.min_days_between_registrations_per_proxy_under_same_subnet
