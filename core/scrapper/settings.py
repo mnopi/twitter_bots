@@ -33,8 +33,8 @@ COMPATIBLE_EMAIL_ACCOUNTS = [
 #
 # SCRAPPER SETTINGS
 USE_PROXY = True
-PAGE_LOAD_TIMEOUT = 140  # segundos que se espera a la respuesta al pedir una URL
-PAGE_READYSTATE_TIMEOUT = 200  # segundos que se espera a que el DOM de la página esté listo
+PAGE_LOAD_TIMEOUT = 120  # segundos que se espera a la respuesta al pedir una URL
+PAGE_READYSTATE_TIMEOUT = 90  # segundos que se espera a que el DOM de la página esté listo
 RANDOM_OFFSETS_ON_EL_CLICK = False  # activar offset al hacer click con el ratón sobre un elemento dado
 TYPING_SPEED = (20, 40)  # en ms, el tiempo que pasa entre que se presiona/levanta una tecla
 WEBDRIVER = 'PH'

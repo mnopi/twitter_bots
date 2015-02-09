@@ -38,6 +38,9 @@ class Command(BaseCommand):
                 if 'bot' in options and options['bot'] \
                 else None
 
+            if bot:
+                settings.TAKE_SCREENSHOTS = True
+
             num_threads, max_lookups = get_2_args(args)
 
             TwitterBot.objects.perform_sending_tweets(bot=bot, num_threads=num_threads, max_lookups=max_lookups)

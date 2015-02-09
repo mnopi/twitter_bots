@@ -832,6 +832,7 @@ class TwitterBot(models.Model):
                 scr.take_screenshot('mention_replied_ok', force_take=True)
 
             try:
+                mention_received_ok_el = get_mention_received_ok_el()
                 reply_btn = mention_received_ok_el.find_element_by_css_selector('.js-actionReply')
                 scr.click(reply_btn)
 
@@ -844,7 +845,26 @@ class TwitterBot(models.Model):
                 scr.delay.seconds(5)
                 check_replied_ok()
             except Exception:
+                scr.take_screenshot('error_replying', force_take=True)
                 settings.LOGGER.exception('Error replying bot %s to %s' % (mentioned_bot.username, mctweet.bot_used.username))
+
+        def get_mention_received_ok_el():
+            mention_received_ok_el = None
+            mentions_timeline_el = scr.get_css_elements('#stream-items-id > li')
+            for mention_el in mentions_timeline_el:
+                # buscamos en la lista el último tweet enviado por ese bot
+                user_mentioning = mention_el.find_element_by_css_selector('.username.js-action-profile-name').text.strip('@')
+                user_mentioning_is_bot = TwitterBot.objects.filter(username=user_mentioning).exists()
+
+                if user_mentioning_is_bot and user_mentioning == mctweet.bot_used.username:
+                    # una vez que encontramos el último tweet enviado por ese bot vemos si coincide con el
+                    # tweet que dice nuestra BD que se le mandó, sin contar con el link
+                    mention_text = mention_el.find_element_by_css_selector('.js-tweet-text').text.strip()
+                    if mctweet.compose(with_link=False) in mention_text:
+                        mention_received_ok_el = mention_el
+                        break
+
+            return mention_received_ok_el
 
         from project.models import TweetCheckingMention
 
@@ -852,6 +872,8 @@ class TwitterBot(models.Model):
             raise Exception('You can\'t check mention over tweet %i without bot mentions' % mctweet.pk)
         else:
             tcm = TweetCheckingMention.objects.get(tweet=mctweet)
+            scr = None
+            # esto contendrá la cajita de la mención recibida
             try:
                 # nos logueamos con el bot destino y comprobamos
                 mentioned_bot = mctweet.mentioned_bots.first()
@@ -865,31 +887,14 @@ class TwitterBot(models.Model):
                 scr.click('li.notifications')
                 scr.click('a[href="/mentions"]')
 
-                # esto contendrá la cajita de la mención recibida
-                mention_received_ok_el = None
-
-                mentions_timeline_el = scr.get_css_elements('#stream-items-id > li')
-                for mention_el in mentions_timeline_el:
-                    # buscamos en la lista el último tweet enviado por ese bot
-                    user_mentioning = mention_el.find_element_by_css_selector('.username.js-action-profile-name').text.strip('@')
-                    user_mentioning_is_bot = TwitterBot.objects.filter(username=user_mentioning).exists()
-
-                    if user_mentioning_is_bot:
-                        if user_mentioning == mctweet.bot_used.username:
-                            # una vez que encontramos el último tweet enviado por ese bot vemos si coincide con el
-                            # tweet que dice nuestra BD que se le mandó, sin contar con el link
-                            mention_text = mention_el.find_element_by_css_selector('.js-tweet-text').text.strip()
-                            if mctweet.compose(with_link=False) in mention_text:
-                                mention_received_ok_el = mention_el
-                                break
-                        else:
-                            continue
-
-                if mention_received_ok_el:
+                if get_mention_received_ok_el():
                     scr.take_screenshot('mention_arrived_ok', force_take=True)
                     settings.LOGGER.info('Bot %s received mention ok from %s' %
                                          (mentioned_bot.username, mctweet.bot_used.username))
                     tcm.mentioning_works = True
+                    tcm.destination_bot_checked_mention = True
+                    tcm.destination_bot_checked_mention_date = utc_now()
+                    tcm.save()
                     try:
                         do_reply()
                     except FailureReplyingMcTweet:
@@ -900,15 +905,16 @@ class TwitterBot(models.Model):
                     settings.LOGGER.error('Bot %s not received mention from %s tweeting: %s' %
                                           (mentioned_bot.username, mctweet.bot_used.username, mctweet.compose()))
                     tcm.mentioning_works = False
+                    tcm.destination_bot_checked_mention = True
+                    tcm.destination_bot_checked_mention_date = utc_now()
+                    tcm.save()
 
-                tcm.destination_bot_checked_mention = True
-                tcm.destination_bot_checked_mention_date = utc_now()
-                tcm.save()
             except TwitterEmailNotConfirmed:
                 settings.LOGGER.debug('Verifier %s has to confirm email first. Deleting mctweet %d sent from %s' %
                                       (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
                 mctweet.delete()
             except Exception as e:
+                scr.take_screenshot('error_verifying', force_take=True)
                 settings.LOGGER.exception('Error on bot %s verifying mctweet %d sent from %s' %
                                           (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
                 raise e

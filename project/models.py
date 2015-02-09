@@ -421,7 +421,25 @@ class Tweet(models.Model):
             # los ordenamos poniendo primero al que le llegaron menos mctweets desde este bot remitente (self.bot_used)
             mentionable_bots = mentionable_bots.annotate__mctweets_received_count()\
                 .order_by('mctweets_received_count')
-            self.mentioned_bots.add(mentionable_bots.first())
+
+            # comprobamos si el que le llegaron menos mctweets pasó el timewindow para poder ser mencionado de nuevo
+            for bot in mentionable_bots:
+                latest_mctweet_to_bot = bot.mentions.latest('date_created')
+                timewindow = generate_random_secs_from_minute_interval(
+                    bot_used_group.mctweet_to_same_bot_time_window)
+
+                timewindow_passed = has_elapsed_secs_since_time_ago(
+                    latest_mctweet_to_bot.date_created, timewindow)
+                if timewindow_passed:
+                    self.mentioned_bots.add(bot)
+                    break
+                # else:
+                #     settings.LOGGER.debug('Bot %s can\'t be mentioned because not passed '
+                #                           'mctweet_to_same_bot_time_window (%s min)' %
+                #                           (bot.username, bot_used_group.mctweet_to_same_bot_time_window))
+
+            if not self.mentioned_bots.exists():
+                raise BotWithoutBotsToMention(self.bot_used)
         else:
             raise BotWithoutBotsToMention(self.bot_used)
 
@@ -1350,6 +1368,7 @@ class ProxiesGroup(models.Model):
     destination_bot_checking_time_window = models.CharField(max_length=10, null=False, blank=False, default='4-6')
     # tiempo mínimo que ha de pasar para que un bot pueda mandar mctweet otra vez a un mismo bot
     mctweet_to_same_bot_time_window = models.CharField(max_length=10, null=False, blank=False, default='60-120')
+
 
     #
     # following behaviour
