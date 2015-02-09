@@ -1413,6 +1413,23 @@ class ProxiesGroup(models.Model):
         return TwitterBot.objects.filter(proxy_for_usage__proxies_group=self)
 
 
+    def get_num_bots_left_for_reg_usage(self):
+        """Saca el número de bots que quedan para que se completen todos los proxies del grupo"""
+        ok_proxies = self.proxies.connection_ok()
+        reg_sum = 0
+        usage_sum = 0
+        for proxy in ok_proxies:
+            reg_sum += proxy.twitter_bots_registered.count()
+            usage_sum += proxy.twitter_bots_using.count()
+
+        ok_proxies_count = ok_proxies.count()
+        num_bots_for_reg_left = (self.max_tw_bots_per_proxy_for_registration * ok_proxies_count) - reg_sum
+        num_bots_for_usage_left = (self.max_tw_bots_per_proxy_for_usage * ok_proxies_count) - usage_sum
+
+        return num_bots_for_reg_left, num_bots_for_usage_left
+
+
+
 class Feed(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False, default='_unnamed')
     url = models.URLField(null=False, blank=False)

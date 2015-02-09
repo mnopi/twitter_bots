@@ -262,5 +262,5 @@ class SenderBotHasToFollowPeople(Exception):
 
 
 class BotCantBeRegistered(Exception):
-    def __init__(self, bot):
-        settings.LOGGER.warning('Bot %s has to wait more days to be registered' % bot.username)
+    def __init__(self, bot, where):
+        settings.LOGGER.warning('Bot %s has to wait more days to be registered on %s' % (bot.username, where))

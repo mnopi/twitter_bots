@@ -6,6 +6,7 @@ from django.shortcuts import render_to_response
 from django.template import RequestContext
 from core.forms import MyUserChangeForm
 from core.models import User, TwitterBot, Proxy
+from project.exceptions import NoAvailableProxiesToAssignBotsForUse, NoMoreAvailableProxiesForRegistration
 from project.models import ProxiesGroup
 from core.scrapper.scrapper import Scrapper
 from django.contrib import messages
@@ -131,7 +132,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'send_pending_tweets',
         'send_pending_tweet_from_selected_bot',
         'make_feed_tweet_to_send_for_selected_bot',
-        'assign_proxies_group',
+        'move_to_another_proxies',
     ]
 
     def open_browser_instance(self, request, queryset):
@@ -254,8 +255,46 @@ class TwitterBotAdmin(admin.ModelAdmin):
             self.message_user(request, "Only select one user for this action", level=messages.WARNING)
     make_feed_tweet_to_send_for_selected_bot.short_description = "Make feed tweet for selected bot"
 
-    def assign_proxies_group(self, request, queryset):
-        return assign_proxies_group(self, request, queryset)
+    def move_to_another_proxies(self, request, queryset):
+        """Al bot se le asignan proxies del grupo elegido"""
+
+        # http://www.jpichon.net/blog/2010/08/django-admin-actions-and-intermediate-pages/
+        # http://sysmagazine.com/posts/140409/
+        from django import forms
+        from querysets import TwitterBotQuerySet
+        class AssignProxiesForm(forms.Form):
+            _selected_action = forms.CharField(widget=forms.MultipleHiddenInput)
+            action = forms.CharField(widget=forms.HiddenInput)
+            proxies_group = forms.ModelChoiceField(queryset=ProxiesGroup.objects.all(), required=False)
+
+        if 'apply' in request.POST:
+            form = AssignProxiesForm(request.POST)
+
+            if form.is_valid():
+                proxies_group = form.cleaned_data['proxies_group']
+
+                assigned_count = 0
+                for bot in queryset:
+                    try:
+                        bot.assign_proxy(proxies_group=proxies_group)
+                        assigned_count += 1
+                    except (NoMoreAvailableProxiesForRegistration,
+                        NoAvailableProxiesToAssignBotsForUse):
+                        self.message_user(request, '%d bots with new proxy. %d left to assign (group completed)' %
+                                          (assigned_count, (queryset.count() - assigned_count)), level=messages.ERROR)
+
+                self.message_user(request, '%d bots assigned ok to group %s' % (assigned_count, proxies_group))
+                return HttpResponseRedirect(request.get_full_path())
+        else:
+            ctx = {
+                'proxies_group_form': AssignProxiesForm(
+                    initial={
+                        '_selected_action': [obj.pk for obj in queryset],
+                        'action': request.POST.get('action'),
+                    }
+                )
+            }
+            return render_to_response('core/assign_proxies_group.html', context_instance=RequestContext(request, ctx))
 
     raw_id_fields = (
         'proxy_for_registration',
@@ -445,6 +484,8 @@ class ProxyAdmin(admin.ModelAdmin):
             self.message_user(request, 'Error marking proxies as unavailable', level=messages.ERROR)
 
 def assign_proxies_group(admin_obj, request, queryset):
+    """Al proxy se le asigna otro grupo"""
+
     # http://www.jpichon.net/blog/2010/08/django-admin-actions-and-intermediate-pages/
     # http://sysmagazine.com/posts/140409/
     from django import forms

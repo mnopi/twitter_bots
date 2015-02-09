@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from django.db.models import Q, Count
+from django.db.models import Q, Count, Sum
 import feedparser
 from django.contrib.auth.models import AbstractUser
 from django.db import models
@@ -157,7 +157,7 @@ class TwitterBot(models.Model):
         """Mira si el proxy que el bot tiene asignado funciona correctamente"""
         Scrapper(self).check_proxy_works_ok()
 
-    def assign_proxy(self):
+    def assign_proxy(self, proxies_group=None):
         """
             Al bot se le asigna un proxy disponible según tenga cuentas ya creadas o no
         """
@@ -168,6 +168,8 @@ class TwitterBot(models.Model):
                 Asignamos proxy para registro, el cual será el mismo que para el uso
             """
             available_proxies_for_reg = Proxy.objects.available_to_assign_bots_for_registration()
+            if proxies_group:
+                available_proxies_for_reg = available_proxies_for_reg.filter(proxies_group=proxies_group)
             if not available_proxies_for_reg.exists():
                 raise NoMoreAvailableProxiesForRegistration()
             else:
@@ -183,12 +185,16 @@ class TwitterBot(models.Model):
                     self.proxy_for_registration = available_proxies_for_reg.order_by('?')[0]
 
                 self.proxy_for_usage = self.proxy_for_registration
+                settings.LOGGER.info('Assigned proxy for registration/usage %s to bot %s' % (self.proxy_for_usage, self.username))
 
         def assign_proxy_for_usage():
             """
                 Asignamos proxy entre los disponibles para el grupo del bot.
             """
-            proxies = Proxy.objects.for_group(self.get_group()).available_to_assign_bots_for_use()
+            if proxies_group:
+                proxies = Proxy.objects.for_group(proxies_group).available_to_assign_bots_for_use()
+            else:
+                proxies = Proxy.objects.for_group(self.get_group()).available_to_assign_bots_for_use()
             if proxies.exists():
                 if self.was_suspended():
                     # si el bot fue suspendido le intentamos colar un proxy con bots también suspendidos
@@ -223,10 +229,15 @@ class TwitterBot(models.Model):
         else:
             raise Exception(INVALID_EMAIL_DOMAIN_MSG)
 
-    def check_if_can_be_registered(self):
+    def check_if_can_be_registered_on_hotmail(self):
         """Nos dice si el bot se registrar su cuenta email/twitter"""
-        if not self.proxy_for_usage.can_register_bots():
-            raise BotCantBeRegistered(self)
+        if not self.proxy_for_usage.can_register_bots_on_hotmail():
+            raise BotCantBeRegistered(self, 'hotmail')
+
+    def check_if_can_be_registered_on_twitter(self):
+        """Nos dice si el bot se registrar su cuenta email/twitter"""
+        if not self.proxy_for_usage.can_register_bots_on_twitter():
+            raise BotCantBeRegistered(self, 'twitter')
 
     def complete_creation(self, first_time=False):
         """Hace los registros de email/twitter para el bot, confirma email en twitter y rellena perfil (avatar y bio).
@@ -259,13 +270,15 @@ class TwitterBot(models.Model):
                         try:
                             self.email_scr.login()
                         except EmailAccountNotFound:
-                            pass
+                            self.email_scr.open_browser()
 
                     if self.has_to_register_email():
-                        self.check_if_can_be_registered()
+                        self.check_if_can_be_registered_on_hotmail()
                         self.email_scr.set_screenshots_dir('1_signup_email')
+
                         self.email_scr.sign_up()
                         self.email_registered_ok = True
+                        self.date = utc_now()
                         self.save()
                         self.email_scr.take_screenshot('signed_up_sucessfully', force_take=True)
                         self.email_scr.delay.seconds(7)
@@ -280,7 +293,7 @@ class TwitterBot(models.Model):
                             pass
 
                     if self.has_to_register_twitter():
-                        self.check_if_can_be_registered()
+                        self.check_if_can_be_registered_on_twitter()
                         self.twitter_scr.set_screenshots_dir('2_signup_twitter')
                         self.twitter_scr.sign_up()
 
@@ -1168,13 +1181,27 @@ class Proxy(models.Model):
         """Saca los bots que fueron registrados hace x dias"""
         return self.get_bots_registered_under_same_subnet().filter(date__gte=utc_now() - datetime.timedelta(days=days))
 
-    def can_register_bots(self):
-        """Nos dice si el proxy puede registrar bots, ya que establecemos unos dias ventana entre registro y registro
+    def can_register_bots_on_hotmail(self):
+        """Nos dice si el proxy puede registrar bots en hotmail, ya que establecemos unos dias ventana entre registro y registro
         sobre misma subnet"""
         days_window = self.proxies_group.min_days_between_registrations_per_proxy_under_same_subnet
-        # si no hay ningun bot registrado en esos dias bajo la misma subnet, entonces podra registrar nuevos bots
-        return not self.get_bots_registered_under_same_subnet_since_days(days_window).exists()
+        # si no hay ningun bot registrado en hotmail en esos dias bajo la misma subnet, entonces podra registrar nuevos bots
+        return not self\
+            .get_bots_registered_under_same_subnet_since_days(days_window)\
+            .filter(email_registered_ok=True)\
+            .exists()
+
+    def can_register_bots_on_twitter(self):
+        """Nos dice si el proxy puede registrar bots en hotmail, ya que establecemos unos dias ventana entre registro y registro
+        sobre misma subnet"""
+        days_window = self.proxies_group.min_days_between_registrations_per_proxy_under_same_subnet
+        # si no hay ningun bot registrado en hotmail en esos dias bajo la misma subnet, entonces podra registrar nuevos bots
+        return not self\
+            .get_bots_registered_under_same_subnet_since_days(days_window)\
+            .filter(twitter_registered_ok=True)\
+            .exists()
 
     def get_days_left_to_allow_registrations(self):
         latest_bot = self.get_bots_registered_under_same_subnet().latest('date')
         days_window = self.proxies_group.min_days_between_registrations_per_proxy_under_same_subnet
+        raise NotImplementedError
