@@ -2,7 +2,7 @@
 from django.db.models import Q, Count, Sum
 import feedparser
 from django.contrib.auth.models import AbstractUser
-from django.db import models
+from django.db import models, connection
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver import ActionChains
 from selenium.webdriver.common.keys import Keys
@@ -14,7 +14,8 @@ from core.scrapper.accounts.twitter import TwitterScrapper
 from core.scrapper.exceptions import TwitterEmailNotFound, \
     TwitterAccountDead, TwitterAccountSuspended, ProfileStillNotCompleted, FailureReplyingMcTweet, \
     TwitterEmailNotConfirmed, HotmailAccountNotCreated, EmailExistsOnTwitter, ErrorOpeningTwitterConfirmationLink, \
-    TwitterBotDontExistsOnTwitterException, EmailAccountNotFound
+    TwitterBotDontExistsOnTwitterException, EmailAccountNotFound, NotNewTwitterEmailFound, ProxyUrlRequestError, \
+    NotInEmailInbox, ProxyConnectionError
 from core.scrapper.utils import *
 from core.managers import TwitterBotManager, ProxyManager, mutex
 from project.models import TwitterBotFollowing
@@ -252,7 +253,7 @@ class TwitterBot(models.Model):
                                  (self.username, self.real_name, self.proxy_for_usage.__unicode__()))
 
             # eliminamos el directorio de capturas previas para el usuario
-            rmdir_if_exists(os.path.join(settings.SCREENSHOTS_DIR, self.real_name))
+            rmdir_if_exists(os.path.join(settings.SCREENSHOTS_DIR, '%s - %s' % (self.real_name, self.username)))
 
             try:
                 # init scrappers
@@ -261,41 +262,38 @@ class TwitterBot(models.Model):
                 self.twitter_scr = TwitterScrapper(self)
                 self.twitter_scr.open_browser()
 
-                if self.has_to_register_email() or self.has_to_register_twitter() or self.has_to_confirm_tw_email():
-                    self.twitter_scr.check_proxy_works_ok()
+                self.twitter_scr.check_proxy_works_ok()
 
                 # 1_signup_email
+                if not first_time:
+                    try:
+                        self.email_scr.login()
+                    except EmailAccountNotFound:
+                        self.email_scr.open_browser()
+
                 if self.has_to_register_email():
-                    if not first_time:
-                        try:
-                            self.email_scr.login()
-                        except EmailAccountNotFound:
-                            self.email_scr.open_browser()
+                    self.check_if_can_be_registered_on_hotmail()
+                    self.email_scr.set_screenshots_dir('1_signup_email')
 
-                    if self.has_to_register_email():
-                        self.check_if_can_be_registered_on_hotmail()
-                        self.email_scr.set_screenshots_dir('1_signup_email')
-
-                        self.email_scr.sign_up()
-                        self.email_registered_ok = True
-                        self.date = utc_now()
-                        self.save()
-                        self.email_scr.take_screenshot('signed_up_sucessfully', force_take=True)
-                        self.email_scr.delay.seconds(7)
-                        self.email_scr.logger.info('%s signed up ok' % self.email)
+                    self.email_scr.sign_up()
+                    self.email_registered_ok = True
+                    self.date = utc_now()
+                    self.save()
+                    self.email_scr.take_screenshot('signed_up_sucessfully', force_take=True)
+                    self.email_scr.delay.seconds(7)
+                    self.email_scr.logger.info('%s signed up ok' % self.email)
 
                 # 2_signup_twitter
-                if self.has_to_register_twitter():
-                    if not first_time:
-                        try:
-                            self.twitter_scr.login()
-                        except TwitterBotDontExistsOnTwitterException:
-                            pass
+                if not first_time:
+                    try:
+                        self.twitter_scr.login()
+                    except TwitterBotDontExistsOnTwitterException:
+                        pass
 
-                    if self.has_to_register_twitter():
-                        self.check_if_can_be_registered_on_twitter()
-                        self.twitter_scr.set_screenshots_dir('2_signup_twitter')
-                        self.twitter_scr.sign_up()
+                if self.has_to_register_twitter():
+                    self.check_if_can_be_registered_on_twitter()
+                    self.twitter_scr.set_screenshots_dir('2_signup_twitter')
+                    self.twitter_scr.sign_up()
 
                 # 3_confirm_tw_email
                 if self.has_to_confirm_tw_email():
@@ -309,13 +307,17 @@ class TwitterBot(models.Model):
                         self.email_scr.take_screenshot('tw_email_confirmed_sucessfully', force_take=True)
                     except (TwitterEmailNotFound,
                             TwitterAccountSuspended,
-                            ErrorOpeningTwitterConfirmationLink):
+                            ErrorOpeningTwitterConfirmationLink,
+                            NotNewTwitterEmailFound,
+                            NotInEmailInbox):
+                        settings.LOGGER.info('Login again on twitter.com..')
                         try:
                             self.twitter_scr.login()
                         except TwitterEmailNotConfirmed:
-                            pass
+                            self.email_scr.delay.seconds(10)
 
                         if self.has_to_confirm_tw_email():
+                            self.email_scr.set_screenshots_dir('3b_confirm_tw_email_after_resend')
                             self.email_scr.confirm_tw_email()
                             self.twitter_confirmed_email_ok = True
                             self.save()
@@ -353,7 +355,11 @@ class TwitterBot(models.Model):
                     TwitterAccountDead,
                     TwitterEmailNotConfirmed,
                     EmailExistsOnTwitter,
-                    BotCantBeRegistered):
+                    BotCantBeRegistered,
+                    ProxyConnectionError,
+                    ProxyUrlRequestError,
+                    NotNewTwitterEmailFound,
+                    NotInEmailInbox):
                 pass
             except Exception as ex:
                 settings.LOGGER.exception('Error completing creation for bot %s' % self.username)
@@ -881,63 +887,66 @@ class TwitterBot(models.Model):
 
         from project.models import TweetCheckingMention
 
-        if not mctweet.mentioned_bots.exists():
-            raise Exception('You can\'t check mention over tweet %i without bot mentions' % mctweet.pk)
-        else:
-            tcm = TweetCheckingMention.objects.get(tweet=mctweet)
-            scr = None
-            # esto contendrá la cajita de la mención recibida
-            try:
-                # nos logueamos con el bot destino y comprobamos
-                mentioned_bot = mctweet.mentioned_bots.first()
-                settings.LOGGER.info('Bot %s verifying tweet sent from %s..' %
-                                     (mentioned_bot.username, mctweet.bot_used.username))
-                scr = mentioned_bot.scrapper
-
-                scr.set_screenshots_dir('checking_mention_%s_from_%s' % (mctweet.pk, mctweet.bot_used.username))
-                scr.open_browser()
-                scr.login()
-                scr.click('li.notifications')
-                scr.click('a[href="/mentions"]')
-
-                if get_mention_received_ok_el():
-                    scr.take_screenshot('mention_arrived_ok', force_take=True)
-                    settings.LOGGER.info('Bot %s received mention ok from %s' %
-                                         (mentioned_bot.username, mctweet.bot_used.username))
-                    tcm.mentioning_works = True
-                    tcm.destination_bot_checked_mention = True
-                    tcm.destination_bot_checked_mention_date = utc_now()
-                    tcm.save()
-                    try:
-                        do_reply()
-                    except FailureReplyingMcTweet:
-                        # de momento sólo sacamos mensajito si no se pudo responder
-                        pass
-                else:
-                    scr.take_screenshot('mention_not_arrived', force_take=True)
-                    settings.LOGGER.error('Bot %s not received mention from %s tweeting: %s' %
-                                          (mentioned_bot.username, mctweet.bot_used.username, mctweet.compose()))
-                    tcm.mentioning_works = False
-                    tcm.destination_bot_checked_mention = True
-                    tcm.destination_bot_checked_mention_date = utc_now()
-                    tcm.save()
-
-            except TwitterEmailNotConfirmed:
-                settings.LOGGER.debug('Verifier %s has to confirm email first. Deleting mctweet %d sent from %s' %
-                                      (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
-                mctweet.delete()
-            except Exception as e:
-                scr.take_screenshot('error_verifying', force_take=True)
-                settings.LOGGER.exception('Error on bot %s verifying mctweet %d sent from %s' %
-                                          (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
-                raise e
-            finally:
+        try:
+            if not mctweet.mentioned_bots.exists():
+                raise Exception('You can\'t check mention over tweet %i without bot mentions' % mctweet.pk)
+            else:
+                tcm = TweetCheckingMention.objects.get(tweet=mctweet)
+                scr = None
+                # esto contendrá la cajita de la mención recibida
                 try:
-                    tcm = TweetCheckingMention.objects.get(tweet=mctweet)
-                    tcm.destination_bot_is_checking_mention = False
-                    tcm.save()
-                except TweetCheckingMention.DoesNotExist:
-                    pass
+                    # nos logueamos con el bot destino y comprobamos
+                    mentioned_bot = mctweet.mentioned_bots.first()
+                    settings.LOGGER.info('Bot %s verifying tweet sent from %s..' %
+                                         (mentioned_bot.username, mctweet.bot_used.username))
+                    scr = mentioned_bot.scrapper
+
+                    scr.set_screenshots_dir('checking_mention_%s_from_%s' % (mctweet.pk, mctweet.bot_used.username))
+                    scr.open_browser()
+                    scr.login()
+                    scr.click('li.notifications')
+                    scr.click('a[href="/mentions"]')
+
+                    if get_mention_received_ok_el():
+                        scr.take_screenshot('mention_arrived_ok', force_take=True)
+                        settings.LOGGER.info('Bot %s received mention ok from %s' %
+                                             (mentioned_bot.username, mctweet.bot_used.username))
+                        tcm.mentioning_works = True
+                        tcm.destination_bot_checked_mention = True
+                        tcm.destination_bot_checked_mention_date = utc_now()
+                        tcm.save()
+                        try:
+                            do_reply()
+                        except FailureReplyingMcTweet:
+                            # de momento sólo sacamos mensajito si no se pudo responder
+                            pass
+                    else:
+                        scr.take_screenshot('mention_not_arrived', force_take=True)
+                        settings.LOGGER.error('Bot %s not received mention from %s tweeting: %s' %
+                                              (mentioned_bot.username, mctweet.bot_used.username, mctweet.compose()))
+                        tcm.mentioning_works = False
+                        tcm.destination_bot_checked_mention = True
+                        tcm.destination_bot_checked_mention_date = utc_now()
+                        tcm.save()
+
+                except TwitterEmailNotConfirmed:
+                    settings.LOGGER.debug('Verifier %s has to confirm email first. Deleting mctweet %d sent from %s' %
+                                          (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
+                    mctweet.delete()
+                except Exception as e:
+                    scr.take_screenshot('error_verifying', force_take=True)
+                    settings.LOGGER.exception('Error on bot %s verifying mctweet %d sent from %s' %
+                                              (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
+                    raise e
+                finally:
+                    try:
+                        tcm = TweetCheckingMention.objects.get(tweet=mctweet)
+                        tcm.destination_bot_is_checking_mention = False
+                        tcm.save()
+                    except TweetCheckingMention.DoesNotExist:
+                        pass
+        finally:
+            connection.close()
 
     def has_to_follow_people(self):
         """Nos dice si el robot tiene que ponerse a seguir gente, es decir, si su grupo está configurado
@@ -1081,6 +1090,7 @@ class TwitterBot(models.Model):
             self.is_following = False
             self.save()
             scr.close_browser()
+            connection.close()
 
     def mark_twitterusers_to_follow_at_once(self):
         """Reserva dentro del mutex los twitterusers que el bot ha de seguir de una vez"""
@@ -1192,7 +1202,7 @@ class Proxy(models.Model):
             .exists()
 
     def can_register_bots_on_twitter(self):
-        """Nos dice si el proxy puede registrar bots en hotmail, ya que establecemos unos dias ventana entre registro y registro
+        """Nos dice si el proxy puede registrar bots en twitter, ya que establecemos unos dias ventana entre registro y registro
         sobre misma subnet"""
         days_window = self.proxies_group.min_days_between_registrations_per_proxy_under_same_subnet
         # si no hay ningun bot registrado en hotmail en esos dias bajo la misma subnet, entonces podra registrar nuevos bots

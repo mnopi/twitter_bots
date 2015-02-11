@@ -4,7 +4,8 @@ from selenium.webdriver.common.keys import Keys
 from core.scrapper.scrapper import Scrapper
 from core.scrapper.captcha_resolvers import DeathByCaptchaResolver
 from core.scrapper.exceptions import TwitterEmailNotFound, EmailAccountSuspended, EmailAccountNotFound, \
-    HotmailAccountNotCreated, NotInEmailInbox, TwitterAccountSuspended, ErrorOpeningTwitterConfirmationLink
+    HotmailAccountNotCreated, NotInEmailInbox, TwitterAccountSuspended, ErrorOpeningTwitterConfirmationLink, \
+    NotNewTwitterEmailFound
 from core.scrapper.utils import *
 from twitter_bots import settings
 
@@ -171,17 +172,19 @@ class HotmailScrapper(Scrapper):
         try:
             self.go_to(settings.URLS['hotmail_login'])
             self.wait_to_page_readystate()
+            self.delay.seconds(5)
             if self.check_visibility('#idDiv_PWD_UsernameTb'):
                 self.fill_input_text('#idDiv_PWD_UsernameTb input', self.user.email)
                 self.fill_input_text('#idDiv_PWD_PasswordTb input', self.user.password_email)
                 self.click('#idChkBx_PWD_KMSI0Pwd')  # para mantener la sesión si cierro navegador
                 submit_form()
                 self.wait_to_page_readystate()
-            self._quit_inbox_shit()
-            self.check_account_suspended()
-            self.logger.info('Logged in hotmail ok')
+            self.delay.seconds(10)
             self.wait_to_page_readystate()
             self.clear_local_storage()
+            self._quit_inbox_shit()
+            self.check_account_suspended()
+            self.logger.debug('Logged in hotmail ok')
 
             # por si no se había marcado en BD
             if not self.user.email_registered_ok:
@@ -199,7 +202,7 @@ class HotmailScrapper(Scrapper):
 
         self.wait_to_page_readystate()
 
-        self.try_to_click('#notificationContainer button', timeout=10)
+        self.try_to_click('#notificationContainer button', timeout=30)
 
     def confirm_tw_email(self):
         def skip_confirmation_shit():
@@ -217,6 +220,8 @@ class HotmailScrapper(Scrapper):
                     self.click('a#iShowSkip')
                     self.wait_to_page_readystate()
                 else:
+                    self.wait_to_page_readystate()
+                    self.take_screenshot('confirmation_shit_skipped')
                     break
 
         def get_email_title_on_inbox():
@@ -262,50 +267,55 @@ class HotmailScrapper(Scrapper):
         if emails:
             if len(emails) < 2:
                 self.logger.warning('No twitter email arrived, resending twitter email..')
-                raise TwitterEmailNotFound()
+                raise TwitterEmailNotFound(self)
             else:
                 #twitter_email_title = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm'))
-                try:
-                    twitter_email_title = get_email_title_on_inbox()
-                except:
-                    skip_confirmation_shit()
-                    twitter_email_title = get_email_title_on_inbox()
-
-                self.click(twitter_email_title)
-                check_if_still_on_inbox()
-
-                self.delay.seconds(2)
-
-                # si sale confirm otra vez y se vuelve a ir a la inbox..
+                self.delay.seconds(10)
                 skip_confirmation_shit()
-                check_if_still_on_inbox()
 
-                self.delay.seconds(4)
-                confirm_btn = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm now'))
-                if confirm_btn:
-                    self.click(confirm_btn)
+                # sólo clickeamos si el mensaje más reciente no fue leído
+                emails = self.get_css_elements(inbox_msgs_css)
+                was_read = 'mlUnrd' not in emails[0].get_attribute('class')
+                if was_read:
+                    raise NotNewTwitterEmailFound(self)
                 else:
-                    self.try_to_click('.ecxbutton_link', '.ecxmedia_main > table:nth-child(1) > tbody:nth-child(1) > tr:nth-child(4) > td:nth-child(1) > a:nth-child(2)')
+                    twitter_email_title = get_email_title_on_inbox()
 
-                self.delay.seconds(3)
-                self.switch_to_window(-1)
-                self.wait_to_page_readystate()
-                self.delay.seconds(3)
+                    self.click(twitter_email_title)
+                    check_if_still_on_inbox()
 
-                # si aparece como suspendido lo tratamos más adelante
-                if 'suspended' in self.browser.title.lower():
-                    raise TwitterAccountSuspended(self.user)
+                    self.delay.seconds(2)
 
-                # si no cargó bien la página de twitter
-                elif 'about:blank' in self.browser.current_url:
-                    raise ErrorOpeningTwitterConfirmationLink()
+                    # si sale confirm otra vez y se vuelve a ir a la inbox..
+                    skip_confirmation_shit()
+                    check_if_still_on_inbox()
 
-                # si ha ido ok pero nos pide meter usuario y contraseña
-                elif not self.check_visibility('#global-new-tweet-button'):
-                    self.send_keys(self.user.username)
-                    self.send_special_key(Keys.TAB)
-                    self.send_keys(self.user.password_twitter)
-                    self.send_special_key(Keys.ENTER)
-                    self.delay.seconds(7)
+                    self.delay.seconds(4)
+                    confirm_btn = get_element(lambda: self.browser.find_element_by_partial_link_text('Confirm now'))
+                    if confirm_btn:
+                        self.click(confirm_btn)
+                    else:
+                        self.try_to_click('.ecxbutton_link', '.ecxmedia_main > table:nth-child(1) > tbody:nth-child(1) > tr:nth-child(4) > td:nth-child(1) > a:nth-child(2)')
+
+                    self.delay.seconds(3)
+                    self.switch_to_window(-1)
+                    self.wait_to_page_readystate()
+                    self.delay.seconds(3)
+
+                    # si aparece como suspendido lo tratamos más adelante
+                    if 'suspended' in self.browser.title.lower():
+                        raise TwitterAccountSuspended(self.user)
+
+                    # si no cargó bien la página de twitter
+                    elif 'about:blank' in self.browser.current_url:
+                        raise ErrorOpeningTwitterConfirmationLink()
+
+                    # si ha ido ok pero nos pide meter usuario y contraseña
+                    elif not self.check_visibility('#global-new-tweet-button'):
+                        self.send_keys(self.user.username)
+                        self.send_special_key(Keys.TAB)
+                        self.send_keys(self.user.password_twitter)
+                        self.send_special_key(Keys.ENTER)
+                        self.delay.seconds(7)
         else:
             raise NotInEmailInbox(self)

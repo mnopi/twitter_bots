@@ -91,7 +91,8 @@ class Scrapper(object):
             if settings.USE_PROXY and self.user.proxy_for_usage:
                 service_args = [
                     '--proxy=%s:%i' % (proxy_ip, proxy_port),
-                    '--cookies-file=%s' % os.path.join(settings.PHANTOMJS_COOKIES_DIR, '%i.txt' % self.user.id),
+                    '--cookies-file=%s' % os.path.join(settings.PHANTOMJS_COOKIES_DIR, '%i_%s.txt' %
+                                                       (self.user.id, '_'.join(self.user.real_name.split(' ')))),
                     '--ssl-protocol=any',
                     # '--local-storage-path=%s' % settings.PHANTOMJS_LOCALSTORAGES_PATH,
                     # '--local-storage-quota=1024',
@@ -333,10 +334,12 @@ class Scrapper(object):
 
     def wait_to_page_readystate(self):
         try:
+            self.logger.debug('waiting to page readystate..: %s' % self.browser.current_url)
             wait_condition(
                 lambda: self.browser.execute_script("return document.readyState;") == 'complete',
                 timeout=settings.PAGE_READYSTATE_TIMEOUT
             )
+            self.logger.debug('..ready')
             self.take_screenshot('page_readystate')
         except:
             raise PageNotReadyState(self)

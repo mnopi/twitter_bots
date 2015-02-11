@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from django.core.exceptions import ObjectDoesNotExist
 
-from django.db import models
+from django.db import models, connection
 from django.db.models import Count, Q
 import feedparser
 import simplejson
@@ -562,6 +562,9 @@ class Tweet(models.Model):
             scr.logger.debug('..written ok')
 
             scr.close_browser()
+
+            # cerramos conexión con BD
+            connection.close()
 
     def enough_time_passed_since_last(self):
         """

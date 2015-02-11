@@ -99,6 +99,18 @@ class TwitterScrapper(Scrapper):
                             self.click('#skip_link')
                     else:
                         self.try_to_click('input[name="submit_button"]', 'input#submit_button')
+                        self.delay.seconds(8)
+                        self.wait_to_page_readystate()
+                        if self.check_visibility('#password'):
+                            self.fill_input_text('#password', self.user.password_twitter)
+                            self.try_to_click('input[name="submit_button"]', 'input#submit_button')
+                            self.delay.seconds(8)
+                            self.wait_to_page_readystate()
+                            self.fill_input_text('#username', self.user.username)
+                            check_username()
+                            self.try_to_click('input[name="submit_button"]', 'input#submit_button')
+                            if self.check_visibility('#message-drawer .message-text'):
+                                self.click('#skip_link')
                 else:
                     self.fill_input_text('#password', self.user.password_twitter)
                     if self.check_visibility('#username'):

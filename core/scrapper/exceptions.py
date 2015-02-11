@@ -7,7 +7,15 @@ from utils import utc_now
 
 
 class TwitterEmailNotFound(Exception):
-    pass
+    def __init__(self, scrapper):
+        scrapper.take_screenshot('twitter_email_not_found_failure')
+        scrapper.logger.warning('Twitter email not found')
+
+
+class NotNewTwitterEmailFound(Exception):
+    def __init__(self, scrapper):
+        scrapper.take_screenshot('no_new_twitter_email_found_failure')
+        scrapper.logger.warning('No new twitter email found')
 
 
 class TwitterEmailNotConfirmed(Exception):

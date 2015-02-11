@@ -69,7 +69,7 @@ class TwitterBotManager(models.Manager):
         finally:
             mutex.release()
 
-        bot.complete_creation()
+        bot.complete_creation(first_time=True)
 
     def create_bots(self, num_threads=None, num_tasks=None):
         from core.models import Proxy
@@ -78,19 +78,19 @@ class TwitterBotManager(models.Manager):
 
         settings.LOGGER.info('Retrieving proxies available for registering bots..')
         proxies = Proxy.objects.available_to_assign_bots_for_registration()
+
+        subnets_24_count = len(Proxy.objects.get_subnets_24(proxies))
+        settings.LOGGER.info('There is %i available /24 subnets to create bots' % subnets_24_count)
+
         if proxies.exists():
             if num_threads == 1:
                 self.create_bot()
             else:
-                subnets_24_count = len(Proxy.objects.get_subnets_24(proxies))
-
                 if num_tasks and num_tasks > subnets_24_count:
                     settings.LOGGER.warning('The num_tasks specified to create is higher than total /24 available subnets')
                     num_bots = subnets_24_count
                 else:
                     num_bots = num_tasks or subnets_24_count
-
-                settings.LOGGER.info('There is %i available /24 subnets to create bots' % subnets_24_count)
 
                 pool = ThreadPool(num_threads or settings.MAX_THREADS_CREATING_BOTS)
                 settings.LOGGER.info('Creating %d twitter bots..' % num_bots)
@@ -201,15 +201,17 @@ class TwitterBotManager(models.Manager):
 
         bots_to_finish_creation = self.pendant_to_finish_creation()  # sólo se eligen bots de grupos activos
         if bots_to_finish_creation.exists():
-            if not bot and (num_tasks > 1 or not num_tasks):
-                if num_threads == 1:
-                    bot = bots_to_finish_creation.first()
-                    bot.complete_creation()
+            if not bot:
+                if bots_to_finish_creation.count() > 1:
+                    bots_to_finish_creation = bots_to_finish_creation.one_per_subnet()
+                bots_to_finish_creation = bots_to_finish_creation[:num_tasks] if num_tasks else bots_to_finish_creation
+
+                if num_threads == 1 or not num_threads:
+                    for bot in bots_to_finish_creation:
+                        bot.complete_creation()
                 else:
                     pool = ThreadPool(num_threads or settings.MAX_THREADS_COMPLETING_PENDANT_BOTS)
                     # ponemos bots sin subnets repetidas para evitar varios registros desde misma subnet
-                    bots_to_finish_creation = bots_to_finish_creation.one_per_subnet()
-                    bots_to_finish_creation = bots_to_finish_creation[:num_tasks] if num_tasks else bots_to_finish_creation
                     for bot in bots_to_finish_creation:
                         pool.add_task(bot.complete_creation)
                     pool.wait_completion()
