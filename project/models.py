@@ -518,19 +518,32 @@ class Tweet(models.Model):
             settings.LOGGER.warning('Tweet %s is too long to add link %s' %
                                     (self, link))
 
-    def send(self):
-        from core.managers import mutex
+    def _send_from_webdriver(self):
+        """Envía el tweet empleando selenium webdriver """
+        pass
 
+    def _send_from_casperjs(self):
+        pass
+
+    def send(self):
         if not settings.LOGGER:
             set_logger('tweet_sender')
+
+        use_casperjs = self.bot_used.get_group().use_casperjs_for_sending_tweets
+
+        if use_casperjs:
+            self._send_from_casperjs()
+        else:
+            self._send_from_webdriver()
 
         scr = self.bot_used.scrapper
 
         try:
-            settings.LOGGER.info('Bot %s sending tweet %i [%s]: >> %s' %
+            settings.LOGGER.info('Bot %s sending tweet %i [%s]%s: >> %s' %
                                  (self.bot_used.__unicode__(),
                                   self.pk,
                                   self.print_type(),
+                                  ' (using casperjs) ' if use_casperjs else '',
                                   self.compose())
             )
             screenshots_dir = '%d_%s' % (self.pk, self.print_type())
@@ -1365,6 +1378,7 @@ class ProxiesGroup(models.Model):
     has_mentions = models.BooleanField(default=False)
     max_num_mentions_per_tweet = models.PositiveIntegerField(null=False, blank=False, default=1)
     feedtweets_per_twitteruser_mention = models.CharField(max_length=10, null=False, blank=False, default='0-3')
+    use_casperjs_for_sending_tweets = models.BooleanField(default=False)
 
     #
     # mentioning check behaviour
