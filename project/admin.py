@@ -601,6 +601,18 @@ class TwitterBotFollowingAdmin(admin.ModelAdmin):
     )
 
 
+class FeedItemAdmin(admin.ModelAdmin):
+    list_display = (
+        '__unicode__',
+        'feed'
+    )
+
+    list_filter = (
+        'feed',
+        'feed__feeds_groups'
+    )
+
+
 # Register your models here.
 admin.site.register(Project, ProjectAdmin)
 admin.site.register(TweetMsg, TweetMsgAdmin)
@@ -622,7 +634,7 @@ admin.site.register(TweetCheckingMention, TweetCheckingMentionAdmin)
 
 admin.site.register(Feed)
 admin.site.register(FeedsGroup)
-admin.site.register(FeedItem)
+admin.site.register(FeedItem, FeedItemAdmin)
 
 admin.site.register(TwitterBotFollowing, TwitterBotFollowingAdmin)
 

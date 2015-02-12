@@ -607,11 +607,11 @@ class TwitterBot(models.Model):
 
         # volvemos a comprobar para ver si se añadió nuevo item desde feed
         if items_not_sent.exists():
-            return items_not_sent.first()
+            return items_not_sent.order_by('?').first()
         else:
-            # en caso de enviarse todos los feeditems ordenamos de menor a mayor numero de tweets
-            # que se enviaron para cada uno. si la cuenta es la misma ordenamos por date_created
-            # (así evitamos problemas si date_sent=None)
+            # en caso de enviarse todos los feeditems y no poder obtener nuevos de los feeds actuales,
+            # entonces ordenamos de menor a mayor numero de tweets que se enviaron para cada uno.
+            # si la cuenta es la misma ordenamos por date_created (así evitamos problemas si date_sent=None)
             settings.LOGGER.debug('Bot %s has sent all feeditems, getting oldest sent available..' % self.username)
             return FeedItem.objects.sent_by_bot(self)\
                 .annotate(tw_count=Count('tweets'))\

@@ -168,7 +168,17 @@ class TweetManager(MyManager):
         return queue
 
     def clean_not_ok(self):
-        from project.models import TweetCheckingMention
+        from project.models import TweetCheckingMention, Project
+
+        # eliminamos los tweets de los proyectos que no estén corriendo actualmente y que no se hayan enviado,
+        # juntos a los ftweets y mctweets que también quedaran sin enviar
+        self.filter(
+            (
+                Q(project__in=Project.objects.filter(is_running=False)) |
+                Q(project__isnull=True)
+            ),
+            sent_ok=False
+        ).delete()
 
         self.pending_to_send().with_not_ok_bots().delete()
         self.put_sending_to_not_sending()
@@ -257,7 +267,6 @@ class ProjectManager(models.Manager):
 
     def running(self):
         return self.get_query_set().running()
-
 
     def with_bot(self, bot):
         return self.get_queryset().with_bot(bot)

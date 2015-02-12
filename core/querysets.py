@@ -221,13 +221,10 @@ class ProxyQuerySet(MyQuerySet):
             .with_proxies_group_assigned()\
             .with_proxies_group_enabling_bot_usage()
 
-        if not settings.REUSE_PROXIES_REQUIRING_PHONE_VERIFICATION:
-            proxies_base = proxies_base.filter(is_phone_required=False)
-
         available_proxies_for_usage_ids = []
 
         # cogemos todos los proxies sin bots
-        proxies_without_bots = proxies_base.filter(twitter_bots_registered=None, twitter_bots_using=None)
+        proxies_without_bots = proxies_base.without_bots()
         available_proxies_for_usage_ids.extend([result['id'] for result in proxies_without_bots.values('id')])
 
         # de los proxies con bots, cogemos los que cumplan todas estas características:

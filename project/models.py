@@ -686,6 +686,7 @@ class Tweet(models.Model):
                 self.clear_not_sent_ok_ftweets()
                 ftweet_to_send = self.bot_used.make_ftweet_to_send()
             else:
+                # si ya había alguno creado se envía
                 ftweet_to_send = ftweet_to_send.first().tweet
         else:
             ftweet_to_send = self.bot_used.make_ftweet_to_send()
@@ -1440,7 +1441,7 @@ class ProxiesGroup(models.Model):
 
 class Feed(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False, default='_unnamed')
-    url = models.URLField(null=False, blank=False)
+    url = models.URLField(null=False, blank=False, unique=True)
 
     def __unicode__(self):
         return self.name
