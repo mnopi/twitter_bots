@@ -120,6 +120,8 @@ class TwitterScrapper(Scrapper):
                     else:
                         self.try_to_click('input[name="submit_button"]', 'input#submit_button')
                         self.delay.seconds(10)
+                        if check_condition(lambda: 'phone_number' in self.browser.current_url, timeout=20):
+                            raise BotMustVerifyPhone(self)
                         self.fill_input_text('#username', self.user.username)
                         check_username()
                         self.try_to_click('input[name="submit_button"]', 'input#submit_button')
@@ -168,9 +170,16 @@ class TwitterScrapper(Scrapper):
 
             # para ver si ya estamos logueados o no
             if not self.is_logged_in():
-                self.fill_input_text('#signin-email', self.user.username)
-                self.fill_input_text('#signin-password', self.user.password_twitter)
-                self.click('.front-signin button')
+                if self.check_visibility('#signin-email'):
+                    self.fill_input_text('#signin-email', self.user.username)
+                    self.fill_input_text('#signin-password', self.user.password_twitter)
+                    self.click('.front-signin button')
+                else:
+                    self.click('#signin-link')
+                    self.delay.seconds(3)
+                    self.fill_input_text('#signin-dropdown input[type="text"]', self.user.username)
+                    self.fill_input_text('#signin-dropdown input[type="password"]', self.user.password_twitter)
+                    self.click('#signin-dropdown button[type="submit"]')
 
             self.wait_to_page_readystate()
             self.check_account_exists()

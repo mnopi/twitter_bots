@@ -554,14 +554,14 @@ class Tweet(models.Model):
             # self.delete()
             raise e
         finally:
+            scr.close_browser()
+
             # si el tweet sigue en BD se desmarca como enviando
             scr.logger.debug('writing DB: sending=False..')
             if Tweet.objects.filter(pk=self.pk).exists():
                 self.sending = False
                 self.save()
             scr.logger.debug('..written ok')
-
-            scr.close_browser()
 
             # cerramos conexión con BD
             connection.close()

@@ -53,11 +53,12 @@ class Command(BaseCommand):
             pass
         except Exception as e:
             raise FatalError(e)
-        finally:
-            # quitamos todos los phantomjs que hayan quedado ejecutándose
-            for proc in psutil.process_iter():
-                if 'phantomjs' in proc.name():
-                    proc.kill()
+        # finally:
+        #     # quitamos todos los phantomjs que hayan quedado ejecutándose
+        #     # for proc in psutil.process_iter():
+        #     #     if 'phantomjs' in proc.name():
+        #     #         proc.kill()
+        #     pass
 
         settings.LOGGER.info('-- FINISHED %s --' % MODULE_NAME)
 

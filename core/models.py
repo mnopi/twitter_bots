@@ -369,7 +369,7 @@ class TwitterBot(models.Model):
                 try:
                     if hasattr(self, 'email_scr'):
                         self.email_scr.close_browser()
-                    if hasattr(self, 'email_scr'):
+                    if hasattr(self, 'twitter_scr'):
                         self.twitter_scr.close_browser()
                     self.is_being_created = False
                     self.save()
@@ -939,6 +939,8 @@ class TwitterBot(models.Model):
                                               (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
                     raise e
                 finally:
+                    scr.close_browser()
+
                     try:
                         tcm = TweetCheckingMention.objects.get(tweet=mctweet)
                         tcm.destination_bot_is_checking_mention = False
@@ -1087,9 +1089,9 @@ class TwitterBot(models.Model):
             settings.LOGGER.exception('Error on bot %s following twitterusers' % self.username)
             raise e
         finally:
+            scr.close_browser()
             self.is_following = False
             self.save()
-            scr.close_browser()
             connection.close()
 
     def mark_twitterusers_to_follow_at_once(self):

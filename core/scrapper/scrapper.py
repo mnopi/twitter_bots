@@ -3,6 +3,7 @@
 import sys
 import urllib
 import numpy
+import psutil
 from selenium.common.exceptions import NoSuchFrameException, TimeoutException
 from selenium.webdriver import ActionChains, DesiredCapabilities, Proxy
 from selenium.webdriver.common.keys import Keys
@@ -145,9 +146,25 @@ class Scrapper(object):
 
     def close_browser(self):
         try:
-            self.logger.debug('%s instance closing..' % self.user.get_webdriver())
-            self.browser.quit()
-            self.logger.debug('..%s instance closed ok' % self.user.get_webdriver())
+            pid = self.browser.service.process.pid
+            try:
+                self.logger.debug('%s instance closing..' % self.user.get_webdriver())
+                self.browser.quit()
+                self.logger.debug('..%s instance closed ok' % self.user.get_webdriver())
+            finally:
+                # comprobamos que no quede el proceso abierto
+                for proc in psutil.process_iter():
+                    if proc.pid == pid:
+                        self.logger.debug('..%s instance stills opened, killing process PID=%d..' %
+                                          (self.user.get_webdriver(), pid))
+                        try:
+                            proc.kill()
+                            self.logger.debug('..process PID=%d killed ok' % pid)
+                        except Exception as e:
+                            self.logger.error('..process PID=%d not killed ok!' % pid)
+                            raise e
+                        finally:
+                            break
         except Exception as ex:
             if not self.browser:
                 self.logger.warning('%s instance was not opened browser' % self.user.get_webdriver())
