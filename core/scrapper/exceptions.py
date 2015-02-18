@@ -39,7 +39,7 @@ class EmailExistsOnTwitter(Exception):
     """Se lanza cuando intentamos registrarnos en twitter y sale que ya hay un usuario registrado con ese email"""
     def __init__(self, email):
         from core.models import TwitterBot
-        settings.LOGGER.exception('Email %s exists on twitter' % email)
+        settings.LOGGER.error('Email %s exists on twitter' % email)
         bot = TwitterBot.objects.get(email=email)
         bot.email_registered_ok = False
         bot.generate_email()
@@ -136,7 +136,7 @@ class RequestAttemptsExceededException(Exception):
 class TwitterBotDontExistsOnTwitterException(Exception):
     def __init__(self, scrapper):
         scrapper.user.mark_as_not_twitter_registered_ok()
-        scrapper.logger.warning('Username dont exists on twitter')
+        scrapper.logger.warning('Username %s dont exists on twitter' % scrapper.user.username)
 
 
 class ConnectionError(Exception):
@@ -209,16 +209,17 @@ class EmailAccountNotFound(Exception):
     def __init__(self, scrapper):
         # scrapper.user.email_registered_ok = False
         # scrapper.user.save()
-        scrapper.take_screenshot('wrong_email_account')
-        scrapper.logger.warning('Wrong email account')
+        scrapper.take_screenshot('email_account_doesnt_exists')
+        scrapper.logger.warning('email account %s doesnt exists' % scrapper.user.email)
         scrapper.close_browser()
 
 
 class PageNotReadyState(Exception):
     def __init__(self, scrapper):
         scrapper.take_screenshot('page_not_readystate')
-        scrapper.logger.error('Exceeded %i secs waiting for DOM readystate after loading %s' %
-                                (settings.PAGE_READYSTATE_TIMEOUT, scrapper.browser.current_url))
+        scrapper.logger.error('Exceeded %i secs waiting for DOM readystate after loading %s for bot %s under proxy %s' %
+                                (settings.PAGE_READYSTATE_TIMEOUT, scrapper.browser.current_url, scrapper.user.username,
+                                scrapper.user.proxy_for_usage.__unicode__()))
 
 
 class NoElementToClick(Exception):

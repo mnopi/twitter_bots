@@ -15,7 +15,7 @@ from core.scrapper.exceptions import TwitterEmailNotFound, \
     TwitterAccountDead, TwitterAccountSuspended, ProfileStillNotCompleted, FailureReplyingMcTweet, \
     TwitterEmailNotConfirmed, HotmailAccountNotCreated, EmailExistsOnTwitter, ErrorOpeningTwitterConfirmationLink, \
     TwitterBotDontExistsOnTwitterException, EmailAccountNotFound, NotNewTwitterEmailFound, ProxyUrlRequestError, \
-    NotInEmailInbox, ProxyConnectionError
+    NotInEmailInbox, ProxyConnectionError, PageNotReadyState, BotMustVerifyPhone, NoElementToClick
 from core.scrapper.utils import *
 from core.managers import TwitterBotManager, ProxyManager, mutex
 from project.models import TwitterBotFollowing
@@ -322,6 +322,9 @@ class TwitterBot(models.Model):
                             self.twitter_confirmed_email_ok = True
                             self.save()
                             settings.LOGGER.info('Confirmed twitter email %s for user %s after resending confirmation' % (self.email, self.username))
+                    except (EmailAccountNotFound,
+                            TwitterEmailNotFound) as e:
+                        raise e
                     except Exception as ex:
                         settings.LOGGER.exception('Error on bot %s confirming email %s' %
                                                   (self.username, self.email))
@@ -338,7 +341,6 @@ class TwitterBot(models.Model):
                 if self.has_to_complete_tw_profile():
                     self.twitter_scr.set_screenshots_dir('5_tw_profile_completion')
                     self.twitter_scr.set_profile()
-
 
                 t2 = utc_now()
                 diff_secs = (t2 - t1).seconds
@@ -358,8 +360,13 @@ class TwitterBot(models.Model):
                     BotCantBeRegistered,
                     ProxyConnectionError,
                     ProxyUrlRequestError,
+                    PageNotReadyState,
                     NotNewTwitterEmailFound,
-                    NotInEmailInbox):
+                    NotInEmailInbox,
+                    EmailAccountNotFound,
+                    BotMustVerifyPhone,
+                    NoElementToClick
+            ):
                 pass
             except Exception as ex:
                 settings.LOGGER.exception('Error completing creation for bot %s' % self.username)

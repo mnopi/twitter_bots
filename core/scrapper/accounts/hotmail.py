@@ -190,9 +190,11 @@ class HotmailScrapper(Scrapper):
             if not self.user.email_registered_ok:
                 self.user.email_registered_ok = True
                 self.user.save()
-        except Exception as ex:
-            self.logger.exception('Error login into hotmail')
-            raise ex
+        except EmailAccountNotFound as e:
+            raise e
+        except Exception as e:
+            self.logger.exception('Error on hotmail login')
+            raise e
 
     def _quit_inbox_shit(self):
         # en el caso de aparecer esto tras el login le damos al enlace que aparece en la página

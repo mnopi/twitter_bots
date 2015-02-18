@@ -54,6 +54,10 @@ class TwitterScrapper(Scrapper):
                 elif self.check_visibility('.select-username .sidetip .ok.active'):
                     break
 
+        def check_phone_verification():
+            if check_condition(lambda: 'phone_number' in self.browser.current_url, timeout=20):
+                raise BotMustVerifyPhone(self)
+
         try:
             self.logger.info('Signing up on twitter..')
             self.go_to(settings.URLS['twitter_reg'])
@@ -66,6 +70,7 @@ class TwitterScrapper(Scrapper):
                 self.click('#next_button')
                 self.fill_input_text('#full-name', self.user.real_name)
                 self.click('#submit_button')
+                check_phone_verification()
                 self.fill_input_text('#password', self.user.password_twitter)
                 self.click('#submit_button')
                 self.fill_input_text('#username', self.user.username)
@@ -120,8 +125,7 @@ class TwitterScrapper(Scrapper):
                     else:
                         self.try_to_click('input[name="submit_button"]', 'input#submit_button')
                         self.delay.seconds(10)
-                        if check_condition(lambda: 'phone_number' in self.browser.current_url, timeout=20):
-                            raise BotMustVerifyPhone(self)
+                        check_phone_verification()
                         self.fill_input_text('#username', self.user.username)
                         check_username()
                         self.try_to_click('input[name="submit_button"]', 'input#submit_button')
@@ -140,8 +144,7 @@ class TwitterScrapper(Scrapper):
             self.delay.seconds(7)
 
             # si pide teléfono
-            if check_condition(lambda: 'phone_number' in self.browser.current_url, timeout=20):
-                raise BotMustVerifyPhone(self)
+            check_phone_verification()
 
             wait_condition(lambda: 'congratulations' in self.browser.current_url or
                                    'welcome' in self.browser.current_url or
@@ -154,7 +157,10 @@ class TwitterScrapper(Scrapper):
             self.user.date = utc_now()
             self.user.save()
             self.logger.info('Twitter account registered successfully')
-        except Exception, e:
+        except (EmailExistsOnTwitter,
+                BotMustVerifyPhone) as e:
+            raise e
+        except Exception as e:
             self.take_screenshot('twitter_registered_fail', force_take=True)
             self.logger.exception('Error registering twitter account')
             raise e
@@ -194,11 +200,12 @@ class TwitterScrapper(Scrapper):
         except TwitterEmailNotConfirmed as e:
             self.take_screenshot('twitter_email_not_confirmed_after_login', force_take=True)
             raise e
-        except (ConnectionError,
+        except (TwitterBotDontExistsOnTwitterException,
+                ConnectionError,
                 PageNotReadyState) as e:
             raise e
         except Exception as e:
-            self.logger.error('Login on twitter error')
+            self.logger.exception('Login on twitter error')
             self.take_screenshot('login_failure', force_take=True)
             raise e
 
@@ -239,7 +246,7 @@ class TwitterScrapper(Scrapper):
         try:
             submit_unsuspension(attempt=0)
         except Exception as e:
-            self.logger.error('error lifting suspension')
+            self.logger.exception('error lifting suspension')
             raise e
 
     def check_account_suspended(self):
@@ -306,6 +313,8 @@ class TwitterScrapper(Scrapper):
                 # eliminamos el archivo que habíamos guardado para el avatar
                 os.remove(avatar_path)
                 return True
+            except PageNotReadyState as e:
+                raise e
             except Exception:
                 self.logger.exception('Error setting twitter avatar')
                 self.take_screenshot('set_avatar_failure', force_take=True)
@@ -351,6 +360,8 @@ class TwitterScrapper(Scrapper):
                 self.take_screenshot('profile_completed_ok', force_take=True)
             else:
                 raise ProfileStillNotCompleted(self)
+        except ProfileStillNotCompleted as e:
+            raise e
         except Exception as ex:
             self.logger.exception('Error creating twitter profile')
             self.take_screenshot('profile_creation_failure', force_take=True)

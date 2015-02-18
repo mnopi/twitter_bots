@@ -4,7 +4,7 @@ import sys
 import urllib
 import numpy
 import psutil
-from selenium.common.exceptions import NoSuchFrameException, TimeoutException
+from selenium.common.exceptions import NoSuchFrameException, TimeoutException, NoSuchElementException
 from selenium.webdriver import ActionChains, DesiredCapabilities, Proxy
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.wait import WebDriverWait
@@ -621,6 +621,9 @@ class Scrapper(object):
                 # except Exception:
                 #     settings.LOGGER.warning('Invalid picture downloaded from %s. Trying again..' % g_scrapper.browser.current_url)
 
+        except (PageNotReadyState,
+                NoSuchElementException) as e:
+            raise e
         except Exception, e:
             self.logger.exception('Error downloading picture from google')
             g_scrapper.take_screenshot('picture_download_failure')
