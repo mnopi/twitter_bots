@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import time
+from urllib2 import URLError
 from core.managers import mutex
 import twitter_bots.settings as settings
 from utils import utc_now
@@ -181,9 +182,9 @@ class ProxyUrlRequestError(Exception):
         time.sleep(5)
 
 
-class BlankPageError(Exception):
+class BlankPageSource(Exception):
     def __init__(self, scrapper, url):
-        scrapper.logger.error('Blank page source taken from url %s' % url)
+        scrapper.logger.warning('Blank page source taken from url %s' % url)
         time.sleep(5)
 
 
@@ -216,10 +217,15 @@ class EmailAccountNotFound(Exception):
 
 class PageNotReadyState(Exception):
     def __init__(self, scrapper):
-        scrapper.take_screenshot('page_not_readystate')
-        scrapper.logger.error('Exceeded %i secs waiting for DOM readystate after loading %s for bot %s under proxy %s' %
-                                (settings.PAGE_READYSTATE_TIMEOUT, scrapper.browser.current_url, scrapper.user.username,
-                                scrapper.user.proxy_for_usage.__unicode__()))
+        try:
+            scrapper.take_screenshot('page_not_readystate')
+            scrapper.logger.error('Exceeded %i secs waiting for DOM readystate after loading %s for bot %s under proxy %s' %
+                                    (settings.PAGE_READYSTATE_TIMEOUT, scrapper.browser.current_url, scrapper.user.username,
+                                    scrapper.user.proxy_for_usage.__unicode__()))
+        except URLError as e:
+            # scrapper.logger.error('URLError: cannot retrieve URL from scrapper. Proxy used: %s' %
+            #                       scrapper.user.proxy_for_usage.__unicode__())
+            raise e
 
 
 class NoElementToClick(Exception):

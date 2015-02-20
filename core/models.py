@@ -3,7 +3,7 @@ from django.db.models import Q, Count, Sum
 import feedparser
 from django.contrib.auth.models import AbstractUser
 from django.db import models, connection
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, WebDriverException
 from selenium.webdriver import ActionChains
 from selenium.webdriver.common.keys import Keys
 from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableProxiesToAssignBotsForUse,\
@@ -15,7 +15,7 @@ from core.scrapper.exceptions import TwitterEmailNotFound, \
     TwitterAccountDead, TwitterAccountSuspended, ProfileStillNotCompleted, FailureReplyingMcTweet, \
     TwitterEmailNotConfirmed, HotmailAccountNotCreated, EmailExistsOnTwitter, ErrorOpeningTwitterConfirmationLink, \
     TwitterBotDontExistsOnTwitterException, EmailAccountNotFound, NotNewTwitterEmailFound, ProxyUrlRequestError, \
-    NotInEmailInbox, ProxyConnectionError, PageNotReadyState, BotMustVerifyPhone, NoElementToClick
+    NotInEmailInbox, ProxyConnectionError, PageNotReadyState, BotMustVerifyPhone, NoElementToClick, ConnectionError
 from core.scrapper.utils import *
 from core.managers import TwitterBotManager, ProxyManager, mutex
 from project.models import TwitterBotFollowing
@@ -940,6 +940,9 @@ class TwitterBot(models.Model):
                     settings.LOGGER.debug('Verifier %s has to confirm email first. Deleting mctweet %d sent from %s' %
                                           (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
                     mctweet.delete()
+                except (ConnectionError,
+                        WebDriverException) as e:
+                    raise e
                 except Exception as e:
                     scr.take_screenshot('error_verifying', force_take=True)
                     settings.LOGGER.exception('Error on bot %s verifying mctweet %d sent from %s' %

@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
+from httplib import BadStatusLine
 
 import sys
 import urllib
 import numpy
 import psutil
-from selenium.common.exceptions import NoSuchFrameException, TimeoutException, NoSuchElementException
+from selenium.common.exceptions import NoSuchFrameException, TimeoutException, NoSuchElementException, \
+    WebDriverException
 from selenium.webdriver import ActionChains, DesiredCapabilities, Proxy
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.wait import WebDriverWait
@@ -15,7 +17,7 @@ from core.managers import mutex
 from .delay import Delay
 from .exceptions import RequestAttemptsExceededException, ProxyConnectionError, ProxyTimeoutError, \
     InternetConnectionError, ProxyUrlRequestError, IncompatibleUserAgent, PageNotReadyState, NoElementToClick, \
-    BlankPageError, ProxyAccessDeniedError
+    BlankPageSource, ProxyAccessDeniedError
 import my_phantomjs_webdriver
 from project.models import ProxiesGroup
 from utils import *
@@ -132,13 +134,17 @@ class Scrapper(object):
 
         #
         # elegimos tipo de navegador
-        user_webdriver = self.user.get_webdriver()
-        if self.force_firefox or user_webdriver == ProxiesGroup.FIREFOX:
-            get_firefox()
-        elif user_webdriver == ProxiesGroup.CHROME:
-            get_chrome()
-        elif user_webdriver == ProxiesGroup.PHANTOMJS:
-            get_panthom()
+        try:
+            user_webdriver = self.user.get_webdriver()
+            if self.force_firefox or user_webdriver == ProxiesGroup.FIREFOX:
+                get_firefox()
+            elif user_webdriver == ProxiesGroup.CHROME:
+                get_chrome()
+            elif user_webdriver == ProxiesGroup.PHANTOMJS:
+                get_panthom()
+        except WebDriverException as e:
+            self.logger.error('Webdriver exception opening browser')
+            raise e
 
         self.browser.maximize_window()
         self.browser.set_page_load_timeout(settings.PAGE_LOAD_TIMEOUT)
@@ -146,31 +152,37 @@ class Scrapper(object):
 
     def close_browser(self):
         try:
-            pid = self.browser.service.process.pid
-            try:
-                self.logger.debug('%s instance closing..' % self.user.get_webdriver())
-                self.browser.quit()
-                self.logger.debug('..%s instance closed ok' % self.user.get_webdriver())
-            finally:
-                # comprobamos que no quede el proceso abierto
-                for proc in psutil.process_iter():
-                    if proc.pid == pid:
-                        self.logger.debug('..%s instance stills opened, killing process PID=%d..' %
-                                          (self.user.get_webdriver(), pid))
-                        try:
-                            proc.kill()
-                            self.logger.debug('..process PID=%d killed ok' % pid)
-                        except Exception as e:
-                            self.logger.error('..process PID=%d not killed ok!' % pid)
-                            raise e
-                        finally:
-                            break
+            # pid = self.browser.service.process.pid
+            # try:
+            #     self.logger.debug('%s instance closing..' % self.user.get_webdriver())
+            #     self.browser.quit()
+            #     self.logger.debug('..%s instance closed ok' % self.user.get_webdriver())
+            # finally:
+            #     # comprobamos que no quede el proceso abierto
+            #     for proc in psutil.process_iter():
+            #         if proc.pid == pid:
+            #             self.logger.debug('..%s instance stills opened, killing process PID=%d..' %
+            #                               (self.user.get_webdriver(), pid))
+            #             try:
+            #                 proc.kill()
+            #                 self.logger.debug('..process PID=%d killed ok' % pid)
+            #             except Exception as e:
+            #                 self.logger.error('..process PID=%d not killed ok!' % pid)
+            #                 raise e
+            #             finally:
+            #                 break
+            self.logger.debug('%s instance closing..' % self.user.get_webdriver())
+            self.browser.quit()
+            self.logger.debug('..%s instance closed ok' % self.user.get_webdriver())
         except Exception as ex:
             if not self.browser:
                 self.logger.warning('%s instance was not opened browser' % self.user.get_webdriver())
             else:
-                self.logger.error('Error closing %s browser instance' % self.user.get_webdriver())
+                self.logger.error('Error closing browser instance (PID=%s)' % self.get_pid())
                 raise ex
+
+    def get_pid(self):
+        return self.browser.service.process.pid
 
     def open_url_in_new_tab(self, url):
         self.browser.find_element_by_tag_name("body").send_keys(self.CMD_KEY + 't')
@@ -376,29 +388,43 @@ class Scrapper(object):
 
         def proxy_works():
             """Para ver que el proxy funciona comprobamos contra google"""
-            scr = Scrapper(self.user)
-            scr.open_browser()
+            scr = None
             try:
+                scr = Scrapper(self.user)
+                scr.open_browser()
                 scr.browser.get('http://google.com')
                 return 'google' in scr.browser.title.lower()
             except TimeoutException:
                 return False
+            finally:
+                scr.close_browser()
 
         def internet_connection_works():
             """Para ver que la conexión a internet funciona lanzamos el phantom sin ir a través de proxy"""
-            browser = webdriver.PhantomJS(settings.PHANTOMJS_BIN_PATH)
+            browser = None
             try:
+                browser = webdriver.PhantomJS(settings.PHANTOMJS_BIN_PATH)
                 browser.get('http://google.com')
                 return 'google' in browser.title.lower()
             except TimeoutException:
                 return False
+            finally:
+                try:
+                    browser.close()
+                except:
+                    try:
+                        pid = browser.service.process.pid
+                    except AttributeError:
+                        pid = 'none'
+                    self.logger.warning('Error closing browser (PID=%s) after checking if connection works' % pid)
+                    pass
 
         try:
             if timeout:
                 self.browser.set_page_load_timeout(timeout)
             self.browser.get(url)
             if self.browser.page_source == '<html><head></head><body></body></html>':
-                raise BlankPageError(self, url)
+                raise BlankPageSource(self, url)
             elif 'access denied' in self.browser.title.lower():
                 raise ProxyAccessDeniedError(self, url)
             else:
@@ -406,7 +432,11 @@ class Scrapper(object):
                 self._quit_focus_from_address_bar()
                 self.logger.debug('go_to: %s' % url)
                 self.take_screenshot('go_to')
-        except (TimeoutException, BlankPageError, ProxyAccessDeniedError) as e:
+        except BadStatusLine:
+            self.logger.error('Bad status line getting %s using proxy %s' % (url, self.user.proxy_for_usage.__unicode__()))
+        except (TimeoutException,
+                BlankPageSource,
+                ProxyAccessDeniedError) as e:
             if type(e) is TimeoutException:
                 self.logger.warning('Timeout loading url %s' % url)
 

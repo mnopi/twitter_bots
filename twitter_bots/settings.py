@@ -17,6 +17,8 @@ SECRET_KEY = 'b%wzymfw7a-)uhmz!^5er^5e^&ko&ym=@7ugjhtaik+3p7=olz'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
+PROD_MODE = False
+
 TEMPLATE_DEBUG = True
 
 ALLOWED_HOSTS = []
@@ -196,22 +198,7 @@ LOGGING = {
 LOGGER = None
 
 
-PROXY_PROVIDERS_ACCOUNTS = {
-    'squidproxies': '31026:EB5x7cE9',
-    'myprivateproxy': 'jpuert:4RpB8rhn',
-}
-
 from core.scrapper.settings import *
-
-
-if sys.platform == "win32":
-    PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_windows_bin.exe')
-elif sys.platform == 'linux2':
-    PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_dev_linux_bin')
-else:
-    PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_mac_bin_1_9_8')
-
-TAKE_SCREENSHOTS = True
 
 
 def set_logger(name):

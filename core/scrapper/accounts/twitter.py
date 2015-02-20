@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from httplib import BadStatusLine
+from urllib2 import URLError
 from selenium.webdriver.common.keys import Keys
 from core.managers import mutex
 from core.scrapper.scrapper import Scrapper
@@ -6,9 +8,9 @@ from core.scrapper.captcha_resolvers import DeathByCaptchaResolver
 from core.scrapper.exceptions import BotMustVerifyPhone, TwitterBotDontExistsOnTwitterException, \
     FailureSendingTweetException, TwitterEmailNotConfirmed, TwitterAccountDead, ProfileStillNotCompleted, \
     PageNotReadyState, TwitterAccountSuspendedAfterTryingUnsuspend, ConnectionError, TweetAlreadySent, \
-    EmailExistsOnTwitter
+    EmailExistsOnTwitter, ProxyUrlRequestError
 from core.scrapper.utils import *
-from selenium.common.exceptions import MoveTargetOutOfBoundsException
+from selenium.common.exceptions import MoveTargetOutOfBoundsException, WebDriverException
 from twitter_bots import settings
 
 
@@ -201,8 +203,12 @@ class TwitterScrapper(Scrapper):
             self.take_screenshot('twitter_email_not_confirmed_after_login', force_take=True)
             raise e
         except (TwitterBotDontExistsOnTwitterException,
+                ProxyUrlRequestError,
                 ConnectionError,
-                PageNotReadyState) as e:
+                PageNotReadyState,
+                BadStatusLine,
+                URLError,
+                WebDriverException) as e:
             raise e
         except Exception as e:
             self.logger.exception('Login on twitter error')

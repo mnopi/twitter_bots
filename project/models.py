@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
+from httplib import BadStatusLine
 from django.core.exceptions import ObjectDoesNotExist
 
 from django.db import models, connection
 from django.db.models import Count, Q
 import feedparser
+from selenium.common.exceptions import WebDriverException
 import simplejson
 import time
 import tweepy
@@ -546,7 +548,11 @@ class Tweet(models.Model):
                 ProxyUrlRequestError,
                 ConnectionError,
                 NoAvailableProxiesToAssignBotsForUse,
-                FailureSendingTweetException):
+                FailureSendingTweetException,
+                BadStatusLine,
+                WebDriverException,
+                URLError,
+                PageNotReadyState):
             pass
         except Exception as e:
             settings.LOGGER.exception('Error on bot %s (%s) sending tweet with id=%i)' %
