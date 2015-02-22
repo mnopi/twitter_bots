@@ -486,6 +486,7 @@ class TwitterUserManager(MyManager):
         )
 
     def clear_old_unmentioned(self):
+        """Elimina los followers extraídos hace más de x días y que aún no fueron mencionados"""
         old_unmentioned = self.unmentioned().saved_lte_days(settings.MAX_DAYS_TO_STAY_UNMENTIONED)
         count = old_unmentioned.count()
         old_unmentioned.delete()

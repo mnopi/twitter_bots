@@ -1,7 +1,7 @@
 from optparse import make_option
 from core.models import TwitterBot
 from core.scrapper.utils import get_2_args
-from project.exceptions import FatalError
+from project.exceptions import FatalError, AllFollowersExtracted
 from project.models import Tweet
 from twitter_bots import settings
 from twitter_bots.settings import set_logger

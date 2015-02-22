@@ -6,8 +6,17 @@ from core.managers import mutex
 import twitter_bots.settings as settings
 from utils import utc_now
 
+#
+# clases padre
+#
+
+class PageLoadError(Exception):
+    pass
+
 
 class TwitterEmailNotFound(Exception):
+    """Esta excepción se lanza cuando no se encuenta en la bandeja de entrada el email de confirmación
+    que tiene que enviar twitter después del registro"""
     def __init__(self, scrapper):
         scrapper.take_screenshot('twitter_email_not_found_failure')
         scrapper.logger.warning('Twitter email not found')
@@ -26,8 +35,10 @@ class TwitterEmailNotConfirmed(Exception):
         scrapper.logger.warning('Twitter email not confirmed yet')
 
 
-class ErrorOpeningTwitterConfirmationLink(Exception):
-    pass
+class AboutBlankPage(PageLoadError):
+    def __init__(self, scrapper):
+        scrapper.logger.error('about:blank')
+        scrapper.take_screenshot('about_blank_error')
 
 
 class HotmailAccountNotCreated(Exception):
@@ -78,12 +89,13 @@ class TwitterAccountDead(Exception):
         scrapper.user.is_dead = True
         scrapper.user.date_death = utc_now()
         scrapper.user.save()
-        scrapper.logger.warning('Exceeded 5 attemps to lift suspension. Twitter account dead :(')
+        scrapper.logger.warning('Twitter account dead :(')
 
 
 class EmailAccountSuspended(Exception):
     def __init__(self, scrapper):
         scrapper.user.is_suspended_email = True
+        scrapper.user.date_suspended_email = utc_now()
         scrapper.user.save()
         scrapper.logger.warning('Email account suspended')
 
@@ -140,7 +152,7 @@ class TwitterBotDontExistsOnTwitterException(Exception):
         scrapper.logger.warning('Username %s dont exists on twitter' % scrapper.user.username)
 
 
-class ConnectionError(Exception):
+class ConnectionError(PageLoadError):
     pass
 
 
@@ -157,7 +169,7 @@ class InternetConnectionError(ConnectionError):
         time.sleep(100)
 
 
-class ProxyTimeoutError(Exception):
+class ProxyTimeoutError(ConnectionError):
     """Cuando se puede conectar al proxy pero no responde la página que pedimos"""
     def __init__(self, scrapper):
 
@@ -176,19 +188,20 @@ class ProxyTimeoutError(Exception):
         time.sleep(5)
 
 
-class ProxyUrlRequestError(Exception):
+class ProxyUrlRequestError(ConnectionError):
     def __init__(self, scrapper, url):
         scrapper.logger.error('Proxy %s gets google.com ok, but couldn\'t get %s' % (scrapper.user.proxy_for_usage.__unicode__(), url))
         time.sleep(5)
 
 
-class BlankPageSource(Exception):
+class BlankPageError(PageLoadError):
     def __init__(self, scrapper, url):
-        scrapper.logger.warning('Blank page source taken from url %s' % url)
+        scrapper.take_screenshot('blank_page_source_failure')
+        scrapper.logger.error('Blank page source taken from url %s' % url)
         time.sleep(5)
 
 
-class ProxyAccessDeniedError(Exception):
+class ProxyAccessDeniedError(ConnectionError):
     def __init__(self, scrapper, url):
         scrapper.logger.error('Access denied to proxy %s requesting url %s' % (scrapper.user.proxy_for_usage.__unicode__(), url))
         scrapper.user.proxy_for_usage.mark_as_unavailable_for_use()
@@ -202,20 +215,43 @@ class ProfileStillNotCompleted(Exception):
 
 class IncompatibleUserAgent(Exception):
     def __init__(self, scrapper):
-        scrapper.logger.warning('Incompatible user agent')
+        scrapper.logger.warning('Incompatible user agent: %s' % scrapper.user.user_agent)
         scrapper.change_user_agent()
 
 
 class EmailAccountNotFound(Exception):
     def __init__(self, scrapper):
-        # scrapper.user.email_registered_ok = False
-        # scrapper.user.save()
+        if scrapper.user.email_registered_ok:
+            scrapper.user.email_registered_ok = False
+            scrapper.user.save()
         scrapper.take_screenshot('email_account_doesnt_exists')
         scrapper.logger.warning('email account %s doesnt exists' % scrapper.user.email)
+
+
+class SignupEmailError(Exception):
+    pass
+
+
+class SignupTwitterError(Exception):
+    pass
+
+
+class ConfirmTwEmailError(Exception):
+    pass
+
+
+class TwitterProfileCreationError(Exception):
+    pass
+
+
+class PageNotRetrievedOkByWebdriver(PageLoadError):
+    def __init__(self, scrapper):
+        scrapper.take_screenshot('page_not_retrieved_ok')
+        scrapper.logger.error('page not retrieved ok by webdriver: %s' % scrapper.browser.current_url)
         scrapper.close_browser()
 
 
-class PageNotReadyState(Exception):
+class PageNotReadyState(PageLoadError):
     def __init__(self, scrapper):
         try:
             scrapper.take_screenshot('page_not_readystate')
@@ -233,3 +269,15 @@ class NoElementToClick(Exception):
         scrapper.take_screenshot('click_error__%s' % el_str, force_take=True)
         scrapper.logger.error('no element %s present on %s, so can\'t be clicked' %
                               (el_str, scrapper.browser.current_url))
+
+
+class ErrorDownloadingPicFromGoogle(Exception):
+    pass
+
+
+class ErrorSettingAvatar(Exception):
+    msg = 'Error setting twitter avatar'
+
+    def __init__(self, scrapper):
+        scrapper.logger.error(self.msg)
+

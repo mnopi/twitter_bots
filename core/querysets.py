@@ -6,7 +6,7 @@ from core.scrapper.utils import is_lte_than_days_ago
 from twitter_bots import settings
 
 
-class TwitterBotQuerySet(QuerySet):
+class TwitterBotQuerySet(MyQuerySet):
     def with_some_account_registered(self):
         return self.filter(Q(email_registered_ok=True) | Q(twitter_registered_ok=True))
 
@@ -27,7 +27,14 @@ class TwitterBotQuerySet(QuerySet):
     def registrable(self):
         """
             Saca robots que puedan continuar el registro.
-            No vamos a continuar con aquellos que estén registrados en twitter pero no tengan correo
+
+            No vamos a continuar con aquellos que:
+                - estén siendo creados por el create_bots
+                - estén muertos
+                - tengan suspendido el email
+                - estén registrados en twitter pero no tengan correo
+                - su grupo no tenga habilitado el crear bots para sus proxies
+                - el proxy no sea apto para hacer el registro
         """
         return self.filter(
             is_being_created=False,
@@ -35,14 +42,34 @@ class TwitterBotQuerySet(QuerySet):
             is_suspended_email=False
         )\
         .exclude(Q(email_registered_ok=False) & Q(twitter_registered_ok=True))\
-        .with_valid_proxy_for_registration()
+        .filter(proxy_for_usage__proxies_group__is_bot_creation_enabled=True)\
+        .with_proxy_for_usage_ok_for_doing_registrations()
 
-    def with_valid_proxy_for_registration(self):
+    def completable(self):
+        """Devuelve los bots que pueden ser completados.
+
+        No vamos a completar aquellos que:
+            - estén muertos
+            - su grupo no tenga habilitado el usar bots para sus proxies
+            - el proxy no sea apto para usarlo
+            - no tengan suspendido el correo y no confirmado el email
+        """
+        return self.filter(
+            is_dead=False,
+            proxy_for_usage__proxies_group__is_bot_usage_enabled=True,
+        )\
+            .with_proxy_connecting_ok()\
+            .exclude(Q(is_suspended_email=True) & Q(twitter_confirmed_email_ok=False))
+
+    def with_proxy_for_usage_ok_for_doing_registrations(self):
+        """Filtra por bots que tengan proxies ok para poder registrarse"""
         qs = self.with_proxy_connecting_ok()\
             .filter(
                 proxy_for_usage__is_unavailable_for_registration=False,
             )
 
+        # sacamos sólo los que tengan proxies con phone_required a false, a no ser que cambiemos la
+        # variable en el settings
         if not settings.REUSE_PROXIES_REQUIRING_PHONE_VERIFICATION:
             qs = qs.filter(proxy_for_usage__is_phone_required=False)
 
@@ -61,18 +88,8 @@ class TwitterBotQuerySet(QuerySet):
             Q(proxy_for_usage__is_in_proxies_txts=False)
         )
 
-    def uncompleted(self):
-        """Devuelve todos los robots pendientes de terminar registros, perfil, etc"""
-        return self.registrable()\
-            .filter(
-                Q(twitter_registered_ok=False) |
-                Q(twitter_confirmed_email_ok=False) |
-                Q(twitter_avatar_completed=False) |
-                Q(twitter_bio_completed=False) |
-                Q(is_suspended=True)
-            )\
-            .filter_suspended_bots()\
-            .distinct()
+    def unregistered(self):
+        return self.filter(twitter_registered_ok=False)
 
     def on_running_projects(self):
         return self.filter(proxy_for_usage__proxies_group__projects__is_running=True)
@@ -86,6 +103,26 @@ class TwitterBotQuerySet(QuerySet):
                 twitter_avatar_completed=True,
                 twitter_bio_completed=True,
                 is_suspended=False,
+            ).distinct()
+
+    def uncompleted(self):
+        return self \
+            .filter(
+                Q(twitter_registered_ok=False) |
+                Q(twitter_confirmed_email_ok=False) |
+                Q(twitter_avatar_completed=False) |
+                Q(twitter_bio_completed=False) |
+                Q(is_suspended=True)
+            ).distinct()
+
+    def registered_but_not_completed(self):
+        return self\
+            .filter(twitter_registered_ok=True)\
+            .filter(
+                Q(twitter_confirmed_email_ok=False) |
+                Q(twitter_avatar_completed=False) |
+                Q(twitter_bio_completed=False) |
+                Q(is_suspended=True)
             ).distinct()
 
     def twitteable_regardless_of_proxy(self):
@@ -138,8 +175,15 @@ class TwitterBotQuerySet(QuerySet):
         return self.filter(proxy_for_usage__proxies_group__projects__is_running=True)
 
     def pendant_to_finish_creation(self):
-        """Saca los bots pendientes de completar y que sean de grupos que tengan activado el crear bots"""
-        return self.uncompleted().filter(proxy_for_usage__proxies_group__is_bot_creation_enabled=True)
+        """Devuelve bots a poder ser completados por el bot_creation_finisher. Estos son:
+            - bots que falten por registrar y puedan ser registrados
+            - bots que estén registrados y falten por completar
+        """
+        not_registered_pks = self.unregistered().registrable().get_pks_distinct()
+        registered_but_not_completed_pks = self.registered_but_not_completed().completable().get_pks_distinct()
+        pks = list(set(list(not_registered_pks) + list(registered_but_not_completed_pks)))
+
+        return self.filter(pk__in=pks)
 
     q__without_any_suspended_bot = ~(
         Q(is_suspended=True) |

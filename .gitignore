@@ -181,5 +181,6 @@ core/scrapper/screenshots/
 core/scrapper/webdrivers/phantomjs/cookies/
 core/scrapper/avatars/
 core/scrapper/captchas/
+core/scrapper/page_source.html
 *.log
 *_captcha.png

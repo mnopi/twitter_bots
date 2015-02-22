@@ -7,15 +7,17 @@ from selenium.common.exceptions import NoSuchElementException, WebDriverExceptio
 from selenium.webdriver import ActionChains
 from selenium.webdriver.common.keys import Keys
 from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableProxiesToAssignBotsForUse,\
-    TweetCreationException, LastMctweetFailedTimeWindowNotPassed, BotCantBeRegistered
+    TweetCreationException, LastMctweetFailedTimeWindowNotPassed, BotHasToWaitToRegister, CancelCreation
 from core.scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from core.scrapper.accounts.hotmail import HotmailScrapper
 from core.scrapper.accounts.twitter import TwitterScrapper
 from core.scrapper.exceptions import TwitterEmailNotFound, \
     TwitterAccountDead, TwitterAccountSuspended, ProfileStillNotCompleted, FailureReplyingMcTweet, \
-    TwitterEmailNotConfirmed, HotmailAccountNotCreated, EmailExistsOnTwitter, ErrorOpeningTwitterConfirmationLink, \
+    TwitterEmailNotConfirmed, HotmailAccountNotCreated, EmailExistsOnTwitter, AboutBlankPage, \
     TwitterBotDontExistsOnTwitterException, EmailAccountNotFound, NotNewTwitterEmailFound, ProxyUrlRequestError, \
-    NotInEmailInbox, ProxyConnectionError, PageNotReadyState, BotMustVerifyPhone, NoElementToClick, ConnectionError
+    NotInEmailInbox, ProxyConnectionError, PageNotReadyState, BotMustVerifyPhone, NoElementToClick, \
+    EmailAccountSuspended, PageNotRetrievedOkByWebdriver, SignupEmailError, PageLoadError, ConfirmTwEmailError, \
+    TwitterProfileCreationError, SignupTwitterError
 from core.scrapper.utils import *
 from core.managers import TwitterBotManager, ProxyManager, mutex
 from project.models import TwitterBotFollowing
@@ -127,7 +129,7 @@ class TwitterBot(models.Model):
         from project.models import Tweet
 
         self.is_suspended = True
-        self.date_suspended = utc_now()
+        self.date_suspended_twitter = utc_now()
         self.save()
         Tweet.objects.filter(sent_ok=False, bot_used=self).delete()
         settings.LOGGER.warning('User %s has marked as suspended on twitter. Tweet to send queue cleaned for him' % self.username)
@@ -233,29 +235,114 @@ class TwitterBot(models.Model):
     def check_if_can_be_registered_on_hotmail(self):
         """Nos dice si el bot se registrar su cuenta email/twitter"""
         if not self.proxy_for_usage.can_register_bots_on_hotmail():
-            raise BotCantBeRegistered(self, 'hotmail')
+            raise BotHasToWaitToRegister(self, 'hotmail')
 
     def check_if_can_be_registered_on_twitter(self):
         """Nos dice si el bot se registrar su cuenta email/twitter"""
         if not self.proxy_for_usage.can_register_bots_on_twitter():
-            raise BotCantBeRegistered(self, 'twitter')
+            raise BotHasToWaitToRegister(self, 'twitter')
 
     def complete_creation(self, first_time=False):
         """Hace los registros de email/twitter para el bot, confirma email en twitter y rellena perfil (avatar y bio).
         También intenta levantar suspensión si estaba suspendido"""
 
-        if self.has_to_complete_creation():
-            self.is_being_created = True
-            self.save()
+        def new_screenshots_dir(scrapper, name):
+            """Crea carpetas en un orden numérico para meter ahí cada screenshot:
+                1_trying_login_email
+                2_..
+                ...
+            """
+            dir_index[0] += 1
+            scrapper.set_screenshots_dir('%d_%s' % (dir_index[0], name))
 
-            t1 = utc_now()
-            settings.LOGGER.info('Completing creation for bot %s (%s) behind proxy %s' %
-                                 (self.username, self.real_name, self.proxy_for_usage.__unicode__()))
-
-            # eliminamos el directorio de capturas previas para el usuario
-            rmdir_if_exists(os.path.join(settings.SCREENSHOTS_DIR, '%s - %s' % (self.real_name, self.username)))
+        def login_email_and_twitter():
+            try:
+                new_screenshots_dir(self.email_scr, 'trying_login_email')
+                self.email_scr.login()
+            except EmailAccountNotFound:
+                pass
+            except EmailAccountSuspended:
+                # si tiene el email suspendido y no tiene confirmado el email, entonces
+                # interrumpimos su creación
+                if self.has_to_confirm_tw_email():
+                    raise CancelCreation(self)
+            except PageLoadError:
+                raise CancelCreation(self)
 
             try:
+                new_screenshots_dir(self.twitter_scr, 'trying_login_twitter')
+                self.twitter_scr.login()
+            except (TwitterBotDontExistsOnTwitterException,
+                    TwitterEmailNotConfirmed):
+                pass
+
+        def signup_email():
+            try:
+                self.check_if_can_be_registered_on_hotmail()
+                new_screenshots_dir(self.email_scr, 'signup_email')
+
+                self.email_scr.sign_up()
+
+                self.email_registered_ok = True
+                self.date = utc_now()
+                self.save()
+                self.email_scr.take_screenshot('signed_up_sucessfully', force_take=True)
+                self.email_scr.delay.seconds(7)
+                self.email_scr.logger.info('%s signed up ok' % self.email)
+            except (BotHasToWaitToRegister,
+                    HotmailAccountNotCreated):
+                raise SignupEmailError
+
+        def confirm_tw_email():
+            try:
+                new_screenshots_dir(self.email_scr, 'confirm_tw_email')
+
+                self.email_scr.confirm_tw_email()
+
+                self.twitter_confirmed_email_ok = True
+                self.save()
+                self.email_scr.delay.seconds(8)
+                settings.LOGGER.info('Confirmed twitter email %s for user %s' % (self.email, self.username))
+                self.email_scr.take_screenshot('tw_email_confirmed_sucessfully', force_take=True)
+            except ConfirmTwEmailError:
+                settings.LOGGER.info('Login again on twitter.com..')
+                try:
+                    new_screenshots_dir(self.twitter_scr, 'login_twitter_again')
+                    self.twitter_scr.login()
+                except TwitterEmailNotConfirmed:
+                    self.email_scr.delay.seconds(10)
+
+                if self.has_to_confirm_tw_email():
+                    new_screenshots_dir(self.email_scr, 'confirm_tw_email_after_resend')
+                    try:
+                        self.email_scr.confirm_tw_email()
+                        self.twitter_confirmed_email_ok = True
+                        self.save()
+                        settings.LOGGER.info('Confirmed twitter email %s for user %s after resending confirmation' % (self.email, self.username))
+                    except (TwitterEmailNotFound, PageLoadError) as e:
+                        raise ConfirmTwEmailError
+            except (EmailAccountNotFound,
+                    TwitterEmailNotFound):
+                raise ConfirmTwEmailError
+            except Exception as ex:
+                settings.LOGGER.exception('Error on bot %s confirming email %s' %
+                                          (self.username, self.email))
+                self.email_scr.take_screenshot('tw_email_confirmation_failure', force_take=True)
+                raise ex
+
+        try:
+            if self.has_to_complete_creation():
+                dir_index = [0]
+                self.is_being_created = True
+                self.save()
+
+                t1 = utc_now()
+                settings.LOGGER.info('Completing creation for bot %s (%s) behind proxy %s' %
+                                     (self.username, self.real_name, self.proxy_for_usage.__unicode__()))
+
+                # eliminamos el directorio de capturas previas para el usuario
+                rmdir_if_exists(os.path.join(settings.SCREENSHOTS_DIR, '%s - %s' % (self.real_name, self.username)))
+
                 # init scrappers
                 self.email_scr = self.get_email_scrapper()
                 self.email_scr.open_browser()
@@ -264,82 +351,30 @@ class TwitterBot(models.Model):
 
                 self.twitter_scr.check_proxy_works_ok()
 
-                # 1_signup_email
+                # trying login email & twitter para verificar en cada cuenta si está correcta correctamente registrado o no
                 if not first_time:
-                    try:
-                        self.email_scr.login()
-                    except EmailAccountNotFound:
-                        self.email_scr.open_browser()
+                    login_email_and_twitter()
 
+                # signup email
                 if self.has_to_register_email():
-                    self.check_if_can_be_registered_on_hotmail()
-                    self.email_scr.set_screenshots_dir('1_signup_email')
+                    signup_email()
 
-                    self.email_scr.sign_up()
-                    self.email_registered_ok = True
-                    self.date = utc_now()
-                    self.save()
-                    self.email_scr.take_screenshot('signed_up_sucessfully', force_take=True)
-                    self.email_scr.delay.seconds(7)
-                    self.email_scr.logger.info('%s signed up ok' % self.email)
-
-                # 2_signup_twitter
-                if not first_time:
-                    try:
-                        self.twitter_scr.login()
-                    except TwitterBotDontExistsOnTwitterException:
-                        pass
-
+                # signup_twitter
                 if self.has_to_register_twitter():
                     self.check_if_can_be_registered_on_twitter()
-                    self.twitter_scr.set_screenshots_dir('2_signup_twitter')
+                    new_screenshots_dir(self.twitter_scr, 'signup_twitter')
                     self.twitter_scr.sign_up()
 
-                # 3_confirm_tw_email
+                # confirm_tw_email
                 if self.has_to_confirm_tw_email():
-                    self.email_scr.set_screenshots_dir('3_confirm_tw_email')
                     try:
-                        self.email_scr.confirm_tw_email()
-                        self.twitter_confirmed_email_ok = True
-                        self.save()
-                        self.email_scr.delay.seconds(8)
-                        settings.LOGGER.info('Confirmed twitter email %s for user %s' % (self.email, self.username))
-                        self.email_scr.take_screenshot('tw_email_confirmed_sucessfully', force_take=True)
-                    except (TwitterEmailNotFound,
-                            TwitterAccountSuspended,
-                            ErrorOpeningTwitterConfirmationLink,
-                            NotNewTwitterEmailFound,
-                            NotInEmailInbox):
-                        settings.LOGGER.info('Login again on twitter.com..')
-                        try:
-                            self.twitter_scr.login()
-                        except TwitterEmailNotConfirmed:
-                            self.email_scr.delay.seconds(10)
+                        confirm_tw_email()
+                    except EmailAccountNotFound:
+                        raise CancelCreation
 
-                        if self.has_to_confirm_tw_email():
-                            self.email_scr.set_screenshots_dir('3b_confirm_tw_email_after_resend')
-                            self.email_scr.confirm_tw_email()
-                            self.twitter_confirmed_email_ok = True
-                            self.save()
-                            settings.LOGGER.info('Confirmed twitter email %s for user %s after resending confirmation' % (self.email, self.username))
-                    except (EmailAccountNotFound,
-                            TwitterEmailNotFound) as e:
-                        raise e
-                    except Exception as ex:
-                        settings.LOGGER.exception('Error on bot %s confirming email %s' %
-                                                  (self.username, self.email))
-                        self.email_scr.take_screenshot('tw_email_confirmation_failure', force_take=True)
-                        raise ex
-
-                # 4_lift_suspension
-                if self.is_suspended:
-                    settings.LOGGER.info('Lifting suspension for bot %s' % self.username)
-                    self.twitter_scr.set_screenshots_dir('4_tw_lift_suspension')
-                    self.twitter_scr.login()
-
-                # 5_profile_completion
+                # profile_completion
                 if self.has_to_complete_tw_profile():
-                    self.twitter_scr.set_screenshots_dir('5_tw_profile_completion')
+                    new_screenshots_dir(self.twitter_scr, 'tw_profile_completion')
                     self.twitter_scr.set_profile()
 
                 t2 = utc_now()
@@ -348,41 +383,30 @@ class TwitterBot(models.Model):
                     settings.LOGGER.info('Bot "%s" processed incompletely in %s seconds' % (self.username, diff_secs))
                 else:
                     settings.LOGGER.info('Bot "%s" completed sucessfully in %s seconds' % (self.username, diff_secs))
-
-            except (TwitterAccountSuspended,
-                    HotmailAccountNotCreated,
-                    NoAvailableProxiesToAssignBotsForUse,
-                    ProfileStillNotCompleted,
-                    NoMoreAvailableProxiesForRegistration,
-                    TwitterAccountDead,
-                    TwitterEmailNotConfirmed,
-                    EmailExistsOnTwitter,
-                    BotCantBeRegistered,
-                    ProxyConnectionError,
-                    ProxyUrlRequestError,
-                    PageNotReadyState,
-                    NotNewTwitterEmailFound,
-                    NotInEmailInbox,
-                    EmailAccountNotFound,
-                    BotMustVerifyPhone,
-                    NoElementToClick
-            ):
-                pass
+            else:
+                settings.LOGGER.info('Bot %s is already completed' % self.user.username)
+        except (PageLoadError,
+                CancelCreation,
+                SignupEmailError,
+                SignupTwitterError,
+                ConfirmTwEmailError,
+                TwitterProfileCreationError):
+            pass
+        except Exception as ex:
+            settings.LOGGER.exception('Error completing creation for bot %s' % self.username)
+            raise ex
+        finally:
+            # cerramos las instancias abiertas
+            try:
+                if hasattr(self, 'email_scr'):
+                    self.email_scr.close_browser()
+                if hasattr(self, 'twitter_scr'):
+                    self.twitter_scr.close_browser()
+                self.is_being_created = False
+                self.save()
             except Exception as ex:
-                settings.LOGGER.exception('Error completing creation for bot %s' % self.username)
+                settings.LOGGER.exception('Error closing browsers instances for bot %s' % self.username)
                 raise ex
-            finally:
-                # cerramos las instancias abiertas
-                try:
-                    if hasattr(self, 'email_scr'):
-                        self.email_scr.close_browser()
-                    if hasattr(self, 'twitter_scr'):
-                        self.twitter_scr.close_browser()
-                    self.is_being_created = False
-                    self.save()
-                except Exception as ex:
-                    settings.LOGGER.exception('Error closing browsers instances for bot %s' % self.username)
-                    raise ex
 
     def generate_email(self):
         self.email = generate_random_username(self.real_name) + '@' + settings.EMAIL_ACCOUNT_TYPE
@@ -940,8 +964,7 @@ class TwitterBot(models.Model):
                     settings.LOGGER.debug('Verifier %s has to confirm email first. Deleting mctweet %d sent from %s' %
                                           (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
                     mctweet.delete()
-                except (ConnectionError,
-                        WebDriverException) as e:
+                except PageLoadError as e:
                     raise e
                 except Exception as e:
                     scr.take_screenshot('error_verifying', force_take=True)

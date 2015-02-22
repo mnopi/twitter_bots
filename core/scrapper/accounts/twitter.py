@@ -8,7 +8,8 @@ from core.scrapper.captcha_resolvers import DeathByCaptchaResolver
 from core.scrapper.exceptions import BotMustVerifyPhone, TwitterBotDontExistsOnTwitterException, \
     FailureSendingTweetException, TwitterEmailNotConfirmed, TwitterAccountDead, ProfileStillNotCompleted, \
     PageNotReadyState, TwitterAccountSuspendedAfterTryingUnsuspend, ConnectionError, TweetAlreadySent, \
-    EmailExistsOnTwitter, ProxyUrlRequestError
+    EmailExistsOnTwitter, ProxyUrlRequestError, ErrorDownloadingPicFromGoogle, ErrorSettingAvatar, \
+    TwitterProfileCreationError, PageLoadError, SignupTwitterError
 from core.scrapper.utils import *
 from selenium.common.exceptions import MoveTargetOutOfBoundsException, WebDriverException
 from twitter_bots import settings
@@ -159,9 +160,10 @@ class TwitterScrapper(Scrapper):
             self.user.date = utc_now()
             self.user.save()
             self.logger.info('Twitter account registered successfully')
-        except (EmailExistsOnTwitter,
-                BotMustVerifyPhone) as e:
-            raise e
+        except (PageLoadError,
+                EmailExistsOnTwitter,
+                BotMustVerifyPhone):
+            raise SignupTwitterError
         except Exception as e:
             self.take_screenshot('twitter_registered_fail', force_take=True)
             self.logger.exception('Error registering twitter account')
@@ -203,12 +205,8 @@ class TwitterScrapper(Scrapper):
             self.take_screenshot('twitter_email_not_confirmed_after_login', force_take=True)
             raise e
         except (TwitterBotDontExistsOnTwitterException,
-                ProxyUrlRequestError,
-                ConnectionError,
-                PageNotReadyState,
-                BadStatusLine,
-                URLError,
-                WebDriverException) as e:
+                PageLoadError,
+                TwitterAccountDead) as e:
             raise e
         except Exception as e:
             self.logger.exception('Login on twitter error')
@@ -220,6 +218,7 @@ class TwitterScrapper(Scrapper):
         def submit_unsuspension(attempt):
             if attempt == 5:
                 if settings.MARK_BOT_AS_DEATH_AFTER_TRYING_LIFTING_SUSPENSION:
+                    self.logger.warning('Exceeded 5 attemps to lift suspension.')
                     raise TwitterAccountDead(self)
                 else:
                     raise TwitterAccountSuspendedAfterTryingUnsuspend(self)
@@ -244,13 +243,17 @@ class TwitterScrapper(Scrapper):
                     # si la suspensión se levantó bien..
                     self.user.unmark_as_suspended()
 
-        self.user.mark_as_suspended()
+        cr = DeathByCaptchaResolver(self)
         self.click(self.get_css_element('#account-suspended a'))
         self.wait_to_page_readystate()
-        cr = DeathByCaptchaResolver(self)
 
         try:
-            submit_unsuspension(attempt=0)
+            if self.check_visibility('#suspended_help_submit'):
+                submit_unsuspension(attempt=0)
+            else:
+                raise TwitterAccountDead(self)
+        except TwitterAccountDead as e:
+            raise e
         except Exception as e:
             self.logger.exception('error lifting suspension')
             raise e
@@ -269,6 +272,9 @@ class TwitterScrapper(Scrapper):
                     self.user.twitter_confirmed_email_ok = True
                     self.user.save()
 
+                if not self.user.is_suspended:
+                    self.user.mark_as_suspended()
+
                 self.lift_suspension()
         elif self.check_visibility('.resend-confirmation-email-link'):
             self.click('.resend-confirmation-email-link')
@@ -276,8 +282,7 @@ class TwitterScrapper(Scrapper):
             raise TwitterEmailNotConfirmed(self)
         else:
             if self.user.is_suspended:
-                self.user.is_suspended = False
-                self.user.save()
+                self.user.unmark_as_suspended()
 
             # si no estaba en BD como email confirmado también se marca
             if not self.user.twitter_confirmed_email_ok:
@@ -319,10 +324,10 @@ class TwitterScrapper(Scrapper):
                 # eliminamos el archivo que habíamos guardado para el avatar
                 os.remove(avatar_path)
                 return True
-            except PageNotReadyState as e:
-                raise e
+            except ErrorDownloadingPicFromGoogle:
+                raise ErrorSettingAvatar(self)
             except Exception:
-                self.logger.exception('Error setting twitter avatar')
+                self.logger.exception(ErrorSettingAvatar.msg)
                 self.take_screenshot('set_avatar_failure', force_take=True)
                 return False
 
@@ -366,8 +371,10 @@ class TwitterScrapper(Scrapper):
                 self.take_screenshot('profile_completed_ok', force_take=True)
             else:
                 raise ProfileStillNotCompleted(self)
-        except ProfileStillNotCompleted as e:
-            raise e
+        except (ProfileStillNotCompleted,
+                PageNotReadyState,
+                TwitterEmailNotConfirmed):
+            raise TwitterProfileCreationError
         except Exception as ex:
             self.logger.exception('Error creating twitter profile')
             self.take_screenshot('profile_creation_failure', force_take=True)
