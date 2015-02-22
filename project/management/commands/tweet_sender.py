@@ -55,8 +55,10 @@ class Command(BaseCommand):
             raise FatalError(e)
         finally:
             # quitamos todos los phantomjs que hayan quedado ejecutándose
+            phantomjs_to_kill = 'phantomjs_prod' if settings.PROD_MODE else 'phantomjs_dev'
+            settings.LOGGER.debug('Killing all %s running processes..' % phantomjs_to_kill)
             for proc in psutil.process_iter():
-                if 'phantomjs' in proc.name():
+                if phantomjs_to_kill in proc.name():
                     proc.kill()
 
         settings.LOGGER.info('-- FINISHED %s --' % MODULE_NAME)

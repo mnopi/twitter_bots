@@ -201,9 +201,18 @@ class TwitterBotManager(models.Manager):
 
         bots_to_finish_creation = self.pendant_to_finish_creation()  # sólo se eligen bots de grupos activos
         if bots_to_finish_creation.exists():
-            if not bot:
+            if bot:
+                try:
+                    bot = bots_to_finish_creation.get(username=bot)
+                    bot.complete_creation()
+                except self.model.DoesNotExist:
+                    bot = self.get(username=bot)
+                    bot.log_reason_to_not_complete_creation()
+            else:
+                # si son varios a terminar, elegimos sólo uno por subnet
                 if bots_to_finish_creation.count() > 1:
                     bots_to_finish_creation = bots_to_finish_creation.one_per_subnet()
+
                 bots_to_finish_creation = bots_to_finish_creation[:num_tasks] if num_tasks else bots_to_finish_creation
 
                 if num_threads == 1 or not num_threads:
@@ -215,13 +224,6 @@ class TwitterBotManager(models.Manager):
                     for bot in bots_to_finish_creation:
                         pool.add_task(bot.complete_creation)
                     pool.wait_completion()
-            else:
-                try:
-                    bot = bots_to_finish_creation.get(username=bot) if bot else bots_to_finish_creation.first()
-                    bot.complete_creation()
-                except self.model.DoesNotExist:
-                    bot = self.get(username=bot)
-                    bot.log_reason_to_not_complete_creation()
 
             settings.LOGGER.info('Sleeping %d seconds to respawn bot_creation_finisher again..' %
                                  settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
@@ -260,13 +262,16 @@ class TwitterBotManager(models.Manager):
         return self.get_queryset().registrable()
 
     def with_valid_proxy_for_registration(self):
-        return self.get_queryset().with_valid_proxy_for_registration()
+        return self.get_queryset().with_proxy_for_usage_ok_for_doing_registrations()
 
     def with_proxy_connecting_ok(self):
         return self.get_queryset().with_proxy_connecting_ok()
 
     def uncompleted(self):
-        return self.get_queryset().uncompleted()
+        return self.get_queryset().unregistered()
+
+    def registered_but_not_completed(self):
+        return self.get_queryset().registered_but_not_completed()
 
     def completed(self):
         return self.get_queryset().completed()

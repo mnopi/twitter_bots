@@ -5,6 +5,7 @@ import os
 
 #
 # django settings
+settings.PROD_MODE = True
 DEBUG = settings.TEMPLATE_DEBUG = True
 ALLOWED_HOSTS = ['localhost', '88.26.212.82', '192.168.1.115']
 DATABASES = {
@@ -13,8 +14,8 @@ DATABASES = {
         "NAME": "twitter_bots_prod",
         "USER": "root",
         "PASSWORD": "1aragon1",
-        # "HOST": "88.26.212.82",
-        "HOST": "localhost",
+        "HOST": "88.26.212.82",
+        # "HOST": "localhost",
         "PORT": "3306",
     }
 }
@@ -22,7 +23,7 @@ DATABASES = {
 
 #
 # scrapping settings
-settings.PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_linux_bin')
+settings.PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_prod_linux_bin')
 
 settings.MAX_THREADS_COMPLETING_PENDANT_BOTS = 50
 settings.MAX_THREADS_CREATING_BOTS = 70

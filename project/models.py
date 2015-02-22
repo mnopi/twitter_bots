@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
+from httplib import BadStatusLine
 from django.core.exceptions import ObjectDoesNotExist
 
 from django.db import models, connection
 from django.db.models import Count, Q
 import feedparser
+from selenium.common.exceptions import WebDriverException
 import simplejson
 import time
 import tweepy
@@ -559,7 +561,11 @@ class Tweet(models.Model):
                 ProxyUrlRequestError,
                 ConnectionError,
                 NoAvailableProxiesToAssignBotsForUse,
-                FailureSendingTweetException):
+                FailureSendingTweetException,
+                BadStatusLine,
+                WebDriverException,
+                URLError,
+                PageNotReadyState):
             pass
         except Exception as e:
             settings.LOGGER.exception('Error on bot %s (%s) sending tweet with id=%i)' %
@@ -567,14 +573,14 @@ class Tweet(models.Model):
             # self.delete()
             raise e
         finally:
+            scr.close_browser()
+
             # si el tweet sigue en BD se desmarca como enviando
             scr.logger.debug('writing DB: sending=False..')
             if Tweet.objects.filter(pk=self.pk).exists():
                 self.sending = False
                 self.save()
             scr.logger.debug('..written ok')
-
-            scr.close_browser()
 
             # cerramos conexión con BD
             connection.close()

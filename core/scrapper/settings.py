@@ -154,7 +154,7 @@ PHANTOMJS_PATH = os.path.join(WEBDRIVERS_PATH, 'phantomjs')
 if sys.platform == "win32":
     PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_windows_bin.exe')
 elif sys.platform == 'linux2':
-    PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_linux_bin')
+    PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_dev_linux_bin')
 else:
     PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_mac_bin_1_9_8')
 

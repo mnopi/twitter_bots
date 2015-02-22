@@ -261,6 +261,11 @@ class SenderBotHasToFollowPeople(Exception):
         settings.LOGGER.info('Sender bot %s has to follow people' % sender_bot.__unicode__())
 
 
-class BotCantBeRegistered(Exception):
+class BotHasToWaitToRegister(Exception):
     def __init__(self, bot, where):
         settings.LOGGER.warning('Bot %s has to wait more days to be registered on %s' % (bot.username, where))
+
+
+class CancelCreation(Exception):
+    def __init__(self, bot):
+        settings.LOGGER.warning('Bot %s has to cancel creation' % bot.username)

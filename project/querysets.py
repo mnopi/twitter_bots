@@ -129,6 +129,9 @@ class MyQuerySet(QuerySet):
         finally:
             c.close()
 
+    def get_pks_distinct(self):
+        return self.values_list('pk', flat=True).distinct()
+
     def get_chained_distinct(self, *pks):
         return self.filter(pk__in=list(set(chain(*pks))))
 

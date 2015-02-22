@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
+from httplib import BadStatusLine
 
 import sys
 import urllib
 import numpy
-from selenium.common.exceptions import NoSuchFrameException, TimeoutException
+import psutil
+from selenium.common.exceptions import NoSuchFrameException, TimeoutException, NoSuchElementException, \
+    WebDriverException
 from selenium.webdriver import ActionChains, DesiredCapabilities, Proxy
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.wait import WebDriverWait
@@ -14,7 +17,7 @@ from core.managers import mutex
 from .delay import Delay
 from .exceptions import RequestAttemptsExceededException, ProxyConnectionError, ProxyTimeoutError, \
     InternetConnectionError, ProxyUrlRequestError, IncompatibleUserAgent, PageNotReadyState, NoElementToClick, \
-    BlankPageError, ProxyAccessDeniedError
+    BlankPageError, ProxyAccessDeniedError, ErrorDownloadingPicFromGoogle, PageLoadError
 import my_phantomjs_webdriver
 from project.models import ProxiesGroup
 from utils import *
@@ -131,13 +134,17 @@ class Scrapper(object):
 
         #
         # elegimos tipo de navegador
-        user_webdriver = self.user.get_webdriver()
-        if self.force_firefox or user_webdriver == ProxiesGroup.FIREFOX:
-            get_firefox()
-        elif user_webdriver == ProxiesGroup.CHROME:
-            get_chrome()
-        elif user_webdriver == ProxiesGroup.PHANTOMJS:
-            get_panthom()
+        try:
+            user_webdriver = self.user.get_webdriver()
+            if self.force_firefox or user_webdriver == ProxiesGroup.FIREFOX:
+                get_firefox()
+            elif user_webdriver == ProxiesGroup.CHROME:
+                get_chrome()
+            elif user_webdriver == ProxiesGroup.PHANTOMJS:
+                get_panthom()
+        except WebDriverException:
+            self.logger.error('Webdriver exception opening browser')
+            raise PageLoadError
 
         self.browser.maximize_window()
         self.browser.set_page_load_timeout(settings.PAGE_LOAD_TIMEOUT)
@@ -145,6 +152,25 @@ class Scrapper(object):
 
     def close_browser(self):
         try:
+            # pid = self.browser.service.process.pid
+            # try:
+            #     self.logger.debug('%s instance closing..' % self.user.get_webdriver())
+            #     self.browser.quit()
+            #     self.logger.debug('..%s instance closed ok' % self.user.get_webdriver())
+            # finally:
+            #     # comprobamos que no quede el proceso abierto
+            #     for proc in psutil.process_iter():
+            #         if proc.pid == pid:
+            #             self.logger.debug('..%s instance stills opened, killing process PID=%d..' %
+            #                               (self.user.get_webdriver(), pid))
+            #             try:
+            #                 proc.kill()
+            #                 self.logger.debug('..process PID=%d killed ok' % pid)
+            #             except Exception as e:
+            #                 self.logger.error('..process PID=%d not killed ok!' % pid)
+            #                 raise e
+            #             finally:
+            #                 break
             self.logger.debug('%s instance closing..' % self.user.get_webdriver())
             self.browser.quit()
             self.logger.debug('..%s instance closed ok' % self.user.get_webdriver())
@@ -152,8 +178,14 @@ class Scrapper(object):
             if not self.browser:
                 self.logger.warning('%s instance was not opened browser' % self.user.get_webdriver())
             else:
-                self.logger.error('Error closing %s browser instance' % self.user.get_webdriver())
+                self.logger.error('Error closing browser instance (PID=%s)' % self.get_pid())
                 raise ex
+
+    def get_pid(self):
+        try:
+            return str(self.browser.service.process.pid)
+        except AttributeError:
+            return 'none'
 
     def open_url_in_new_tab(self, url):
         self.browser.find_element_by_tag_name("body").send_keys(self.CMD_KEY + 't')
@@ -359,22 +391,36 @@ class Scrapper(object):
 
         def proxy_works():
             """Para ver que el proxy funciona comprobamos contra google"""
-            scr = Scrapper(self.user)
-            scr.open_browser()
+            scr = None
             try:
+                scr = Scrapper(self.user)
+                scr.open_browser()
                 scr.browser.get('http://google.com')
                 return 'google' in scr.browser.title.lower()
             except TimeoutException:
                 return False
+            finally:
+                scr.close_browser()
 
         def internet_connection_works():
             """Para ver que la conexión a internet funciona lanzamos el phantom sin ir a través de proxy"""
-            browser = webdriver.PhantomJS(settings.PHANTOMJS_BIN_PATH)
+            browser = None
             try:
+                browser = webdriver.PhantomJS(settings.PHANTOMJS_BIN_PATH)
                 browser.get('http://google.com')
                 return 'google' in browser.title.lower()
             except TimeoutException:
                 return False
+            finally:
+                try:
+                    browser.close()
+                except:
+                    try:
+                        pid = browser.service.process.pid
+                    except AttributeError:
+                        pid = 'none'
+                    self.logger.warning('Error closing browser (PID=%s) after checking if connection works' % pid)
+                    pass
 
         try:
             if timeout:
@@ -389,7 +435,15 @@ class Scrapper(object):
                 self._quit_focus_from_address_bar()
                 self.logger.debug('go_to: %s' % url)
                 self.take_screenshot('go_to')
-        except (TimeoutException, BlankPageError, ProxyAccessDeniedError) as e:
+        except BadStatusLine:
+            self.logger.error('Bad status line getting %s using proxy %s' % (url, self.user.proxy_for_usage.__unicode__()))
+            raise PageLoadError
+        except WebDriverException:
+            self.logger.error('WebDriverException. Proxy: %s' % self.user.proxy_for_usage.__unicode__())
+            raise PageLoadError
+        except (TimeoutException,
+                BlankPageError,
+                ProxyAccessDeniedError) as e:
             if type(e) is TimeoutException:
                 self.logger.warning('Timeout loading url %s' % url)
 
@@ -444,6 +498,19 @@ class Scrapper(object):
 
             for c in typed_before_txt:
                 self.send_special_key(Keys.BACKSPACE)
+
+    def get_str_from_el(self, el):
+        if type(el) is str:
+            return el
+        else:
+            # si el elemento es un objeto de webdriver en lugar de un string css
+            try:
+                return el.text or 'without_text_el'
+            except:
+                try:
+                    return el.tag_name
+                except:
+                    return 'unnamed_el'
 
     def click(self, el):
         # def get_offsets():
@@ -500,11 +567,27 @@ class Scrapper(object):
         self.take_screenshot(msg)
         self.logger.debug(msg)
 
-    def try_to_click(self, *css_elements, **kwargs):
-        for el in css_elements:
+    def try_to_click(self, *elements, **kwargs):
+        """Dada una lista de elementos elements, hará click en el primero que esté visible
+        Posibles tipos de elementos dentro de elements:
+            -   '#elemento'                                 selector css hacia el elemento
+            -   <webdriver object elemento>                 objeto webdriver
+            -   lambda: funcion_para_obtener_elemento()     la cual se llamará dentro de este try_to_click
+        """
+        for el in elements:
+            if hasattr(el, '__call__'):
+                try:
+                    el = el()
+                except:
+                    continue
+
+            el_str = self.get_str_from_el(el)
+            self.logger.debug('Trying to click element: %s' % el_str)
             if self.check_visibility(el, **kwargs):
                 self.click(el)
                 break
+            else:
+                self.logger.debug('Element doesn\'t exists: %s' % el_str)
 
     def _quit_focus_from_address_bar(self):
         self.send_special_key(Keys.TAB)
@@ -561,6 +644,16 @@ class Scrapper(object):
                 g_scrapper.logger.warning('Error getting image from google because element #rg_s .rg_di was not found.')
                 raise IncompatibleUserAgent(self)
 
+        def before_try_again():
+            try:
+                os.remove(avatar_path)
+            except OSError:
+                pass
+            attempt_num[0] += 1
+            self.logger.warning('Invalid picture downloaded from %s. Trying again (%i)..' %
+                                    (g_scrapper.browser.current_url, attempt_num[0]))
+            self.take_screenshot('picture_download_failure_attempt_%i' % attempt_num[0], force_take=True)
+
         avatar_path = os.path.join(settings.AVATARS_DIR, '%s.png' % self.user.username)
         MIN_RES = 80  # mínima resolución que debe tener cada imagen encontrada, en px
         SEARCH_ATTEMPTS = 3
@@ -570,40 +663,49 @@ class Scrapper(object):
         g_scrapper.open_browser()
 
         # se queda intentando coger una imágen válida
-        attempt_num = 0
+        attempt_num = [0]
         try:
             while True:
-                if attempt_num > SEARCH_ATTEMPTS:
-                    g_scrapper.logger.warning('Exceeded %i attempts downloading picture profile for bot %s'
-                                            % (SEARCH_ATTEMPTS, self.user.username))
-                    raise Exception()
+                if attempt_num[0] > SEARCH_ATTEMPTS:
+                    g_scrapper.logger.error('Exceeded %i attempts downloading picture from google' % SEARCH_ATTEMPTS)
+                    raise ErrorDownloadingPicFromGoogle
 
                 g_scrapper.go_to('http://www.google.com')
-                g_scrapper.click(g_scrapper.browser.find_element_by_partial_link_text('Images'))
+                g_scrapper.try_to_click(
+                    lambda: g_scrapper.browser.find_element_by_partial_link_text('Images'),
+                    '#gb div.gb_Fc.gb_i.gb_Uc.gb_Nc > div:nth-child(3) > a'
+                )
                 img = get_img()
                 g_scrapper.click(img)
                 g_scrapper.wait_to_page_readystate()
-                img_button = g_scrapper.browser.find_element_by_partial_link_text('View image')
-                g_scrapper.click(img_button)
+                g_scrapper.try_to_click(
+                    lambda: g_scrapper.browser.find_element_by_partial_link_text('View image'),
+                    '#irc_cc > div:nth-child(3) > div.irc_b table._Ccb.irc_but_r td:nth-child(2) > a'
+                )
                 g_scrapper.wait_to_page_readystate()
-                g_scrapper.delay.seconds(10)  # para que dé tiempo a cargar la página final con la imágen
-                urllib.urlretrieve(g_scrapper.browser.current_url, avatar_path)
-                import imghdr
-                if imghdr.what(avatar_path):
-                    break
+                try:
+                    wait_condition(lambda: not 'google.' in g_scrapper.browser.current_url)
+                except Exception:
+                    before_try_again()
                 else:
-                    os.remove(avatar_path)
-                    attempt_num += 1
-                    self.logger.warning('Invalid picture downloaded from %s. Trying again (%i)..' %
-                                            (g_scrapper.browser.current_url, attempt_num))
-                    self.take_screenshot('picture_download_failure_attempt_%i' % attempt_num, force_take=True)
+                    g_scrapper.delay.seconds(10)
+                    urllib.urlretrieve(g_scrapper.browser.current_url, avatar_path)
+                    import imghdr
+                    if imghdr.what(avatar_path):
+                        break
+                    else:
+                        before_try_again()
 
-                # try:
-                #     PIL.Image.open(avatar_path).close()
-                #     break
-                # except Exception:
-                #     settings.LOGGER.warning('Invalid picture downloaded from %s. Trying again..' % g_scrapper.browser.current_url)
+                    # try:
+                    #     PIL.Image.open(avatar_path).close()
+                    #     break
+                    # except Exception:
+                    #     settings.LOGGER.warning('Invalid picture downloaded from %s. Trying again..' % g_scrapper.browser.current_url)
 
+        except (PageNotReadyState,
+                NoSuchElementException,
+                ErrorDownloadingPicFromGoogle):
+            raise ErrorDownloadingPicFromGoogle
         except Exception, e:
             self.logger.exception('Error downloading picture from google')
             g_scrapper.take_screenshot('picture_download_failure')
