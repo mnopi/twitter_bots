@@ -14,6 +14,10 @@ class PageLoadError(Exception):
     pass
 
 
+class ConnectionError(PageLoadError):
+    pass
+
+
 class TwitterEmailNotFound(Exception):
     """Esta excepción se lanza cuando no se encuenta en la bandeja de entrada el email de confirmación
     que tiene que enviar twitter después del registro"""
@@ -107,10 +111,15 @@ class BotDetectedAsSpammerException(Exception):
         scrapper.logger.warning('Twitter has detected this bot as spammer')
 
 
-class FailureSendingTweetException(Exception):
-    def __init__(self, scrapper, msg):
-        settings.LOGGER.warning(msg)
-        scrapper.take_screenshot('failure_sending_tweet', force_take=True)
+class FailureSendingTweet(Exception):
+    def __init__(self, tweet):
+        settings.LOGGER.warning('Error on bot %s sending tweet %s' %
+                                (tweet.bot_used.username, tweet.pk))
+
+
+class BotNotLoggedIn(Exception):
+    def __init__(self, bot):
+        settings.LOGGER.warning('Bot %s not logged in twitter' % bot.username)
 
 
 class FailureReplyingMcTweet(Exception):
@@ -123,15 +132,14 @@ class FailureReplyingMcTweet(Exception):
 
 
 class TweetAlreadySent(Exception):
-    def __init__(self, scrapper, tweet, msg):
-        settings.LOGGER.warning(msg)
+    def __init__(self, tweet):
+        settings.LOGGER.warning('Tweet %d was already sent by bot %s' %
+                                (tweet.pk, tweet.bot_used.username))
         tweet.sent_ok = True
         tweet.sending = False
         if not tweet.date_sent:
             tweet.date_sent = tweet.date_created
         tweet.save()
-
-        scrapper.take_screenshot('tweet_already_sent', force_take=True)
 
 class BotMustVerifyPhone(Exception):
     def __init__(self, scrapper):
@@ -150,10 +158,6 @@ class TwitterBotDontExistsOnTwitterException(Exception):
     def __init__(self, scrapper):
         scrapper.user.mark_as_not_twitter_registered_ok()
         scrapper.logger.warning('Username %s dont exists on twitter' % scrapper.user.username)
-
-
-class ConnectionError(PageLoadError):
-    pass
 
 
 class ProxyConnectionError(ConnectionError):
@@ -281,3 +285,7 @@ class ErrorSettingAvatar(Exception):
     def __init__(self, scrapper):
         scrapper.logger.error(self.msg)
 
+
+class CasperJSNotFoundElement(Exception):
+    def __init__(self, el_str, url):
+        settings.LOGGER.error('item %s not found by casperjs' % el_str)

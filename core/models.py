@@ -11,13 +11,7 @@ from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailabl
 from core.scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from core.scrapper.accounts.hotmail import HotmailScrapper
 from core.scrapper.accounts.twitter import TwitterScrapper
-from core.scrapper.exceptions import TwitterEmailNotFound, \
-    TwitterAccountDead, TwitterAccountSuspended, ProfileStillNotCompleted, FailureReplyingMcTweet, \
-    TwitterEmailNotConfirmed, HotmailAccountNotCreated, EmailExistsOnTwitter, AboutBlankPage, \
-    TwitterBotDontExistsOnTwitterException, EmailAccountNotFound, NotNewTwitterEmailFound, ProxyUrlRequestError, \
-    NotInEmailInbox, ProxyConnectionError, PageNotReadyState, BotMustVerifyPhone, NoElementToClick, \
-    EmailAccountSuspended, PageNotRetrievedOkByWebdriver, SignupEmailError, PageLoadError, ConfirmTwEmailError, \
-    TwitterProfileCreationError, SignupTwitterError
+from core.scrapper.exceptions import *
 from core.scrapper.utils import *
 from core.managers import TwitterBotManager, ProxyManager, mutex
 from project.models import TwitterBotFollowing
@@ -994,6 +988,13 @@ class TwitterBot(models.Model):
                    has_elapsed_secs_since_time_ago(self.date_last_following, tw_secs)
         else:
             return False
+
+    def get_cookies_file(self):
+        filename = '%i_%s.txt' % (self.id, '_'.join(self.real_name.split(' ')))
+        return os.path.join(settings.PHANTOMJS_COOKIES_DIR, filename)
+
+    def get_screenshots_dir(self):
+        return os.path.join(settings.SCREENSHOTS_DIR, self.real_name + ' - ' + self.username)
 
     def follow_twitterusers(self):
         """Se pone el bot a seguir gente"""

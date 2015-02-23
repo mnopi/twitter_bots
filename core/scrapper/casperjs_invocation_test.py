@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import os
 import subprocess
 import settings
@@ -9,7 +11,7 @@ CASPER_SCREENSHOTS_DIR = os.path.join(SCRAPPER_DIR, 'casper_screenshots')
 
 params = CASPER + ' ' + SCRIPT \
          + ' ' + '--screenshots=%s' % CASPER_SCREENSHOTS_DIR\
-         + ' ' + '--id=%d' % 4
+         + ' ' + '--id="%d ningún coño másss"' % 4
 
 
 o = subprocess.check_output(params, shell=True)

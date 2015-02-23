@@ -148,6 +148,8 @@ MARK_PROXIES_AS_UNAVAILABLE_FOR_USE = True
 SCRAPPER_PATH = os.path.join(PROJECT_ROOT, 'core', 'scrapper')
 WEBDRIVERS_PATH = os.path.join(SCRAPPER_PATH, 'webdrivers')
 
+CASPERJS_SCRIPTS_PATH = os.path.join(SCRAPPER_PATH, 'casper_scripts')
+
 PHANTOMJS_PATH = os.path.join(WEBDRIVERS_PATH, 'phantomjs')
 
 # PHANTOMJS BIN
@@ -158,10 +160,13 @@ elif sys.platform == 'linux2':
 else:
     PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_mac_bin_1_9_8')
 
+CASPERJS_BIN_PATH = '/home/robots/casperjs/bin/casperjs'
+
 # PHANTOMJS COOKIES
 PHANTOMJS_COOKIES_DIR = os.path.join(PHANTOMJS_PATH, 'cookies')
 
 SCREENSHOTS_DIR = os.path.join(SCRAPPER_PATH, 'screenshots')
+CASPERJS_SCREENSHOTS_DIR = os.path.join(SCRAPPER_PATH, 'casper_screenshots')
 AVATARS_DIR = os.path.join(SCRAPPER_PATH, 'avatars')
 CAPTCHAS_DIR = os.path.join(SCRAPPER_PATH, 'captchas')
 PROXIES_DIR = os.path.join(PROJECT_ROOT, 'core', 'proxies')

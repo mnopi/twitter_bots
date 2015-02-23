@@ -94,8 +94,7 @@ class Scrapper(object):
             if settings.USE_PROXY and self.user.proxy_for_usage:
                 service_args = [
                     '--proxy=%s:%i' % (proxy_ip, proxy_port),
-                    '--cookies-file=%s' % os.path.join(settings.PHANTOMJS_COOKIES_DIR, '%i_%s.txt' %
-                                                       (self.user.id, '_'.join(self.user.real_name.split(' ')))),
+                    '--cookies-file=%s' % self.user.get_cookies_file(),
                     '--ssl-protocol=any',
                     # '--local-storage-path=%s' % settings.PHANTOMJS_LOCALSTORAGES_PATH,
                     # '--local-storage-quota=1024',
@@ -175,9 +174,7 @@ class Scrapper(object):
             self.browser.quit()
             self.logger.debug('..%s instance closed ok' % self.user.get_webdriver())
         except Exception as ex:
-            if not self.browser:
-                self.logger.warning('%s instance was not opened browser' % self.user.get_webdriver())
-            else:
+            if self.browser:
                 self.logger.error('Error closing browser instance (PID=%s)' % self.get_pid())
                 raise ex
 
@@ -793,7 +790,7 @@ class Scrapper(object):
                 mkdir_if_not_exists(settings.SCREENSHOTS_DIR)
 
                 # ponemos que la captura cuelgue de la carpeta del usuario en cuestión
-                user_dir = os.path.join(settings.SCREENSHOTS_DIR, self.user.real_name + ' - ' + self.user.username)
+                user_dir = self.user.get_screenshots_dir()
                 mkdir_if_not_exists(user_dir)
                 dir = user_dir
 

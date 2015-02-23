@@ -283,6 +283,7 @@ class PageLinkHashtagAdmin(admin.ModelAdmin):
 class TweetAdmin(admin.ModelAdmin):
     list_display = (
         'bot_used',
+        'proxy_used',
         'type',
         'compose',
         'length',
@@ -298,6 +299,10 @@ class TweetAdmin(admin.ModelAdmin):
     def type(self, obj):
         return obj.print_type()
 
+    def proxy_used(self, obj):
+        return obj.bot_used.proxy_for_usage
+    proxy_used.admin_order_field = 'bot_used__proxy_for_usage'
+
     list_display_links = ('compose',)
 
     ordering = ('-sending', '-sent_ok')
@@ -311,6 +316,7 @@ class TweetAdmin(admin.ModelAdmin):
     search_fields = (
         'bot_used__username',
         'bot_used__proxy_for_usage__proxy',
+        'bot_used__proxy_for_usage__proxy_provider',
         'tweet_msg__text',
         'link__url',
         'page_announced__page_title',
@@ -345,6 +351,7 @@ class TweetAdmin(admin.ModelAdmin):
         'date_created',
         'date_sent',
         'project',
+        'bot_used__proxy_for_usage__proxy_provider',
         'link',
         'page_announced',
     )

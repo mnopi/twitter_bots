@@ -520,67 +520,44 @@ class Tweet(models.Model):
             settings.LOGGER.warning('Tweet %s is too long to add link %s' %
                                     (self, link))
 
-    def _send_from_webdriver(self):
-        """Envía el tweet empleando selenium webdriver """
-        pass
-
-    def _send_from_casperjs(self):
-        pass
-
     def send(self):
         if not settings.LOGGER:
             set_logger('tweet_sender')
 
-        use_casperjs = self.bot_used.get_group().use_casperjs_for_sending_tweets
-
-        if use_casperjs:
-            self._send_from_casperjs()
-        else:
-            self._send_from_webdriver()
-
+        settings.LOGGER.info('Bot %s sending tweet %i [%s]: >> %s' %
+                             (self.bot_used.__unicode__(),
+                              self.pk,
+                              self.print_type(),
+                              self.compose()))
         scr = self.bot_used.scrapper
 
+        # intentamos enviar con casperjs. si no es posible logueamos usando webdriver,
+        # comprobando cuenta suspendida etc
         try:
-            settings.LOGGER.info('Bot %s sending tweet %i [%s]%s: >> %s' %
-                                 (self.bot_used.__unicode__(),
-                                  self.pk,
-                                  self.print_type(),
-                                  ' (using casperjs) ' if use_casperjs else '',
-                                  self.compose())
-            )
-            screenshots_dir = '%d_%s' % (self.pk, self.print_type())
-            scr.set_screenshots_dir(screenshots_dir)
-            scr.open_browser()
-            scr.login()
             scr.send_tweet(self)
+
+            self.sent_ok = True
+            self.date_sent = utc_now()
+            self.save()
+
+            settings.LOGGER.info('Bot %s sent ok tweet %s [%s]' % (self.bot_used.username, self.pk, self.print_type()))
+        except FailureSendingTweet:
+            pass
         except TwitterEmailNotConfirmed:
             # si al intentar enviar el tweet el usuario no estaba realmente confirmado eliminamos su tweet
             scr.logger.warning('Tweet %i will be deleted' % self.pk)
             self.delete()
-        except (TweetAlreadySent,
-                ProxyUrlRequestError,
-                ConnectionError,
-                NoAvailableProxiesToAssignBotsForUse,
-                FailureSendingTweetException,
-                BadStatusLine,
-                WebDriverException,
-                URLError,
-                PageNotReadyState):
-            pass
         except Exception as e:
-            settings.LOGGER.exception('Error on bot %s (%s) sending tweet with id=%i)' %
+             settings.LOGGER.exception('Error on bot %s (%s) sending tweet with id=%i)' %
                                       (self.bot_used.username, self.bot_used.real_name, self.pk))
-            # self.delete()
-            raise e
+             raise e
         finally:
             scr.close_browser()
 
             # si el tweet sigue en BD se desmarca como enviando
-            scr.logger.debug('writing DB: sending=False..')
             if Tweet.objects.filter(pk=self.pk).exists():
                 self.sending = False
                 self.save()
-            scr.logger.debug('..written ok')
 
             # cerramos conexión con BD
             connection.close()
@@ -1384,7 +1361,6 @@ class ProxiesGroup(models.Model):
     has_mentions = models.BooleanField(default=False)
     max_num_mentions_per_tweet = models.PositiveIntegerField(null=False, blank=False, default=1)
     feedtweets_per_twitteruser_mention = models.CharField(max_length=10, null=False, blank=False, default='0-3')
-    use_casperjs_for_sending_tweets = models.BooleanField(default=False)
 
     #
     # mentioning check behaviour

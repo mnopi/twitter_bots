@@ -12,6 +12,7 @@ var output = {};
 
 casper.start('http://whatismyip.com', function(){
     output.title = this.getTitle();
+    output.id = this.cli.get('id');
     //this.echo('Screenshots dir: ' + this.cli.get('screenshots'));
     this.capture(this.cli.get('screenshots') + '/myip.png');
 });
