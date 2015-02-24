@@ -94,7 +94,7 @@ class Scrapper(object):
             if settings.USE_PROXY and self.user.proxy_for_usage:
                 service_args = [
                     '--proxy=%s:%i' % (proxy_ip, proxy_port),
-                    '--cookies-file=%s' % self.user.get_cookies_file(),
+                    '--cookies-file=%s' % self.user.get_cookies_filepath(),
                     '--ssl-protocol=any',
                     # '--local-storage-path=%s' % settings.PHANTOMJS_LOCALSTORAGES_PATH,
                     # '--local-storage-quota=1024',

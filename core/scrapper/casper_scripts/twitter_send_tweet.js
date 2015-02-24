@@ -2,6 +2,7 @@ var casper = require('casper').create({
     viewportSize: {width: 1024, height: 768}
     //verbose: true,
     //logLevel: "debug"
+
     //pageSettings: {
     //    userAgent: this.cli.get('useragent')
     //}
@@ -16,15 +17,21 @@ var output = {
     not_found_el_css: null
 };
 
-var capture_index = 0;
+var capture_index = 0,
+    cookies_file = casper.cli.get('cookies-file2');
 
 function getRandomIntFromRange(min, max) {
   return Math.round(Math.random() * (max - min)) + min;
 }
 
-function capture(name){
-    capture_index++;
-    casper.capture(casper.cli.get('screenshots') + capture_index + '_' + name + '.png');
+function capture(name, force_take){
+    take_screenshots = Boolean(casper.cli.get('take-screenshots'));
+    force_take = force_take || false;
+    if (take_screenshots || force_take)
+    {
+        capture_index++;
+        casper.capture(casper.cli.get('screenshots') + capture_index + '_' + name + '.png');
+    }
 }
 
 function click(el){
@@ -71,6 +78,26 @@ function print_output()
     casper.echo(JSON.stringify(output));
 }
 
+function save_cookies()
+{
+    var fs = require('fs');
+    var cookies = JSON.stringify(casper.cookies);
+    fs.write(cookies_file, cookies, 644);
+}
+
+function restore_cookies()
+{
+    var fs = require('fs');
+    var data = fs.read(cookies_file);
+    casper.cookies = JSON.parse(data);
+}
+
+function remove_old_cookies_file()
+{
+    var fs = require('fs');
+    fs.remove(casper.cli.get('old_cookies'));
+}
+
 function exit()
 {
     print_output();
@@ -79,9 +106,54 @@ function exit()
 
 casper.start();
 
-casper.userAgent(casper.cli.get('useragent'));
+//casper.echo(casper.cli.get('useragent'));
+//casper.echo(casper.cli.get('cookies-file'));
 
-casper.thenOpen('https://twitter.com', function () {
+casper.userAgent(casper.cli.get('useragent'));
+casper.page.customHeaders = {'Accept-Language': 'en'};
+
+casper.onError = function(){
+    capture('casperjs_error');
+    output.errors.push('casperjs_error');
+    exit();
+};
+
+//pageloadtimeout = parseInt(casper.cli.get('pageload-timeout')) * 1000;
+//pageloadtimeout = 20;
+//pageloadtimeout_error = false;
+//casper.waitFor(function check() {
+//    casper.thenOpen("https://twitter.com", function() {
+//        //+++ casper will wait until this returns true to move forward.
+//        //+++ The default timeout is set to 5000ms
+//        this.echo('meeeee');
+//        this.evaluate(function() {
+//            //checks for element exist
+//            //tweet_btn_exists = document.getElementById('#global-new-tweet-button');
+//            //login_btn_exists = document.getElementById('#signin-email');
+//            //if (tweet_btn_exists || login_btn_exists) {
+//            //    // console.log('Im loaded!');
+//            //    return true;
+//            //}
+//            return true;
+//        });
+//    });
+//}, function then() {    // step to execute when function check() is ok
+//    //+++ executes ONLY after the 'casper.thenOpen' returns true.
+//    //this.echo("THEN!", "GREEN_BAR");
+//    this.echo('oook');
+//
+//}, function timeout() { // step to execute if check has failed
+//    //+++ code for on timeout.  This is different than onStepTimeOut.
+//    this.echo('timeout!');
+//    this.exit();
+//}, pageloadtimeout);// custom timeOut setting.
+
+casper.thenOpen('https://twitter.com', function then(){
+    //capture('hola');
+    //this.echo(this.page.cookies);
+});
+
+casper.then(function () {
 
     // limpiamos lo que hubiera en localstorage
     this.evaluate(function () {
@@ -90,8 +162,8 @@ casper.thenOpen('https://twitter.com', function () {
 
     if (!this.getHTML('body'))
     {
-        output.errors.push('internet_connection_error');
         capture('internet_connection_error');
+        output.errors.push('internet_connection_error');
         exit();
     }
     else
@@ -106,7 +178,7 @@ casper.waitUntilVisible(tweet_btn_css,
         click(tweet_btn_css);
     },
     function onTimeout() {
-        capture('not_logged_in');
+        capture('not_logged_in', true);
         output.errors.push('not_logged_in');
         exit();
     }
@@ -139,11 +211,11 @@ casper.wait(getRandomIntFromRange(5000, 10000),
             msg_drawer_text = this.fetchText(msg_drawer).toLowerCase();
             if (msg_drawer_text.indexOf("already sent") >= 0) {
                 output.errors.push('tweet_already_sent');
-                capture('tweet_already_sent');
+                capture('tweet_already_sent', true);
             }
             else if (msg_drawer_text.indexOf("suspended") >= 0) {
                 output.errors.push('account_suspended');
-                capture('account_suspended')
+                capture('account_suspended', true);
             }
         }
     }

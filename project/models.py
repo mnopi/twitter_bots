@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 from httplib import BadStatusLine
+import os
+import subprocess
+from threading import Thread
 from django.core.exceptions import ObjectDoesNotExist
 
 from django.db import models, connection
 from django.db.models import Count, Q
 import feedparser
+import psutil
 from selenium.common.exceptions import WebDriverException
 import simplejson
 import time
@@ -16,7 +20,7 @@ from project.managers import TargetUserManager, TweetManager, ProjectManager, Ex
     TwitterUserManager, McTweetManager, FeedItemManager
 from core.scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago, naive_to_utc, \
     generate_random_secs_from_minute_interval, has_elapsed_secs_since_time_ago, str_interval_to_random_num, \
-    format_source, check_internet_connection_works
+    format_source, check_internet_connection_works, mkdir_if_not_exists
 from twitter_bots import settings
 from twitter_bots.settings import set_logger
 
@@ -520,40 +524,176 @@ class Tweet(models.Model):
             settings.LOGGER.warning('Tweet %s is too long to add link %s' %
                                     (self, link))
 
-    def send(self):
-        if not settings.LOGGER:
-            set_logger('tweet_sender')
 
-        settings.LOGGER.info('Bot %s sending tweet %i [%s]: >> %s' %
-                             (self.bot_used.__unicode__(),
-                              self.pk,
-                              self.print_type(),
-                              self.compose()))
-        scr = self.bot_used.scrapper
+    def send_with_casperjs(self):
+        """
+        /path/to/phantomjs_linux_bin
+            --proxy=173.234.58.20:8800
+            --cookies-file=/path/to/cookies/1805_Charlie_Grillo.txt
+            --ssl-protocol=any
+        """
+        def check_if_errors():
+            errors = o['errors']
+            if 'pageload_timeout_expired' in errors:
+                raise PageloadTimeoutExceeded(settings.PAGE_LOAD_TIMEOUT_SENDING_TWEETS)
+            elif 'casperjs_error' in errors:
+                raise CasperJSError(sender)
+            elif 'not_logged_in' in errors:
+                raise BotNotLoggedIn(self.bot_used)
+            elif 'tweet_already_sent' in errors:
+                raise TweetAlreadySent(self)
+            elif 'account_suspended' in errors:
+                raise TwitterAccountSuspended(self.bot_used)
+            elif 'internet_connection_error' in errors:
+                raise InternetConnectionError
 
-        # intentamos enviar con casperjs. si no es posible logueamos usando webdriver,
-        # comprobando cuenta suspendida etc
+        sender = self.bot_used
+        tweet_dirname = '%d_%s' % (self.pk, self.print_type())
+        screenshots_dir = os.path.join(sender.get_screenshots_dir(), tweet_dirname)
+        mkdir_if_not_exists(screenshots_dir)
+
+        command = [
+            settings.CASPERJS_BIN_PATH,
+            os.path.join(settings.CASPERJS_SCRIPTS_PATH, 'twitter_send_tweet.js'),
+            '--proxy=%s' % sender.proxy_for_usage.proxy,
+            '--cookies-file=%s' % sender.get_cookies_file_for_casperjs(),
+            '--ssl-protocol=any',
+            '--useragent=%s' % sender.user_agent,
+            '--screenshots=%s/' % screenshots_dir,
+            '--take-screenshots=%s' % settings.TAKE_SCREENSHOTS,
+            '--pageload-timeout=%i' % settings.PAGE_LOAD_TIMEOUT_SENDING_TWEETS,
+            '--tweetmsg=%s' % self.compose().encode('utf-8')
+        ]
+
+        # esperamos a que la cpu se alivie
+        while psutil.cpu_percent() > 90.0:
+            time.sleep(0.5)
+
+        proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = proc.communicate()
         try:
-            scr.send_tweet(self)
+            o = simplejson.loads(stdout.strip('\n'))
+            check_if_errors()
+        except simplejson.JSONDecodeError as e:
+            if stdout:
+                settings.LOGGER.error('Error parsing json stdout: %s' % stdout)
+            else:
+                settings.LOGGER.error('No stdout returned')
+            raise e
 
-            self.sent_ok = True
-            self.date_sent = utc_now()
-            self.save()
 
-            settings.LOGGER.info('Bot %s sent ok tweet %s [%s]' % (self.bot_used.username, self.pk, self.print_type()))
-        except FailureSendingTweet:
-            pass
+    def send_with_webdriver(self):
+        """Deprecated"""
+        def check_if_sent_ok():
+            # si aún aparece el diálogo de twitear es que no se envió ok
+            if scr.check_visibility('#global-tweet-dialog'):
+
+                # miramos si sale mensajito de 'you already sent this tweet'
+                if scr.check_visibility('#message-drawer .message-text'):
+                    raise TweetAlreadySent(self)
+                else:
+                    raise FailureSendingTweet(self)
+
+        scr = self.bot_used.scrapper
+        try:
+            screenshots_dir_name = '%d_%s' % (self.pk, self.print_type())
+            scr.set_screenshots_dir(screenshots_dir_name)
+            scr.open_browser()
+            scr.login()
+            scr.delay.seconds(5)
+
+            scr.click('#global-new-tweet-button')
+
+            scr.send_keys(self.compose())
+
+            if self.has_image():
+                el = self.browser.find_element_by_xpath("//*[@id=\"global-tweet-dialog-dialog\"]"
+                                                        "/div[2]/div[4]/form/div[2]/div[1]/div[1]/div/label/input")
+                el.send_keys(self.get_image().img.path)
+
+            scr.click('#global-tweet-dialog-dialog .tweet-button button')
+            scr.delay.seconds(5)
+            check_if_sent_ok()
+            scr.delay.seconds(7)
         except TwitterEmailNotConfirmed:
             # si al intentar enviar el tweet el usuario no estaba realmente confirmado eliminamos su tweet
             scr.logger.warning('Tweet %i will be deleted' % self.pk)
             self.delete()
+        except (TweetAlreadySent,
+                ProxyUrlRequestError,
+                ConnectionError,
+                NoAvailableProxiesToAssignBotsForUse,
+                FailureSendingTweet):
+            pass
+        finally:
+            scr.close_browser()
+
+    def send_with_burst(self):
+        """Envía el tweet junto a una ráfaga de tweets a enviar por el mismo bot"""
+
+        # class SendTweetThread(Thread):
+        #
+        #     def __init__(self, tweet):
+        #         self.tweet = tweet
+        #         self.output = None
+        #         super(SendTweetThread, self).__init__()
+        #
+        #     def run(self):
+        #         self.tweet.send()
+        #         try:
+        #             self.sTitle = str(audio["TIT2"])
+        #         except KeyError:
+        #             self.sTitle = os.path.basename(self.fileName)
+        #
+        #         self.sTitle = replace_all(self.sTitle) #remove special chars
+        #
+        # # miramos qué rafaga tiene asignada el grupo del que envía este tweet. Si es > 1 entonces
+        # # enviaremos más tweets
+        # burst_size = self.bot_used.get_group().tweets_per_burst
+        # for i in xrange(burst_size):
+        #     settings.LOGGER.info('Bot %s sending tweet %i [%s] (%i/%i in burst): >> %s' %
+        #                          (i+1,
+        #                           burst_size,
+        #                           self.bot_used.__unicode__(),
+        #                           self.pk,
+        #                           self.print_type(),
+        #                           self.compose()))
+        pass
+
+    def send(self):
+        if not settings.LOGGER:
+            set_logger('tweet_sender')
+
+        sender = self.bot_used
+
+        settings.LOGGER.info('%s sending tweet %i [%s]: >> %s' %
+                             (sender.__unicode__(),
+                              self.pk,
+                              self.print_type(),
+                              self.compose()))
+
+        # intentamos enviar con casperjs. si no es posible logueamos usando webdriver,
+        # comprobando cuenta suspendida etc
+        try:
+            self.send_with_casperjs()
+        except BotNotLoggedIn:
+            sender.login_twitter_with_webdriver()
+        except (TweetAlreadySent,
+                TwitterAccountSuspended,
+                PageloadTimeoutExceeded,
+                simplejson.JSONDecodeError):
+            raise FailureSendingTweet(self)
         except Exception as e:
              settings.LOGGER.exception('Error on bot %s (%s) sending tweet with id=%i)' %
                                       (self.bot_used.username, self.bot_used.real_name, self.pk))
              raise e
+        else:
+            self.sent_ok = True
+            self.date_sent = utc_now()
+            self.save()
+            settings.LOGGER.info('%s sent ok tweet %s [%s] with casperJS'
+                                 % (sender.username, self.pk, self.print_type()))
         finally:
-            scr.close_browser()
-
             # si el tweet sigue en BD se desmarca como enviando
             if Tweet.objects.filter(pk=self.pk).exists():
                 self.sending = False
@@ -803,7 +943,10 @@ class Tweet(models.Model):
                 log_task_adding('SEND F_TWEET')
                 pool.add_task(ftweet.send)
             else:
-                ftweet.send()
+                try:
+                    ftweet.send()
+                except FailureSendingTweet:
+                    pass
 
         except SenderBotHasToFollowPeople as e:
             sender_bot = e.sender_bot
@@ -815,8 +958,13 @@ class Tweet(models.Model):
                 log_task_adding('FOLLOW PEOPLE')
                 pool.add_task(sender_bot.follow_twitterusers)
             else:
-                sender_bot.follow_twitterusers()
+                try:
+                    sender_bot.follow_twitterusers()
+                except FollowTwitterUsersError:
+                    pass
 
+        except FailureSendingTweet:
+            pass
         except Exception as e:
             settings.LOGGER.exception('Error getting tumention from queue for bot %s: %s' %
                                   (self.bot_used.username, self.compose()))
@@ -1354,6 +1502,7 @@ class ProxiesGroup(models.Model):
 
     # tweet behaviour
     time_between_tweets = models.CharField(max_length=10, null=False, blank=False, default='2-7')  # '2-5' -> entre 2 y 5 minutos
+    # tweets_per_burst = models.CharField(max_length=10, null=False, blank=False, default='15-20')
     has_tweet_msg = models.BooleanField(default=False)
     has_link = models.BooleanField(default=False)
     has_tweet_img = models.BooleanField(default=False)

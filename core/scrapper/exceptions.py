@@ -240,6 +240,16 @@ class SignupTwitterError(Exception):
     pass
 
 
+class LoginTwitterError(Exception):
+    def __init__(self, bot):
+        settings.LOGGER.error('Error on bot %s login on twitter' % bot.username)
+
+
+class FollowTwitterUsersError(Exception):
+    def __init__(self, bot):
+        settings.LOGGER.error('Error on bot %s following twitterusers' % bot.username)
+
+
 class ConfirmTwEmailError(Exception):
     pass
 
@@ -286,6 +296,15 @@ class ErrorSettingAvatar(Exception):
         scrapper.logger.error(self.msg)
 
 
+class CasperJSError(Exception):
+    def __init__(self, bot):
+        settings.LOGGER.error('CasperJSError - bot %s' % bot.username)
+
 class CasperJSNotFoundElement(Exception):
     def __init__(self, el_str, url):
         settings.LOGGER.error('item %s not found by casperjs' % el_str)
+
+
+class PageloadTimeoutExceeded(Exception):
+    def __init__(self, seconds):
+        settings.LOGGER.error('PageloadTimeoutExceeded - exceeded %i seconds waiting' % seconds)

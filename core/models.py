@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from shutil import copyfile
 from django.db.models import Q, Count, Sum
 import feedparser
 from django.contrib.auth.models import AbstractUser
@@ -448,6 +449,23 @@ class TwitterBot(models.Model):
         self.scrapper.set_profile()
         self.scrapper.close_browser()
 
+    def login_twitter_with_webdriver(self):
+        """Esto lo único que hace es escribir en disco la cookie de twitter para el bot tras
+        este haberse logueado"""
+        scr = self.scrapper
+        try:
+            scr.logger.info('Login %s..' % self.username)
+            scr.set_screenshots_dir('loggin_in_%s' % utc_now_to_str())
+            scr.open_browser()
+            scr.login()
+            scr.delay.seconds(5)
+            scr.logger.info('%s logged in ok' % self.username)
+        except TwitterEmailNotConfirmed as e:
+            self.clear_all_not_sent_ok_tweets()
+            raise e
+        finally:
+            scr.close_browser()
+
     def get_users_mentioned(self):
         "Devuelve todos los usuarios que ha mencionado el robot a lo largo de todos sus tweets"
         from project.models import TwitterUser
@@ -779,6 +797,17 @@ class TwitterBot(models.Model):
             sent_ok=False,
         ).delete()
 
+    def clear_all_not_sent_ok_tweets(self):
+        """Elimina todos los tweets todavía no enviamos por el bot (ftweets, mctweets, mutweets..)"""
+
+        from project.models import Tweet
+
+        pending_to_send = Tweet.objects.filter(bot_used=self, sent_ok=False)
+        count = pending_to_send.count()
+        pending_to_send.delete()
+
+        settings.LOGGER.warning('Deleted all tweets pending to send by bot %s (%i)..' % (self.username, count))
+
     def get_or_create_mctweet(self):
         """El bot busca su tweet de verificación (mentioning check tweet). Si no existe crea uno"""
 
@@ -989,9 +1018,24 @@ class TwitterBot(models.Model):
         else:
             return False
 
-    def get_cookies_file(self):
-        filename = '%i_%s.txt' % (self.id, '_'.join(self.real_name.split(' ')))
-        return os.path.join(settings.PHANTOMJS_COOKIES_DIR, filename)
+    def get_cookies_filename(self):
+        return '%i_%s.txt' % (self.id, '_'.join(self.real_name.split(' ')))
+
+    def get_cookies_filepath(self):
+        return os.path.join(settings.PHANTOMJS_COOKIES_DIR, self.get_cookies_filename())
+
+    def get_cookies_file_for_casperjs(self):
+        """Se loguea con webdriver y luego cada vez que queramos tomar el archivo de cookies para casperjs
+        lo que hacemos es copiar el base generado con el webdriver ya que con casperjs lo modifica y siempre
+        nos vuelve a pedir login"""
+        cookies_filepath = self.get_cookies_filepath()
+        casperjs_cookies_filepath = '%s.casperjs' % cookies_filepath
+        if os.path.exists(cookies_filepath):
+            if os.path.exists(casperjs_cookies_filepath):
+                os.remove(casperjs_cookies_filepath)
+            copyfile(cookies_filepath, casperjs_cookies_filepath)
+
+        return casperjs_cookies_filepath
 
     def get_screenshots_dir(self):
         return os.path.join(settings.SCREENSHOTS_DIR, self.real_name + ' - ' + self.username)
@@ -1119,6 +1163,9 @@ class TwitterBot(models.Model):
                                       (self.username, ratio, self.following_ratio))
             self.date_last_following = utc_now()
             self.save()
+        except (LoginTwitterError, PageLoadError):
+            scr.take_screenshot('following_people_error')
+            raise FollowTwitterUsersError(self)
         except Exception as e:
             settings.LOGGER.exception('Error on bot %s following twitterusers' % self.username)
             raise e

@@ -200,13 +200,14 @@ class TwitterScrapper(Scrapper):
 
             self.clear_local_storage()
             self.check_account_suspended()
-        except TwitterEmailNotConfirmed as e:
+        except (TwitterEmailNotConfirmed,
+                TwitterAccountDead,
+                TwitterAccountSuspended):
             self.take_screenshot('twitter_email_not_confirmed_after_login', force_take=True)
-            raise e
-        except (TwitterBotDontExistsOnTwitterException,
-                PageLoadError,
-                TwitterAccountDead) as e:
-            raise e
+            self.user.clear_all_not_sent_ok_tweets()
+            raise LoginTwitterError(self.user)
+        except PageLoadError:
+            raise LoginTwitterError(self.user)
         except Exception as e:
             self.logger.exception('Login on twitter error')
             self.take_screenshot('login_failure', force_take=True)
@@ -384,116 +385,6 @@ class TwitterScrapper(Scrapper):
             self.email_scrapper.close_browser()
         self.close_browser()
 
-    def send_tweet(self, tweet):
-        def do_login_with_webdriver():
-            """Esto lo único que hace es escribir en disco la cookie de twitter para el bot tras
-            este haberse logueado"""
-            scr = self.user.scrapper
-            try:
-                scr.set_screenshots_dir('loggin_in_%s' % utc_now_to_str())
-                scr.open_browser()
-                scr.login()
-                scr.delay.seconds(5)
-            except TwitterEmailNotConfirmed:
-                # si al intentar enviar el tweet el usuario no estaba realmente confirmado eliminamos su tweet
-                scr.logger.warning('Tweet %i will be deleted' % tweet.pk)
-                tweet.delete()
-            finally:
-                scr.close_browser()
-
-        try:
-            self.send_tweet_with_casperjs(tweet)
-        except BotNotLoggedIn:
-            # si al usar casperjs vemos que el bot no está logueado lo logueamos
-            # usando webdriver
-            do_login_with_webdriver()
-            self.send_tweet_with_casperjs(tweet)
-        except (TweetAlreadySent,
-                TwitterAccountSuspended,
-                TwitterAccountDead,
-                PageLoadError):
-            raise FailureSendingTweet(tweet)
-
-    def send_tweet_with_casperjs(self, tweet):
-        """
-        /path/to/phantomjs_linux_bin
-            --proxy=173.234.58.20:8800
-            --cookies-file=/path/to/cookies/1805_Charlie_Grillo.txt
-            --ssl-protocol=any
-        """
-        def check_if_errors():
-            errors = o['errors']
-            if 'not_logged_in' in errors:
-                raise BotNotLoggedIn(tweet.bot_used)
-            elif 'tweet_already_sent' in errors:
-                raise TweetAlreadySent(tweet)
-            elif 'account_suspended' in errors:
-                raise TwitterAccountSuspended(tweet.bot_used)
-            elif 'internet_connection_error' in errors:
-                raise InternetConnectionError
-
-        tweet_dirname = '%d_%s' % (tweet.pk, tweet.print_type())
-        screenshots_dir = os.path.join(self.user.get_screenshots_dir(), tweet_dirname)
-        mkdir_if_not_exists(screenshots_dir)
-
-        command = settings.CASPERJS_BIN_PATH + \
-                  ' ' + os.path.join(settings.CASPERJS_SCRIPTS_PATH, 'twitter_send_tweet.js') + \
-                  ' --proxy=%s' % self.user.proxy_for_usage.proxy + \
-                  ' --cookies-file=%s' % self.user.get_cookies_file() + \
-                  ' --ssl-protocol=any' + \
-                  ' --useragent="%s"' % self.user.user_agent + \
-                  ' --screenshots="%s/"' % screenshots_dir + \
-                  ' --tweetmsg="%s"' % tweet.compose()
-
-        o = subprocess.check_output(command, shell=True)
-        o = simplejson.loads(o.strip('\n'))
-        check_if_errors()
-
-    def send_tweet_with_webdriver(self, tweet):
-        """Deprecated"""
-        def check_if_sent_ok():
-            # si aún aparece el diálogo de twitear es que no se envió ok
-            if self.check_visibility('#global-tweet-dialog'):
-
-                # miramos si sale mensajito de 'you already sent this tweet'
-                if self.check_visibility('#message-drawer .message-text'):
-                    raise TweetAlreadySent(tweet)
-                else:
-                    raise FailureSendingTweet(tweet)
-
-        scr = self.user.scrapper
-        try:
-            screenshots_dir_name = '%d_%s' % (tweet.pk, tweet.print_type())
-            scr.set_screenshots_dir(screenshots_dir_name)
-            scr.open_browser()
-            scr.login()
-            scr.delay.seconds(5)
-
-            self.click('#global-new-tweet-button')
-
-            self.send_keys(tweet.compose())
-
-            if tweet.has_image():
-                el = self.browser.find_element_by_xpath("//*[@id=\"global-tweet-dialog-dialog\"]"
-                                                        "/div[2]/div[4]/form/div[2]/div[1]/div[1]/div/label/input")
-                el.send_keys(tweet.get_image().img.path)
-
-            self.click('#global-tweet-dialog-dialog .tweet-button button')
-            self.delay.seconds(5)
-            check_if_sent_ok()
-            self.delay.seconds(7)
-        except TwitterEmailNotConfirmed:
-            # si al intentar enviar el tweet el usuario no estaba realmente confirmado eliminamos su tweet
-            scr.logger.warning('Tweet %i will be deleted' % tweet.pk)
-            tweet.delete()
-        except (TweetAlreadySent,
-                ProxyUrlRequestError,
-                ConnectionError,
-                NoAvailableProxiesToAssignBotsForUse,
-                FailureSendingTweet):
-            pass
-        finally:
-            scr.close_browser()
 
     def send_mention(self, username_to_mention, mention_msg):
         self.send_tweet('@' + username_to_mention + ' ' + mention_msg)
