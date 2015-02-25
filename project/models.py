@@ -2,7 +2,7 @@
 from httplib import BadStatusLine
 import os
 import subprocess
-from threading import Thread
+from threading import Thread, Timer
 from django.core.exceptions import ObjectDoesNotExist
 
 from django.db import models, connection
@@ -570,16 +570,23 @@ class Tweet(models.Model):
             time.sleep(0.5)
 
         proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        timer = Timer(settings.CASPERJS_PROCESS_TIMEOUT, proc.kill)
+        timer.start()
         stdout, stderr = proc.communicate()
-        try:
-            o = simplejson.loads(stdout.strip('\n'))
-            check_if_errors()
-        except simplejson.JSONDecodeError as e:
-            if stdout:
-                settings.LOGGER.error('Error parsing json stdout: %s' % stdout)
-            else:
-                settings.LOGGER.error('No stdout returned')
-            raise e
+        if timer.is_alive():
+            timer.cancel()
+            try:
+                o = simplejson.loads(stdout.strip('\n'))
+                check_if_errors()
+            except simplejson.JSONDecodeError as e:
+                if stdout:
+                    settings.LOGGER.error('Error parsing json stdout: %s' % stdout)
+                else:
+                    settings.LOGGER.error('No stdout returned')
+                raise e
+        else:
+            # si el timer agota la espera, es decir, se mato casperjs
+            raise CasperJSProcessTimeoutError(sender)
 
 
     def send_with_webdriver(self):
@@ -681,7 +688,8 @@ class Tweet(models.Model):
         except (TweetAlreadySent,
                 TwitterAccountSuspended,
                 PageloadTimeoutExceeded,
-                simplejson.JSONDecodeError):
+                simplejson.JSONDecodeError,
+                CasperJSProcessTimeoutError):
             raise FailureSendingTweet(self)
         except Exception as e:
              settings.LOGGER.exception('Error on bot %s (%s) sending tweet with id=%i)' %

@@ -300,6 +300,13 @@ class CasperJSError(Exception):
     def __init__(self, bot):
         settings.LOGGER.error('CasperJSError - bot %s' % bot.username)
 
+
+class CasperJSProcessTimeoutError(Exception):
+    def __init__(self, bot):
+        settings.LOGGER.error('CasperJSProcessTimeoutError (exceeded %i secs waiting to terminate) - bot %s' %
+                              (settings.CASPERJS_PROCESS_TIMEOUT, bot.username))
+
+
 class CasperJSNotFoundElement(Exception):
     def __init__(self, el_str, url):
         settings.LOGGER.error('item %s not found by casperjs' % el_str)
