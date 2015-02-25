@@ -317,10 +317,10 @@ class ProxyAdmin(admin.ModelAdmin):
         'proxy_provider',
         'proxies_group',
         'is_in_proxies_txts',
-        'num_bots_dead',
-        'num_bots_suspended',
         'num_bots_registered',
-        'num_bots_using',
+        'num_bots_active',
+        'num_bots_suspended',
+        'num_bots_dead',
         'date_added',
         'is_unavailable_for_registration',
         'date_unavailable_for_registration',
@@ -333,8 +333,8 @@ class ProxyAdmin(admin.ModelAdmin):
     def num_bots_registered(self, obj):
         return obj.twitter_bots_registered.count()
 
-    def num_bots_using(self, obj):
-        return obj.twitter_bots_using.count()
+    def num_bots_active(self, obj):
+        return obj.get_active_bots_using().count()
 
     def num_bots_suspended(self, obj):
         return obj.get_suspended_bots().count()

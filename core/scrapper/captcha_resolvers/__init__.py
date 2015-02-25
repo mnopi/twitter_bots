@@ -6,6 +6,7 @@ import requests
 import simplejson
 import time
 from core.managers import mutex
+from core.scrapper.utils import mkdir_if_not_exists
 from twitter_bots import settings
 from ...scrapper.captcha_resolvers import deathbycaptcha
 
@@ -95,6 +96,7 @@ class DeathByCaptchaResolver(CaptchaResolver):
         # movemos cursor hasta el campo de texto del captcha y hacemos click en él para que la captura salga bien
         self.scrapper.click(sol_el)
 
+        mkdir_if_not_exists(settings.CAPTCHAS_DIR)
         captcha_filepath = captcha_filepath if captcha_filepath else self.scrapper.user.username + '_captcha.png'
         captcha_filepath = os.path.join(settings.CAPTCHAS_DIR, captcha_filepath)
         self.crop_captcha(img_el, captcha_filepath)

@@ -390,6 +390,7 @@ class ProxyQuerySet(MyQuerySet):
         return self.annotate(num_bots_registered=Count('twitter_bots_registered'))
 
     def _annotate__num_bots_using(self):
+        """Añade el número de bots activos que hay usando el proxy"""
         return self.annotate(num_bots_using=Count('twitter_bots_using'))
 
     def _annotate__latest_bot_registered_date(self):
@@ -397,21 +398,21 @@ class ProxyQuerySet(MyQuerySet):
 
     def with_enough_space_for_registration(self):
         """Saca los que tengan espacio para crear nuevos bots"""
-        proxies_with_enought_space_pks = []
+        proxies_with_enough_space_pks = []
         for proxy in self.select_related('proxies_group', 'twitter_bots_registered'):
             if proxy.twitter_bots_registered.count() < proxy.proxies_group.max_tw_bots_per_proxy_for_registration:
-                proxies_with_enought_space_pks.append(proxy.pk)
+                proxies_with_enough_space_pks.append(proxy.pk)
 
-        return self.filter(pk__in=proxies_with_enought_space_pks)
+        return self.filter(pk__in=proxies_with_enough_space_pks)
 
     def with_enough_space_for_usage(self):
         """Saca los que tengan espacio para crear nuevos bots"""
-        proxies_with_enought_space_pks = [
-            proxy.pk
-            for proxy in self._annotate__num_bots_using().select_related('proxies_group')
-            if proxy.num_bots_using < proxy.proxies_group.max_tw_bots_per_proxy_for_usage
-        ]
-        return self.filter(pk__in=proxies_with_enought_space_pks)
+        proxies_with_enough_space_pks = []
+        for proxy in self.all():
+            if proxy.get_active_bots_using().count() < proxy.proxies_group.max_tw_bots_per_proxy_for_usage:
+                proxies_with_enough_space_pks.append(proxy.pk)
+
+        return self.filter(pk__in=proxies_with_enough_space_pks)
 
     def with_enough_time_ago_for_last_registration(self):
         """Sacas los proxies donde el último registro se realizó hace el tiempo suficiente para crear nuevo bot"""

@@ -1239,8 +1239,8 @@ class Proxy(models.Model):
 
     def get_suspended_bots(self):
         return self.twitter_bots_using.filter(
-            Q(is_suspended=True) |
-            Q(num_suspensions_lifted__gt=0)
+            Q(is_suspended=True)
+            # Q(num_suspensions_lifted__gt=0)
         ).distinct()
 
     def get_dead_bots(self):
@@ -1298,3 +1298,7 @@ class Proxy(models.Model):
         latest_bot = self.get_bots_registered_under_same_subnet().latest('date')
         days_window = self.proxies_group.min_days_between_registrations_per_proxy_under_same_subnet
         raise NotImplementedError
+
+    def get_active_bots_using(self):
+        """Devuelve los bots activos que están usando el proxy"""
+        return self.twitter_bots_using.twitteable_regardless_of_proxy()
