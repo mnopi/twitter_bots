@@ -312,6 +312,11 @@ class CasperJSNotFoundElement(Exception):
         settings.LOGGER.error('item %s not found by casperjs' % el_str)
 
 
+class CasperJSWaitTimeoutExceeded(Exception):
+    def __init__(self, bot):
+        settings.LOGGER.error('CasperJSWaitTimeoutExceeded - bot %s, proxy: %s' %
+                              (bot.username, bot.proxy_for_usage.__unicode__()))
+
 class PageloadTimeoutExceeded(Exception):
     def __init__(self, seconds):
         settings.LOGGER.error('PageloadTimeoutExceeded - exceeded %i seconds waiting' % seconds)

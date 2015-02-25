@@ -107,10 +107,11 @@ function exit()
 casper.start();
 
 //casper.echo(casper.cli.get('useragent'));
-//casper.echo(casper.cli.get('cookies-file'));
+//casper.echo(casper.cli.get('pageload-timeout'));
 
 casper.userAgent(casper.cli.get('useragent'));
 casper.page.customHeaders = {'Accept-Language': 'en'};
+casper.options.waitTimeout = parseInt(casper.cli.get('pageload-timeout')) * 1000;
 
 casper.onError = function(){
     capture('casperjs_error');

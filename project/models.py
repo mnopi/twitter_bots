@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from httplib import BadStatusLine
 import os
+import re
 import subprocess
 from threading import Thread, Timer
 from django.core.exceptions import ObjectDoesNotExist
@@ -539,11 +540,11 @@ class Tweet(models.Model):
             elif 'casperjs_error' in errors:
                 raise CasperJSError(sender)
             elif 'not_logged_in' in errors:
-                raise BotNotLoggedIn(self.bot_used)
+                raise BotNotLoggedIn(sender)
             elif 'tweet_already_sent' in errors:
                 raise TweetAlreadySent(self)
             elif 'account_suspended' in errors:
-                raise TwitterAccountSuspended(self.bot_used)
+                raise TwitterAccountSuspended(sender)
             elif 'internet_connection_error' in errors:
                 raise InternetConnectionError
 
@@ -580,9 +581,12 @@ class Tweet(models.Model):
                 check_if_errors()
             except simplejson.JSONDecodeError as e:
                 if stdout:
-                    settings.LOGGER.error('Error parsing json stdout: %s' % stdout)
+                    if re.match(r".*Wait timeout of .*ms expired.*", stdout):
+                        return CasperJSWaitTimeoutExceeded(sender)
+                    else:
+                        settings.LOGGER.error('Error parsing json stdout: %s' % stdout)
                 else:
-                    settings.LOGGER.error('No stdout returned')
+                    settings.LOGGER.error('No stdout returned (bot %s)' % sender.username)
                 raise e
         else:
             # si el timer agota la espera, es decir, se mato casperjs
@@ -689,6 +693,7 @@ class Tweet(models.Model):
                 TwitterAccountSuspended,
                 PageloadTimeoutExceeded,
                 simplejson.JSONDecodeError,
+                CasperJSWaitTimeoutExceeded,
                 CasperJSProcessTimeoutError):
             raise FailureSendingTweet(self)
         except Exception as e:

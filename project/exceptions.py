@@ -125,7 +125,7 @@ class ProjectWithoutUnmentionedTwitterusers(TweetCreationException):
 
 class BotWithoutBotsToMention(TweetCreationException):
     def __init__(self, bot):
-        settings.LOGGER.warning('Bot %s has not bots to mention (group: %s)' %
+        settings.LOGGER.error('Bot %s has not bots to mention (group: %s)' %
                                 (bot.username, bot.get_group().__unicode__()))
 
 
