@@ -463,6 +463,7 @@ class TwitterUserAdmin(admin.ModelAdmin):
         'username',
         'date_saved',
         'is_mentioned',
+        'last_tweet_date',
     )
 
     def is_mentioned(self, obj):

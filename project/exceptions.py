@@ -45,7 +45,7 @@ class ExtractorReachedMaxConsecutivePagesRetrievedPerTUser(Exception):
 
 class ProjectHasAllHashtagsExtracted(Exception):
     def __init__(self, project):
-        settings.LOGGER.warning('Project %s has all hashtag extracted' % project.name)
+        settings.LOGGER.warning('Project %s has no active hashtags now' % project.name)
 
 
 class TwitteableBotsNotFound(Exception):
