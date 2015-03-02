@@ -50,6 +50,7 @@ class TargetUserAdmin(admin.ModelAdmin):
     list_filter = (
         'is_active',
         'tu_groups',
+        'tu_groups__projects',
     )
 
     actions = [
@@ -64,6 +65,71 @@ class TargetUserAdmin(admin.ModelAdmin):
         else:
             self.message_user(request, "Only select one user for this action", level=messages.WARNING)
     extract_followers.short_description = "Extract all followers"
+
+
+class HashtagAdmin(admin.ModelAdmin):
+    list_display = (
+        '__unicode__',
+        'is_active',
+        'is_available_to_extract',
+        'geocode',
+        'lang',
+        'max_consecutive_pages_retrieved',
+        'max_id',
+        'current_round_user_count',
+        'current_round_oldest_tweet_limit',
+        'next_round_oldest_tweet_limit',
+        'last_round_end_date',
+        'date_last_extraction',
+
+        'twitterusers_saved_last_hour',
+        'twitterusers_saved_today',
+        'twitterusers_saved_total',
+        'twitterusers_mentioned_last_hour',
+        'twitterusers_mentioned_today',
+        'twitterusers_mentioned_total',
+
+        'timewindow_waiting_for_next_round_passed',
+        'timewindow_waiting_since_not_enough_twitterusers_passed',
+    )
+
+    list_editable = (
+        'is_active',
+        'geocode',
+        'lang',
+        'max_consecutive_pages_retrieved',
+        'max_id',
+    )
+
+    def twitterusers_saved_last_hour(self, obj):
+        time_threshold = utc_now() - datetime.timedelta(hours=1)
+        return obj.twitter_users.filter(date_saved__gte=time_threshold).count()
+
+    def twitterusers_mentioned_last_hour(self, obj):
+        time_threshold = utc_now() - datetime.timedelta(hours=1)
+        return obj.twitter_users\
+            .mentioned()\
+            .filter(mentions__date_sent__gte=time_threshold).count()
+
+    def twitterusers_saved_today(self, obj):
+        return obj.twitter_users.filter(date_saved__startswith=datetime.date.today()).count()
+
+    def twitterusers_saved_total(self, obj):
+        return obj.twitter_users.count()
+
+    def twitterusers_mentioned_today(self, obj):
+        return obj.twitter_users\
+            .mentioned()\
+            .filter(mentions__date_sent__startswith=datetime.date.today()).count()
+
+    def twitterusers_mentioned_total(self, obj):
+        return obj.twitter_users.mentioned().count()
+
+    list_filter = (
+        'is_active',
+        'hashtag_groups',
+        'hashtag_groups__projects',
+    )
 
 
 # PROJECT ADMIN
@@ -629,7 +695,7 @@ admin.site.register(TwitterUser, TwitterUserAdmin)
 admin.site.register(Tweet, TweetAdmin)
 admin.site.register(Extractor, ExtractorAdmin)
 admin.site.register(Link, LinkAdmin)
-admin.site.register(Hashtag)
+admin.site.register(Hashtag, HashtagAdmin)
 admin.site.register(TwitterUserHasHashtag)
 admin.site.register(TweetImg)
 admin.site.register(ProxiesGroup, ProxiesGroupAdmin)

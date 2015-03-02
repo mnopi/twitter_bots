@@ -44,21 +44,61 @@ FORCE_FIREFOX = False
 ###############
 TAKE_SCREENSHOTS = True
 
-#
+
+################
 # EXTRACTORS
-MAX_DAYS_TO_STAY_UNMENTIONED = 90  # máximo de días que un twitteruser puede estar en BD sin ser mencionado
-EXTRACTION_FACTOR = 10  # factor de extracción. Multiplica el máximo de followers que podemos extraer de cada proyecto
-## followers
+################
+
+# máximo de días que un twitteruser puede estar en BD sin ser mencionado
+MAX_DAYS_TO_STAY_UNMENTIONED = 90
+# factor de extracción. Se multiplica el tamaño de la cola de tweets pendientes de enviar por este número
+# para obtener el máximo de twitterusers que podemos extraer de cada proyecto
+EXTRACTION_FACTOR = 30
+# tiempo ventana a esperar por un extractor tras estar marcado como ratelimited
+DEFAULT_RATELIMITED_TIMEWINDOW = 15  # en minutos
+
+
+#
+## FOLLOWER EXTRACTOR
+#
 EXTRACT_FOLLOWERS = True
-MAX_DAYS_SINCE_REGISTERED_ON_TWITTER_WITHOUT_TWEETS = 50  # máximo de días desde que el usuario se registró y todavía no envió ningún tweet
-MAX_DAYS_SINCE_LAST_TWEET = 90  # máximo de días desde que el usuario twiteó por última vez
-MAX_CONSECUTIVE_PAGES_RETRIEVED_PER_TARGET_USER = 1  # máximo de páginas seguidas que el extractor toma de cada targetuser
-MIN_NEW_FOLLOWERS_PER_PAGE_CONSIDERED_SUFFICIENT = 200/10
-MAX_CONSECUTIVE_PAGES_RETRIEVED_WITHOUT_ENOUGH_NEW_FOLLOWERS = 10
-## hashtags
+TARGET_USER_PAGE_SIZE = 200
+
+# para considerar twitterusers activos:
+#   - máximo de días desde que el usuario se registró y todavía no envió ningún tweet
+#   - máximo de días desde que el usuario twiteó por última vez
+MAX_DAYS_SINCE_REGISTERED_ON_TWITTER_WITHOUT_TWEETS = 50
+MAX_DAYS_SINCE_LAST_TWEET = 90
+
+# máximo de páginas seguidas que el extractor toma de cada targetuser por extracción
+MAX_CONSECUTIVE_PAGES_RETRIEVED_PER_TARGET_USER_EXTRACTION = 1
+
+# en cada página extraída se espera como mínimo una x parte que sean twitterusers nuevos
+TARGETUSER_EXTRACTION_MIN_NEW_TWITTERUSERS_PER_PAGE_EXPECTED = TARGET_USER_PAGE_SIZE/10
+TARGETUSER_EXTRACTION_MAX_CONSECUTIVE_PAGES_RETRIEVED_WITHOUT_ENOUGH_NEW_TWITTERUSERS = 10
+
+#
+## HASHTAG EXTRACTOR
+#
 EXTRACT_HASHTAGS = False
-MAX_DAYS_FOR_OLDER_TWEET_IN_HASHTAGS = 5
-MAX_USER_COUNT_FOR_HASHTAGS = 5000
+# el extractor de hashtag paginará y se reiniciará cuando se cumpla alguna de las condiciones:
+#   - el tweet más antiguo sea hace x o más minutos
+#   - el número de usuarios es >= al máximo
+HASHTAG_PAGE_SIZE = 100
+FIRST_HASHTAG_ROUND_MAX_MINUTES_AGO_FOR_OLDER_TWEET = 10
+FIRST_HASHTAG_ROUND_MAX_USER_COUNT = 10000
+PER_HASHTAG_ROUND_MAX_USER_COUNT = 1000
+
+# el tiempo que hay que esperar a la siguiente ronda
+NEW_ROUND_TIMEWINDOW = 15*60  # en segundos
+
+# máximo de páginas consecutivas a tomar por extracción sobre cada hashtag
+MAX_CONSECUTIVE_PAGES_RETRIEVED_PER_HASHTAG_EXTRACTION = 10
+
+# en cada página extraída esperamos un mínimo de twitterusers nuevos
+HASHTAG_EXTRACTION_MIN_NEW_TWITTERUSERS_PER_PAGE_EXPECTED = HASHTAG_PAGE_SIZE/5
+HASHTAG_EXTRACTION_MAX_CONSECUTIVE_PAGES_RETRIEVED_WITHOUT_ENOUGH_NEW_TWITTERUSERS = 2
+HASHTAG_TIMEWINDOW_TO_WAIT_WHEN_NOT_ENOUGH_TWITTERUSERS = 30*60  # en segundos
 
 #
 # TWEET CREATOR

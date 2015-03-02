@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
+import simplejson
 
 from core.scrapper.utils import get_thread_name, has_elapsed_secs_since_time_ago, \
-    generate_random_secs_from_minute_interval, utc_now
+    generate_random_secs_from_minute_interval, utc_now, check_internet_connection_works
 from twitter_bots import settings
 import time
 
@@ -23,7 +24,7 @@ class AllFollowersExtracted(Exception):
 
 class NoRunningProjects(Exception):
     def __init__(self):
-        settings.LOGGER.error('There are no running projects!')
+        settings.LOGGER.error('There are no running projects!. Sleeping..')
         time.sleep(20)
 
 
@@ -39,13 +40,12 @@ class ProjectFullOfUnmentionedTwitterusers(Exception):
 class ExtractorReachedMaxConsecutivePagesRetrievedPerTUser(Exception):
     def __init__(self, extractor):
         settings.LOGGER.debug('Extractor %s reached max consecutive pages retrieved per target user (%i)' %
-                             (extractor.twitter_bot.username, settings.MAX_CONSECUTIVE_PAGES_RETRIEVED_PER_TARGET_USER))
+                             (extractor.twitter_bot.username, settings.MAX_CONSECUTIVE_PAGES_RETRIEVED_PER_TARGET_USER_EXTRACTION))
 
 
-class AllHashtagsExtracted(Exception):
-    def __init__(self):
-        settings.LOGGER.warning('All hashtags were extracted from all active hashtags in all active projects')
-        time.sleep(20)
+class ProjectHasAllHashtagsExtracted(Exception):
+    def __init__(self, project):
+        settings.LOGGER.warning('Project %s has all hashtag extracted' % project.name)
 
 
 class TwitteableBotsNotFound(Exception):
@@ -269,3 +269,73 @@ class BotHasToWaitToRegister(Exception):
 class CancelCreation(Exception):
     def __init__(self, bot):
         settings.LOGGER.warning('Bot %s has to cancel creation' % bot.username)
+
+
+class ProjectHasAllTargetusersExtracted(Exception):
+    def __init__(self, project):
+        settings.LOGGER.warning('Project "%s" has all targetusers extracted' % project.name)
+
+
+class ProjectHasNoTargetUsers(Exception):
+    def __init__(self, project):
+        settings.LOGGER.warning('Project "%s" has no target users added' % project.name)
+
+
+class ProjectHasNoHashtags(Exception):
+    def __init__(self, project):
+        settings.LOGGER.warning('Project "%s" has no hashtags added' % project.name)
+
+
+class NoAvaiableExtractors(Exception):
+    def __init__(self, mode):
+        settings.LOGGER.error('No available extractors for mode %s. Sleeping..')
+        time.sleep(30)
+
+
+class HashtagOlderTweetDateLimitReached(Exception):
+    def __init__(self, hashtag):
+        """Reseteamos el hashtag si se alcanzó el límite de minutes ago para extraer"""
+        settings.LOGGER.info('%sTweet older date limit reached for tweets' % hashtag.pre_msg_for_logs())
+        hashtag.go_to_next_round()
+
+class HashtagMaxUsersCountReached(Exception):
+    def __init__(self, hashtag):
+        settings.LOGGER.info('%sMax user count reached for tweets' % hashtag.pre_msg_for_logs())
+        hashtag.go_to_next_round()
+
+
+class TargetUserExtractionCompleted(Exception):
+    def __init__(self, targetuser):
+        settings.LOGGER.info('Extraction completed for target user %s' % targetuser.username)
+        targetuser.mark_as_extracted()
+
+
+class ProjectHasNoTwitterusersToExtract(Exception):
+    def __init__(self, project):
+        settings.LOGGER.error('Project %s has no sources for extracting twitterusers '
+                              '(has no targetusers or hashtags available for extracting now, maybe '
+                              'waiting timewindows or marked as is_active=False by admin)' % project.name)
+        # project.is_running = False
+        # project.save()
+
+
+class HashtagReachedConsecutivePagesWithoutEnoughNewTwitterusers(Exception):
+    def __init__(self, hashtag):
+        settings.LOGGER.warning('%sReached consecutive pages without enough twitterusers. '
+                                'Has to wait a few minutes before continuing extractions' %
+                                hashtag.pre_msg_for_logs())
+        hashtag.go_to_next_round()
+        hashtag.num_consecutive_pages_without_enough_new_twitterusers = 0
+        hashtag.has_to_wait_timewindow_because_of_not_enough_new_twitterusers = True
+        hashtag.save()
+
+
+class HashtagExtractionWithoutResults(Exception):
+    def __init__(self, hashtag):
+        settings.LOGGER.error('No results for hashtag %s extraction. maybe max_id tweet was removed in twitter' %
+                                hashtag.__unicode__())
+        if hashtag.is_in_first_round():
+            hashtag.max_id = None
+            hashtag.save()
+        else:
+            hashtag.go_to_next_round()

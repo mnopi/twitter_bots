@@ -19,7 +19,7 @@ class Command(BaseCommand):
 
         for _ in xrange(num_loops):
             try:
-                Extractor.objects.extract_followers_for_running_projects()
+                Extractor.objects.extract_twitterusers_for_running_projects()
             except Exception as e:
                 if num_loops > 1:
                     settings.LOGGER.exception(e.message)

@@ -1,23 +1,63 @@
 # -*- coding: utf-8 -*-
+
+from core.scrapper.utils import utc_now
 from itertools import chain
 import datetime
 from django.db import connection
-
 from django.db.models import Count, Q
 from django.db.models.query import QuerySet
-from core.scrapper.utils import utc_now
+from twitter_bots import settings
+
+
+class MyQuerySet(QuerySet):
+    def union(self, qs, limit=None, order_by=None):
+        """Retorna la union entre qs self y la qs dada"""
+        c = connection.cursor()
+        try:
+            c.execute('Select cal.id from (%(q1)s union %(q2)s) cal %(order_by) %(limit)' %
+                      {
+                          'q1': self.query,
+                          'q2': qs.query,
+                          'order_by': 'ORDER BY %s %s' % (order_by, 'DESC' if order_by[0] == '-' else 'ASC') if order_by else '',
+                          'limit': 'LIMIT %d' % limit if limit else ''
+                      }
+            )
+            # return self.filter(pk__in=zip(*c.fetchall())[0])
+            return self.filter(pk__in=[r[0] for r in c])
+        finally:
+            c.close()
+
+    def get_pks_from_raw_query(self, raw_query):
+        c = connection.cursor()
+        try:
+            c.execute(raw_query)
+            return self.filter(pk__in=zip(*c.fetchall())[0])
+        finally:
+            c.close()
+
+    def get_pks_distinct(self):
+        return self.values_list('pk', flat=True).distinct()
+
+    def get_chained_distinct(self, *pks):
+        return self.filter(pk__in=list(set(chain(*pks))))
+
+    def subtract(self, qs_to_subtract):
+        pks_to_subtract = qs_to_subtract.values_list('pk', flat=True)
+        return self.exclude(pk__in=pks_to_subtract)
 
 
 class ExtractorQuerySet(QuerySet):
     def available(self, mode):
+        """Devuelve los extractores que se pueden usar en el momento de ejecutar esto"""
+
         from project.models import Extractor
 
-        available_extractors_ids = [
-            extractor.pk for extractor in self.filter(mode=mode) if extractor.is_available()
-        ]
-        available_extractors = Extractor.objects.filter(id__in=available_extractors_ids)
+        available_extractors_ids = []
+        for extractor in self.filter(Q(mode=mode) | Q(mode=Extractor.BOTH)):
+            if extractor.is_available():
+                available_extractors_ids.append(extractor.pk)
 
-        return available_extractors
+        return self.filter(id__in=available_extractors_ids)
 
 
 class ProjectQuerySet(QuerySet):
@@ -49,13 +89,55 @@ class ProjectQuerySet(QuerySet):
         ).order_by('%squeued_tweets_count' % direction)
 
 
-class TargetUserQuerySet(QuerySet):
+class TargetUserQuerySet(MyQuerySet):
     def available_to_extract(self):
         return self.filter(is_active=True, is_suspended=False).exclude(next_cursor=None)
 
     def for_project(self, project):
         return self.filter(
             Q(tu_groups__projects=project) |
+            Q(projects=project)
+        )
+
+
+class HashtagQuerySet(MyQuerySet):
+    q__has_to_wait_for_next_round = (
+        Q(last_round_end_date__isnull=False) &
+        Q(last_round_end_date__lte=utc_now() - datetime.timedelta(seconds=settings.NEW_ROUND_TIMEWINDOW))
+    )
+
+    q__has_to_wait_timewindow_because_of_not_enough_new_twitterusers = (
+        Q(has_to_wait_timewindow_because_of_not_enough_new_twitterusers=True) &
+        Q(date_last_extraction__lte=utc_now() -
+                                    datetime.timedelta(seconds=settings.HASHTAG_TIMEWINDOW_TO_WAIT_WHEN_NOT_ENOUGH_TWITTERUSERS))
+    )
+
+    def has_to_wait_for_next_round(self):
+        return self.filter(self.q__has_to_wait_for_next_round)
+
+    def has_to_wait_timewindow_because_of_not_enough_new_twitterusers(self):
+        return self.filter(self.q__has_to_wait_timewindow_because_of_not_enough_new_twitterusers)
+
+    def available_to_extract(self):
+        """Los hashtags disponibles serán los que estén marcados como activos por el admin y los que, en caso de
+        tener que esperar periodo ventana para comprobar si recoge suficiente número de twitterusers, hayan pasado
+        dicho periodo ya"""
+        return self.filter(
+            Q(is_active=True) &
+
+            (
+                Q(has_to_wait_timewindow_because_of_not_enough_new_twitterusers=False) |
+                self.q__has_to_wait_timewindow_because_of_not_enough_new_twitterusers
+            ) &
+            (
+                Q(last_round_end_date__isnull=True) |
+                self.q__has_to_wait_for_next_round
+            )
+        )
+
+    def for_project(self, project):
+        return self.filter(
+            Q(hashtag_groups__projects=project) |
             Q(projects=project)
         )
 
@@ -103,41 +185,6 @@ class TweetQuerySet(QuerySet):
             Q(tweet_checking_mention__destination_bot_checked_mention=False)
         )
 
-class MyQuerySet(QuerySet):
-    def union(self, qs, limit=None, order_by=None):
-        """Retorna la union entre qs self y la qs dada"""
-        c = connection.cursor()
-        try:
-            c.execute('Select cal.id from (%(q1)s union %(q2)s) cal %(order_by) %(limit)' %
-                      {
-                          'q1': self.query,
-                          'q2': qs.query,
-                          'order_by': 'ORDER BY %s %s' % (order_by, 'DESC' if order_by[0] == '-' else 'ASC') if order_by else '',
-                          'limit': 'LIMIT %d' % limit if limit else ''
-                      }
-            )
-            # return self.filter(pk__in=zip(*c.fetchall())[0])
-            return self.filter(pk__in=[r[0] for r in c])
-        finally:
-            c.close()
-
-    def get_pks_from_raw_query(self, raw_query):
-        c = connection.cursor()
-        try:
-            c.execute(raw_query)
-            return self.filter(pk__in=zip(*c.fetchall())[0])
-        finally:
-            c.close()
-
-    def get_pks_distinct(self):
-        return self.values_list('pk', flat=True).distinct()
-
-    def get_chained_distinct(self, *pks):
-        return self.filter(pk__in=list(set(chain(*pks))))
-
-    def subtract(self, qs_to_subtract):
-        pks_to_subtract = qs_to_subtract.values_list('pk', flat=True)
-        return self.exclude(pk__in=pks_to_subtract)
 
 class TwitterUserQuerySet(MyQuerySet):
     def for_project(self, project, order_by=None, limit=None):

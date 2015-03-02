@@ -13,7 +13,7 @@ from core.scrapper.utils import has_elapsed_secs_since_time_ago
 from core.scrapper.utils import generate_random_secs_from_minute_interval
 from project.exceptions import *
 from project.querysets import ProjectQuerySet, TwitterUserQuerySet, TweetQuerySet, ExtractorQuerySet, TargetUserQuerySet, \
-    FeedItemQuerySet
+    FeedItemQuerySet, HashtagQuerySet
 from twitter_bots import settings
 from django.db import models
 
@@ -34,6 +34,19 @@ class TargetUserManager(models.Manager):
     def for_project(self, project):
         return self.get_queryset().for_project(project)
 
+
+class HashtagManager(models.Manager):
+
+    # QUERYSETS
+
+    def get_queryset(self):
+        return HashtagQuerySet(self.model, using=self._db)
+
+    def for_project(self, project):
+        return self.get_queryset().for_project(project)
+
+    def available_to_extract(self):
+        return self.get_queryset().available_to_extract()
 
 
 class TweetManager(MyManager):
@@ -82,6 +95,8 @@ class TweetManager(MyManager):
             bots_with_free_queue = bots_in_running_projects.without_tweet_to_send_queue_full()
             if bots_with_free_queue.exists():
                 for bot in bots_with_free_queue:
+                    # todo: evitar este bucle y hacer una sola consulta que devuelva lista de twitterusers
+                    # a mencionar por los bots disponibles, y no por cada bot (muy ineficiente)
                     bot.make_mutweet_to_send()
             else:
                 if bots_in_running_projects:
@@ -279,22 +294,8 @@ class ProjectManager(models.Manager):
 
 
 class ExtractorManager(MyManager):
-    def display_extractor_mode(self, mode):
-        from .models import Extractor
-        if mode == Extractor.FOLLOWER_MODE:
-            return 'follower'
-        elif mode == Extractor.HASHTAG_MODE:
-            return 'hashtag'
-
-    def log_extractor_being_used(self, extractor, mode):
-        settings.LOGGER.debug('### Using %s extractor: %s behind proxy %s ###' %
-                             (self.display_extractor_mode(mode),
-                              extractor.twitter_bot.username,
-                              extractor.twitter_bot.proxy_for_usage.__unicode__()))
-
-    def extract_followers_for_running_projects(self):
-        """Tienen prioridad los targetusers cuyos proyectos tengan menos usuarios por mencionar"""
-        from project.models import TargetUser, Project, TwitterUser
+    def extract_twitterusers_for_running_projects(self):
+        from project.models import Project, TwitterUser
 
         # limpiamos los antiguos todavía sin mencionar
         TwitterUser.objects.clear_old_unmentioned()
@@ -305,77 +306,24 @@ class ExtractorManager(MyManager):
             for project in running_projects:
                 try:
                     project.check_if_full_of_unmentioned_twitterusers()
-                except ProjectFullOfUnmentionedTwitterusers:
+                    project.extract_twitterusers()
+                except (ProjectFullOfUnmentionedTwitterusers,
+                        ProjectHasNoTwitterusersToExtract):
+                    # si el proyecto está repleto de usuarios sin mencionar se pasa al siguiente que haya en ejecución
                     continue
-                else:
-                    project_targetusers = TargetUser.objects.for_project(project)
-                    if project_targetusers.exists():
-                        # sacamos el targetuser con última extracción, poniendo delante los que no se extrajeron nunca
-                        targetusers_available_to_extract = project_targetusers\
-                            .available_to_extract()\
-                            .extra(select={'date_le_null': 'date_last_extraction IS NULL',})\
-                            .order_by('date_last_extraction', 'date_le_null')
-                        if targetusers_available_to_extract.exists():
-                            # tu = targetusers_available_to_extract.filter(next_cursor__isnull=True).order_by('?').first()
-                            # self.extract_followers_from_tu(tu)
-                            self.extract_followers_from_tu(targetusers_available_to_extract.first())
-                        else:
-                            settings.LOGGER.warning('Project "%s" has all targetusers extracted' % project.name)
-                    else:
-                        settings.LOGGER.warning('Project "%s" has no target users added!' % project.name)
         else:
             raise NoRunningProjects
 
-        settings.LOGGER.debug('sleeping 20 seconds..')
-        time.sleep(20)
+    def get_one_available_extractor(self, mode):
+        """Saca un extractor que haya disponible, previamente conectado a la API de twitter"""
 
-    def extract_followers_from_tu(self, target_user):
-        from project.models import Extractor, Project
-
-        available_follower_extractors = self.available(Extractor.FOLLOWER_MODE)
-        if available_follower_extractors.exists():
-            settings.LOGGER.info('Extracting followers from targetuser: %s (project(s): %s)' %
-                                 (target_user.username, Project.objects.get_names_list(target_user.get_projects())))
-            for extractor in available_follower_extractors:
-                try:
-                    self.log_extractor_being_used(extractor, mode=Extractor.FOLLOWER_MODE)
-                    extractor.connect_twitter_api()
-                    extractor.extract_followers_from_tuser(target_user)
-                except TweepError as e:
-                    if 'Cannot connect to proxy' in e.reason:
-                        settings.LOGGER.exception('Extractor %s can\'t connect to proxy %s' %
-                                                  (extractor.twitter_bot.username,
-                                                   extractor.twitter_bot.proxy_for_usage.__unicode__()))
-                        continue
-                    else:
-                        raise e
-                except (AllFollowersExtracted,
-                        ExtractorReachedMaxConsecutivePagesRetrievedPerTUser,
-                        TargetUserWasSuspended):
-                    break
-                except (RateLimitedException,
-                        InternetConnectionError):
-                    continue
+        available_extractors = self.available(mode=mode)
+        if available_extractors.exists():
+            extractor = available_extractors.first()
+            extractor.connect_twitter_api()
+            extractor.log_being_used()
         else:
-            settings.LOGGER.error('No available follower extractors. Sleeping..')
-            time.sleep(30)
-
-    def extract_hashtags(self):
-        from .models import Extractor
-        for extractor in self.get_available_extractors(Extractor.HASHTAG_MODE):
-            try:
-                self.log_extractor_being_used(extractor, mode=Extractor.HASHTAG_MODE)
-                extractor.extract_twitter_users_from_all_hashtags()
-            except TweepError as e:
-                if 'Cannot connect to proxy' in e.reason:
-                    settings.LOGGER.exception('')
-                    continue
-                else:
-                    raise e
-            except RateLimitedException:
-                continue
-
-        time.sleep(random.randint(5, 15))
+            raise NoAvaiableExtractors
 
     # QUERYSETS
 
@@ -489,9 +437,19 @@ class TwitterUserManager(MyManager):
         """Elimina los followers extraídos hace más de x días y que aún no fueron mencionados"""
         old_unmentioned = self.unmentioned().saved_lte_days(settings.MAX_DAYS_TO_STAY_UNMENTIONED)
         count = old_unmentioned.count()
-        old_unmentioned.delete()
         if count > 0:
+            old_unmentioned.delete()
             settings.LOGGER.info('Deleted %i old unmentioned twitterusers' % count)
+
+    def clear_all_unmentioned(self):
+        """Elimina todos los twitterusers extraídos y que no fueron aún mencionados"""
+        unmentioned = self.unmentioned()
+        if unmentioned.exists():
+            count = unmentioned.count()
+            unmentioned.delete()
+            settings.LOGGER.info('All unmentioned twitterusers were deleted (%i)' % count)
+        else:
+            settings.LOGGER.info('There are no unmentioned twitterusers, so nothing could be deleted.')
 
     # PROXY QUERYSET
     def get_queryset(self):
