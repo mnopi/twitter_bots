@@ -462,13 +462,13 @@ class TwitterUserAdmin(admin.ModelAdmin):
     list_display = (
         'username',
         'date_saved',
-        'is_mentioned',
+        'is_on_tweets',
         'last_tweet_date',
     )
 
-    def is_mentioned(self, obj):
+    def is_on_tweets(self, obj):
         return obj.mentions.exists()
-    is_mentioned.boolean = True
+    is_on_tweets.boolean = True
 
     search_fields = (
         'username',

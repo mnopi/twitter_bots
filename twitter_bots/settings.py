@@ -66,8 +66,8 @@ DATABASES = {
         "NAME": "twitter_bots_dev",
         "USER": "root",
         "PASSWORD": "1aragon1",
-        "HOST": "127.0.0.1",
-        # "HOST": "88.26.212.82",
+        # "HOST": "127.0.0.1",
+        "HOST": "88.26.212.82",
         "PORT": "3306",
 
         # "NAME": "twitter_bots_dev",

@@ -310,4 +310,8 @@ def get_2_args(args):
 
 
 def utc_now_to_str():
-    return datetime.datetime.strftime(utc_now(), '%Y%m%d_%H%M')
+    return datetime_to_str(utc_now())
+
+
+def datetime_to_str(d):
+    return datetime.datetime.strftime(d, '%Y%m%d_%H%M')

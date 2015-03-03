@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
+import datetime
 import simplejson
 
 from core.scrapper.utils import get_thread_name, has_elapsed_secs_since_time_ago, \
-    generate_random_secs_from_minute_interval, utc_now, check_internet_connection_works
+    generate_random_secs_from_minute_interval, utc_now, check_internet_connection_works, datetime_to_str
 from twitter_bots import settings
 import time
 
@@ -288,14 +289,21 @@ class ProjectHasNoHashtags(Exception):
 
 class NoAvaiableExtractors(Exception):
     def __init__(self, mode):
-        settings.LOGGER.error('No available extractors for mode %s. Sleeping..')
+        settings.LOGGER.error('No available extractors for mode "%s". Sleeping..' % mode)
         time.sleep(30)
 
 
 class HashtagOlderTweetDateLimitReached(Exception):
-    def __init__(self, hashtag):
+    def __init__(self, hashtag, oldest_tweet_date):
         """Reseteamos el hashtag si se alcanzó el límite de minutes ago para extraer"""
-        settings.LOGGER.info('%sTweet older date limit reached for tweets' % hashtag.pre_msg_for_logs())
+        oldest_limit = utc_now() - datetime.timedelta(seconds=settings.FIRST_HASHTAG_ROUND_MAX_MINUTES_AGO_FOR_OLDER_TWEET *60)\
+            if hashtag.is_in_first_round()\
+            else hashtag.current_round_oldest_tweet_limit
+
+        settings.LOGGER.info('%sTweet older date limit reached for tweets '
+                             '(oldest tweet on page: %s, oldest limit: %s)' %
+                             (hashtag.pre_msg_for_logs(), datetime_to_str(oldest_tweet_date), datetime_to_str(oldest_limit)))
+
         hashtag.go_to_next_round()
 
 class HashtagMaxUsersCountReached(Exception):
@@ -319,6 +327,13 @@ class ProjectHasNoTwitterusersToExtract(Exception):
         # project.save()
 
 
+class ProjectHasNoMsgLinkOrPagelink(Exception):
+    def __init__(self, project):
+        settings.LOGGER.error('Project %s must have at least one msg+link or pagelink. It will we stopped' % project.name)
+        project.is_running = False
+        project.save()
+
+
 class HashtagReachedConsecutivePagesWithoutEnoughNewTwitterusers(Exception):
     def __init__(self, hashtag):
         settings.LOGGER.warning('%sReached consecutive pages without enough twitterusers. '
@@ -339,3 +354,7 @@ class HashtagExtractionWithoutResults(Exception):
             hashtag.save()
         else:
             hashtag.go_to_next_round()
+
+
+class ProjectWithoutBotsToSendMentions(Exception):
+    pass

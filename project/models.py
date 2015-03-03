@@ -1432,7 +1432,7 @@ class Extractor(models.Model):
             def check_if_limits_reached():
                 def check_oldest_tweet_and_max_users_limit():
                     if older_limit_reached:
-                        raise HashtagOlderTweetDateLimitReached(hashtag)
+                        raise HashtagOlderTweetDateLimitReached(hashtag, oldest_tweet_date)
                     elif max_user_limit_reached:
                         raise HashtagMaxUsersCountReached(hashtag)
 
@@ -1468,19 +1468,8 @@ class Extractor(models.Model):
 
                 # procesamos cada tweet recibido por la API
                 for result in page:
-
-                    # vemos si ya estaba en los pendientes de grabar en BD
-                    is_repeated = False
-                    for new_tw_user in new_twitter_users:
-                        if result.user.id == new_tw_user.twitter_id:
-                            is_repeated = True
-                            break
-
-                    # vemos si ya estaba en los ya grabados en BD
-                    if result.user.id in already_exists_twitterids:
-                        is_repeated = True
-
-                    if not is_repeated:
+                    # vemos que no se ha procesado antes (pueden haber varios twitterusers en una misma página)
+                    if result.user.id not in twitterusers_ids_already_processed_on_page:
                         twitter_user, not_in_db = self.create_twitter_user_obj(result.user)
 
                         # la fecha del último tweet siempre será la del recibido en esta página
@@ -1496,26 +1485,16 @@ class Extractor(models.Model):
                             settings.LOGGER.debug('%s\t%s already exists' % (pre_msg, twitteruser_name))
                             # si no es nuevo, vemos si ya está o no asociado al hashtag (puede ocurrir que esté porque venga de un targetuser).
                             # Si no está asociado lo asociamos
-                            if twitter_user.pk not in already_related_pks and \
-                                    hashtag.twitter_users.filter(pk=twitter_user.pk).exists():
+                            if hashtag.twitter_users.filter(pk=twitter_user.pk).exists():
                                 settings.LOGGER.debug('%s\t%s is already related in DB with this hashtag' % (pre_msg, twitteruser_name))
-                                already_related_pks.append(twitter_user.pk)
                             else:
-                                # hacemos esto porque en una misma página puede ocurrir que el mismo twitteruser
-                                # se repita varias veces, y sólo necesitamos guardar una vez en BD la relación
-                                # twitteruser<->hashtag
-                                already_added = False
-                                for hu in new_hashtag_twitterusers:
-                                    if hu.twitter_user.pk == twitter_user.pk:
-                                        already_added = True
-                                        break
+                                new_hashtag_twitterusers.append(
+                                    TwitterUserHasHashtag(twitter_user_id=twitter_user.pk, hashtag=hashtag)
+                                )
+                                settings.LOGGER.debug('%s\t%s in DB, but not yet related with this hashtag. '
+                                                     'New relationship will be stored' % (pre_msg, twitteruser_name))
 
-                                if not already_added:
-                                    new_hashtag_twitterusers.append(
-                                        TwitterUserHasHashtag(twitter_user_id=twitter_user.pk, hashtag=hashtag)
-                                    )
-                                    settings.LOGGER.debug('%s\t%s in DB, but not yet related with this hashtag. '
-                                                         'New relationship will be stored' % (pre_msg, twitteruser_name))
+                        twitterusers_ids_already_processed_on_page.append(result.user.id)
 
             def save_new_entries():
                 with transaction.atomic():
@@ -1573,12 +1552,8 @@ class Extractor(models.Model):
             new_twitter_users = []
             new_hashtag_twitterusers = []
 
-            # para no tener que hacer contínuamente la query hashtag.twitter_users, guardamos aquí pks de
-            # usuarios ya comprobados en esta página
-            already_related_pks = []
-
-            # para no tener que volver a procesar un twitteruser que ya está en BD
-            already_exists_twitterids = []
+            # para no tener que volver a procesar un twitteruser ya tratado en la misma página
+            twitterusers_ids_already_processed_on_page = []
 
             scan_page_for_new_entries()
             save_new_entries()

@@ -76,36 +76,124 @@ class TweetManager(MyManager):
     def create_mentions_to_send(self):
         """Crea los tweets a encolar para cada bot disponible"""
 
-        from project.models import Project
+        from project.models import Project, TwitterUser, Tweet
         from core.models import TwitterBot
 
-        running_projects = Project.objects.running()
-        if running_projects.exists():
-            settings.LOGGER.info('Creating tweets for running project(s): %s' %
-                                 Project.objects.get_names_list(running_projects))
+        def create_mentions_for_project(project):
 
-            # dentro de los proyectos en ejecución tomamos sus bots
-            bots_in_running_projects = TwitterBot.objects.usable_regardless_of_proxy()\
-                .using_in_running_projects()\
-                .with_proxy_connecting_ok()
+            def get_bots_to_send_mentions():
+                # tomamos los bots como resultado de aplicar los filtros en el siguiente orden:
+                #   - que pertenezcan al proyecto actual
+                #   - que su proxy funcione ok
+                #   - que no tenga llena su cola de menciones pendientes por enviar
+                bots_to_send_mentions = None
 
-            # comprobamos sus proxies si siguen funcionando
-            TwitterBot.objects.check_proxies(bots_in_running_projects)
-
-            bots_with_free_queue = bots_in_running_projects.without_tweet_to_send_queue_full()
-            if bots_with_free_queue.exists():
-                for bot in bots_with_free_queue:
-                    # todo: evitar este bucle y hacer una sola consulta que devuelva lista de twitterusers
-                    # a mencionar por los bots disponibles, y no por cada bot (muy ineficiente)
-                    bot.make_mutweet_to_send()
-            else:
-                if bots_in_running_projects:
-                    settings.LOGGER.info('Mention to send queue full for all twitteable bots at this moment. Waiting %d seconds..'
-                                         % settings.TIME_WAITING_FREE_QUEUE)
-                    time.sleep(settings.TIME_WAITING_FREE_QUEUE)
+                bots_for_project = TwitterBot.objects.usable_regardless_of_proxy()\
+                    .using_in_project(project)
+                if bots_for_project.exists():
+                    # antes de filtrar por proxies ok comprobamos en cada uno si sus proxy sigue funcionando
+                    TwitterBot.objects.check_proxies(bots_for_project)
+                    bots_working_ok = bots_for_project.with_proxy_connecting_ok()
+                    if bots_working_ok.exists():
+                        bots_with_free_queue = bots_for_project.without_tweet_to_send_queue_full()
+                        if bots_with_free_queue.exists():
+                            bots_to_send_mentions = bots_with_free_queue
+                        else:
+                            settings.LOGGER.info('Project %s has queue full of twitteruser mentions at this moment'
+                                                 % project.name)
+                    else:
+                        settings.LOGGER.error('Project %s has %i usable bots, but none has working proxy ok.'
+                                              % (project.name, bots_for_project.count()))
                 else:
-                    settings.LOGGER.error('No twitteable bots available for running projects. Waiting %d seconds..'
-                                          % settings.TIME_WAITING_NEW_TWITTEABLE_BOTS)
+                    settings.LOGGER.error('Project %s has no bots assigned and will be stopped' % project.name)
+                    project.is_running = False
+                    project.save()
+
+                if not bots_to_send_mentions:
+                    raise ProjectWithoutBotsToSendMentions
+                else:
+                    return bots_to_send_mentions
+
+            def fetch_unmentioned_twitterusers_if_not(lang):
+                if lang not in unmentioned_twitterusers and lang not in discarded_langs:
+                    unmentioned_twitterusers[lang] = list(TwitterUser.objects.get_unmentioned_on_project(
+                        project,
+                        limit=max_unmentioned_fetched_per_lang,
+                        language=None if lang_used == 'all' else lang_used
+                    ))
+
+                    if not unmentioned_twitterusers[lang]:
+                        settings.LOGGER.error('Project %s has no unmentioned twitterusers with lang: %s' % (project.name, lang))
+                        discarded_langs.append(lang)
+
+            # obtenemos los usuarios a mencionar para cada lenguaje de los usados en el proyecto
+            unmentioned_twitterusers = {}
+
+            # metemos aquí los idiomas que queramos descartar por no encontrarse unmentioned con ese idioma
+            discarded_langs = []
+
+            bots = get_bots_to_send_mentions()
+            max_unmentioned_fetched_per_lang = bots.count()
+            for bot in bots:
+
+                lang_used = None
+                pagelink = None
+                tweet_msg = None
+
+                project_pagelinks = project.pagelinks.filter(is_active=True)
+                if project_pagelinks.exists():
+                    pagelink = project_pagelinks.order_by('?').first()
+                    lang_used = pagelink.language
+                else:
+                    project_msgs = project.tweet_msgs
+                    if project_msgs.exists():
+                        tweet_msg = project_msgs.order_by('?').first()
+                        lang_used = tweet_msg.language
+
+                # si el idioma del texto del tweet es en inglés se escoge cualquier twitteruser
+                lang_used = 'all' if not lang_used else lang_used
+
+                fetch_unmentioned_twitterusers_if_not(lang_used)
+
+                if lang_used not in discarded_langs:
+                    tweet_to_send = Tweet(
+                        project=project,
+                        bot_used=bot
+                    )
+                    if pagelink:
+                        tweet_to_send.page_announced = pagelink
+                    elif tweet_msg:
+                        tweet_to_send.tweet_msg = tweet_msg
+                    else:
+                        raise ProjectHasNoMsgLinkOrPagelink(project)
+
+                    project_links = project.links.filter(is_active=True)
+                    if project_links.exists():
+                        tweet_to_send.link = project_links.order_by('?').first()
+
+                    project_imgs = project.tweet_imgs
+                    if project_imgs.exists():
+                        tweet_to_send.tweet_img = project_imgs.order_by('?').first()
+
+                    tweet_to_send.save()
+
+                    twitteruser_to_mention = unmentioned_twitterusers[lang_used][0]
+                    tweet_to_send.mentioned_users.add(twitteruser_to_mention)
+                    unmentioned_twitterusers[lang_used].remove(twitteruser_to_mention)
+
+                    settings.LOGGER.info('Queued [proj: %s | bot: %s] >> %s' %
+                                 (project.__unicode__(), tweet_to_send.bot_used.__unicode__(), tweet_to_send.compose()))
+
+        running_projects = Project.objects.running().order_by__queued_tweets()
+        if running_projects.exists():
+            settings.LOGGER.info('Creating mentions for running project(s): %s' %
+                                 Project.objects.get_names_list(running_projects))
+            for project in running_projects:
+                try:
+                    create_mentions_for_project(project)
+                except (ProjectWithoutBotsToSendMentions,
+                        ProjectHasNoMsgLinkOrPagelink):
+                    continue
         else:
             settings.LOGGER.warning('No projects running at this moment')
 
@@ -206,7 +294,7 @@ class TweetManager(MyManager):
             not_sent_ok.delete()
             settings.LOGGER.info('Tweet queue cleared (%d tweets not sent removed)' % count)
         else:
-            settings.LOGGER.info('Tweet queue empty' % count)
+            settings.LOGGER.info('Tweet queue was empty before doing this')
 
     def clear_mctweets_not_verified(self):
         """Elimina aquellos mctweets pendientes de verificar. Esto es útil cuando cambiamos el mensaje

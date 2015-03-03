@@ -10,7 +10,7 @@ MODULE_NAME = __name__.split('.')[-1]
 
 
 class Command(BaseCommand):
-    help = 'Make tweets to send by tweet_sender'
+    help = 'Makes twitterusers mentions to send by tweet_sender'
 
     def handle(self, *args, **options):
         set_logger(__name__)
