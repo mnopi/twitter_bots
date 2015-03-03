@@ -707,6 +707,8 @@ class Tweet(models.Model):
                 raise TwitterAccountSuspended(sender)
             elif 'internet_connection_error' in errors:
                 raise InternetConnectionError
+            elif 'unknown_error' in errors:
+                raise UnknownErrorSendingTweet(self)
 
         sender = self.bot_used
         tweet_dirname = '%d_%s' % (self.pk, self.print_type())
@@ -854,7 +856,8 @@ class Tweet(models.Model):
                 PageloadTimeoutExceeded,
                 simplejson.JSONDecodeError,
                 CasperJSWaitTimeoutExceeded,
-                CasperJSProcessTimeoutError):
+                CasperJSProcessTimeoutError,
+                UnknownErrorSendingTweet):
             raise FailureSendingTweet(self)
         except Exception as e:
              settings.LOGGER.exception('Error on bot %s (%s) sending tweet with id=%i)' %

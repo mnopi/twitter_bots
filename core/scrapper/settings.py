@@ -203,7 +203,7 @@ elif sys.platform == 'linux2':
 else:
     PHANTOMJS_BIN_PATH = os.path.join(PHANTOMJS_PATH, 'phantomjs_mac_bin_1_9_8')
 
-CASPERJS_BIN_PATH = '/home/robots/casperjs/bin/casperjs'
+CASPERJS_BIN_PATH = '/opt/casperjs/bin/casperjs'
 
 # PHANTOMJS COOKIES
 PHANTOMJS_COOKIES_DIR = os.path.join(PHANTOMJS_PATH, 'cookies')

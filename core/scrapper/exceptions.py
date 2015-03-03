@@ -113,7 +113,7 @@ class BotDetectedAsSpammerException(Exception):
 
 class FailureSendingTweet(Exception):
     def __init__(self, tweet):
-        settings.LOGGER.warning('Error on bot %s sending tweet %s' %
+        settings.LOGGER.error('Error on bot %s sending tweet %s' %
                                 (tweet.bot_used.username, tweet.pk))
 
 
@@ -140,6 +140,12 @@ class TweetAlreadySent(Exception):
         if not tweet.date_sent:
             tweet.date_sent = tweet.date_created
         tweet.save()
+
+
+class UnknownErrorSendingTweet(Exception):
+    def __init__(self, tweet):
+        settings.LOGGER.error('Unknown error sending tweet %s by bot %s' % (tweet.pk, tweet.bot_used.username))
+
 
 class BotMustVerifyPhone(Exception):
     def __init__(self, scrapper):

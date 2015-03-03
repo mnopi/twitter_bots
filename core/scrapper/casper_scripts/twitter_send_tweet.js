@@ -218,6 +218,11 @@ casper.wait(getRandomIntFromRange(5000, 10000),
                 output.errors.push('account_suspended');
                 capture('account_suspended', true);
             }
+            else
+            {
+                output.errors.push('unknown_error');
+                capture('unknown_error', true);
+            }
         }
     }
 );
