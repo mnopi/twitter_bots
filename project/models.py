@@ -235,15 +235,14 @@ class Project(models.Model):
                 return project_hashtags_available
             else:
                 ProjectHasNoHashtags(self)
-                return project_targetusers
+                return project_hashtags
 
         # primero ordenamos por fecha de extracción y luego filtramos por los disponibles para extraer
         project_targetusers = order_by_last_extraction_date(TargetUser.objects.for_project(self))
-        targetusers_available = get_targetusers_available()
-        targetuser_to_extract = targetusers_available.first()
-
         project_hashtags = order_by_last_extraction_date(Hashtag.objects.for_project(self))
+        targetusers_available = get_targetusers_available()
         hashtags_available = get_hashtags_available()
+        targetuser_to_extract = targetusers_available.first()
         hashtag_to_extract = hashtags_available.first()
 
         if targetuser_to_extract and hashtag_to_extract:
