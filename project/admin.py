@@ -172,15 +172,22 @@ class PageLinkInlineFormset(forms.models.BaseInlineFormSet):
                         raise ValidationError(error_msg)
         super(PageLinkInlineFormset, self).clean()
 
+
 class PageLinkAdmin(admin.ModelAdmin):
     list_display = (
-        'page_link',
-        'page_title',
         'project',
+        'language',
         'is_active',
-        'hashtags',
+        '__unicode__',
         'image',
-        'languaje',
+    )
+
+    list_display_links = (
+        '__unicode__',
+    )
+
+    list_editable = (
+        'is_active',
     )
 
     list_filter = (
@@ -700,7 +707,7 @@ admin.site.register(Hashtag, HashtagAdmin)
 admin.site.register(TwitterUserHasHashtag)
 admin.site.register(TweetImg)
 admin.site.register(ProxiesGroup, ProxiesGroupAdmin)
-admin.site.register(PageLink)
+admin.site.register(PageLink, PageLinkAdmin)
 admin.site.register(PageLinkHashtag)
 admin.site.register(TUGroup, TUGroupAdmin)
 admin.site.register(HashtagGroup)

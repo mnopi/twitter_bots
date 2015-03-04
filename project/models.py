@@ -728,6 +728,9 @@ class Tweet(models.Model):
             '--tweetmsg=%s' % self.compose().encode('utf-8')
         ]
 
+        if self.tweet_img:
+            command.append('--tweetimg=%s' % self.tweet_img.img.path)
+
         # esperamos a que la cpu se alivie
         while psutil.cpu_percent() > 90.0:
             time.sleep(0.5)

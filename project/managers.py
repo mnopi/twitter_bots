@@ -171,7 +171,7 @@ class TweetManager(MyManager):
                     if project_links.exists():
                         tweet_to_send.link = project_links.order_by('?').first()
 
-                    project_imgs = project.tweet_imgs
+                    project_imgs = project.tweet_imgs.filter(is_using=True)
                     if project_imgs.exists():
                         tweet_to_send.tweet_img = project_imgs.order_by('?').first()
 

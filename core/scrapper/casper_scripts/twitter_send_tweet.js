@@ -173,6 +173,7 @@ casper.then(function () {
     }
 });
 
+// hacemos click en botón de escribir nuevo tweet
 var tweet_btn_css = '#global-new-tweet-button';
 casper.waitUntilVisible(tweet_btn_css,
     function then() {
@@ -185,21 +186,34 @@ casper.waitUntilVisible(tweet_btn_css,
     }
 );
 
-// escribimos el tweet
+// escribimos el tweet, adjuntamos imagen si fuera necesario
 var tweet_dialog_css = '#global-tweet-dialog-dialog div.tweet-content';
 casper.waitUntilVisible(tweet_dialog_css,
     function then() {
         capture('tweet_dialog_loaded');
+
+        casper.wait(getRandomIntFromRange(2000, 5000));
+        write_tweet();
+        casper.wait(getRandomIntFromRange(7000, 15000));
+
+        img_path = casper.cli.get('tweetimg');
+        if (img_path)
+        {
+            casper.wait(getRandomIntFromRange(3000, 5000));
+            form_css = '#global-tweet-dialog-dialog > div.modal-content > div.modal-tweet-form-container > form';
+            casper.fillSelectors(form_css, {
+                'input[type="file"][name="media_empty"]': img_path
+            }, false);
+            //img_btn_css = '#global-tweet-dialog-dialog > div.modal-content > div.modal-tweet-form-container > form > div.toolbar.js-toolbar > div.tweet-box-extras > div.photo-selector > div > label > input';
+            //casper.sendKeys(img_btn_css, img_path);
+            casper.wait(getRandomIntFromRange(800, 2000));
+        }
     }
 );
 
-casper.wait(getRandomIntFromRange(1000, 2000));
-casper.then(write_tweet);
-casper.wait(getRandomIntFromRange(7000, 15000));
-
-// una vez escrito el tweet pulsamos el botón de enviar el tweet
-casper.wait(getRandomIntFromRange(800, 2000), function () {
-    click('#global-tweet-dialog-dialog .tweet-button button');
+// pulsamos el botón para enviarlo
+casper.then(function(){
+    casper.click('#global-tweet-dialog-dialog .tweet-button button');
 });
 
 // esperamos a ver si se envió bien o no
@@ -207,18 +221,27 @@ casper.wait(getRandomIntFromRange(5000, 10000),
     function then() {
         capture('clicked_send_tweet_btn');
 
-        var msg_drawer = '#message-drawer .message-text';
-        if (this.visible(msg_drawer)) {
-            msg_drawer_text = this.fetchText(msg_drawer).toLowerCase();
-            if (msg_drawer_text.indexOf("already sent") >= 0) {
-                output.errors.push('tweet_already_sent');
-                capture('tweet_already_sent', true);
+        if (this.visible('#global-tweet-dialog-dialog'))
+        {
+            unknown_error = true;
+
+            var msg_drawer = '#message-drawer .message-text';
+            if (this.visible(msg_drawer))
+            {
+                msg_drawer_text = this.fetchText(msg_drawer).toLowerCase();
+                if (msg_drawer_text.indexOf("already sent") >= 0) {
+                    output.errors.push('tweet_already_sent');
+                    capture('tweet_already_sent', true);
+                    unknown_error = false;
+                }
+                else if (msg_drawer_text.indexOf("suspended") >= 0) {
+                    output.errors.push('account_suspended');
+                    capture('account_suspended', true);
+                    unknown_error = false;
+                }
             }
-            else if (msg_drawer_text.indexOf("suspended") >= 0) {
-                output.errors.push('account_suspended');
-                capture('account_suspended', true);
-            }
-            else
+
+            if (unknown_error)
             {
                 output.errors.push('unknown_error');
                 capture('unknown_error', true);
