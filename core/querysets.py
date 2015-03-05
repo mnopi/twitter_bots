@@ -7,6 +7,20 @@ from twitter_bots import settings
 
 
 class TwitterBotQuerySet(MyQuerySet):
+    q__avatar_passed = Q(proxy_for_usage__proxies_group__avatar_required_to_send_tweets=False) | \
+                        Q(twitter_avatar_completed=True)
+    q__bio_passed = Q(proxy_for_usage__proxies_group__bio_required_to_send_tweets=False) | \
+                 Q(twitter_bio_completed=True)
+
+    q__profile_passed = q__avatar_passed & q__bio_passed
+
+    q__account_passed = Q(twitter_registered_ok=True) & \
+                        Q(twitter_confirmed_email_ok=True) &\
+                        Q(is_suspended=False)
+
+    q__completed = q__profile_passed & q__account_passed
+
+
     def with_some_account_registered(self):
         return self.filter(Q(email_registered_ok=True) | Q(twitter_registered_ok=True))
 
@@ -96,24 +110,10 @@ class TwitterBotQuerySet(MyQuerySet):
 
     def completed(self):
         """De los bots que toma devuelve sólo aquellos que estén completamente creados"""
-        return self \
-            .filter(
-                twitter_registered_ok=True,
-                twitter_confirmed_email_ok=True,
-                twitter_avatar_completed=True,
-                twitter_bio_completed=True,
-                is_suspended=False,
-            ).distinct()
+        return self.filter(self.q__completed).distinct()
 
     def uncompleted(self):
-        return self \
-            .filter(
-                Q(twitter_registered_ok=False) |
-                Q(twitter_confirmed_email_ok=False) |
-                Q(twitter_avatar_completed=False) |
-                Q(twitter_bio_completed=False) |
-                Q(is_suspended=True)
-            ).distinct()
+        return self.filter(~self.q__completed).distinct()
 
     def registered_but_not_completed(self):
         return self\

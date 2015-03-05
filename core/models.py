@@ -45,6 +45,10 @@ class TwitterBot(models.Model):
     }
     gender = models.IntegerField(max_length=1, choices=GENDERS, default=0)
 
+    # phone
+    is_phone_verified = models.BooleanField(default=False)
+    phone_number = models.CharField(max_length=50, null=True, blank=True)
+
     is_dead = models.BooleanField(default=False)
     date_death = models.DateTimeField(null=True, blank=True)
 
@@ -422,22 +426,33 @@ class TwitterBot(models.Model):
             settings.LOGGER.info('Bot %s has proxiesgroup %s with reuse_proxies_with_suspended_bots=False' %
                                  (self.username. self.get_group().__unicode__()))
 
-    def populate(self):
+    def populate(self, from_bots_txts=False):
         try:
-            settings.LOGGER.info('Populating bot %d..' % self.pk)
+            settings.LOGGER.debug('Populating bot %d..' % self.pk)
             self.gender = random.randint(0, 1)
             gender_str = 'female' if self.gender == 1 else 'male'
             self.real_name = names.get_full_name(gender=gender_str)
-            self.generate_email()
-            self.username = generate_random_username(self.real_name)
-            self.password_email = generate_random_string()
-            self.password_twitter = generate_random_string(only_lowercase=True)
+            if not from_bots_txts:
+                self.generate_email()
+                self.username = generate_random_username(self.real_name)
+                self.password_email = generate_random_string()
+                self.password_twitter = generate_random_string(only_lowercase=True)
             self.birth_date = random_date(settings.BIRTH_INTERVAL[0], settings.BIRTH_INTERVAL[1])
             self.user_agent = generate_random_desktop_user_agent()
             self.random_offsets = settings.RANDOM_OFFSETS_ON_EL_CLICK
-            self.assign_proxy()
+            if from_bots_txts:
+                from project.models import ProxiesGroup
+                proxies_group, already_exists = ProxiesGroup.objects.get_or_create(name='bots_from_txts')
+                proxy, already_exists = Proxy.objects.get_or_create(
+                    proxy='1.1.1.1:9999',
+                    is_in_proxies_txts=False,
+                    proxies_group=proxies_group
+                )
+                self.proxy_for_usage = proxy
+            else:
+                self.assign_proxy()
             self.save()
-            settings.LOGGER.info('Bot %s populated with proxy %s' %
+            settings.LOGGER.debug('Bot %s populated with proxy %s' %
                                  (self.username, self.proxy_for_usage.__unicode__()))
         except Exception as ex:
             settings.LOGGER.exception('Error populating bot')

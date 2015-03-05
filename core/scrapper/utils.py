@@ -133,14 +133,16 @@ def generate_random_desktop_user_agent():
             if is_desktop_ua(ua):
                 return ua
 
-    try:
-        return get_from_w3schools()
-    except Timeout:
-        settings.LOGGER.warning('w3schools.com not accesible now, getting from user_agents.json')
-        return get_from_json()
-    except Exception:
-        settings.LOGGER.warning('error using fakeuseragent, getting from user_agents.json')
-        return get_from_json()
+    # try:
+    #     return get_from_w3schools()
+    # except Timeout:
+    #     settings.LOGGER.warning('w3schools.com not accesible now, getting from user_agents.json')
+    #     return get_from_json()
+    # except Exception:
+    #     settings.LOGGER.warning('error using fakeuseragent, getting from user_agents.json')
+    #     return get_from_json()
+
+    return get_from_json()
 
 
 def try_except(fn, ex_msg):

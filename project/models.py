@@ -1878,6 +1878,9 @@ class PageLink(models.Model):
 class ProxiesGroup(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False)
 
+    avatar_required_to_send_tweets = models.BooleanField(default=False)
+    bio_required_to_send_tweets = models.BooleanField(default=False)
+
     # bot registration behaviour
     is_bot_creation_enabled = models.BooleanField(default=False)
     max_tw_bots_per_proxy_for_registration = models.PositiveIntegerField(null=False, blank=False, default=6)
@@ -1913,7 +1916,6 @@ class ProxiesGroup(models.Model):
     destination_bot_checking_time_window = models.CharField(max_length=10, null=False, blank=False, default='4-6')
     # tiempo mínimo que ha de pasar para que un bot pueda mandar mctweet otra vez a un mismo bot
     mctweet_to_same_bot_time_window = models.CharField(max_length=10, null=False, blank=False, default='60-120')
-
 
     #
     # following behaviour

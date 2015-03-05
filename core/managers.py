@@ -4,11 +4,9 @@ from django.db.models.query import QuerySet
 import os
 import time
 
-from django.db import models, connection
+from django.db import models, connection, transaction
 from core.querysets import TwitterBotQuerySet, ProxyQuerySet
-from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableBots, EmptyMentionQueue, McTweetMustBeSent, \
-    McTweetMustBeVerified, NoAvailableProxiesToAssignBotsForUse, MuTweetHasNotSentFTweetsEnough, FTweetMustBeSent, \
-    NoAvailableBot, SenderBotHasToFollowPeople
+from project.exceptions import *
 from core.scrapper.thread_pool import ThreadPool
 from core.scrapper.utils import utc_now
 from twitter_bots import settings
@@ -60,6 +58,59 @@ class MyManager(Manager):
 
 
 class TwitterBotManager(models.Manager):
+    def create_bots_from_files(self):
+        """Crea bots a partir de los txt en core/bots"""
+
+        def create_without_profile(bot):
+            """Crea bot a partir de la línea leída"""
+
+            settings.LOGGER.info('Creating new bot %s..' % bot[0])
+            bot_obj = self.create(
+                username=bot[0].lower(),
+                password_twitter=bot[1],
+                email=bot[2],
+                password_email=bot[3],
+                email_registered_ok=True,
+                twitter_registered_ok=True,
+                twitter_confirmed_email_ok=True,
+                is_being_created=False
+            )
+            bot_obj.populate(from_bots_txts=True)
+            return bot_obj
+
+        def create_phone_verified(bot):
+            """Creamos bot y añadimos que tiene avatar y teléfono"""
+
+            bot_created = create_without_profile(bot)
+            bot_created.is_phone_verified = True
+            bot_created.phone_number = bot[-1]
+            bot_created.real_name = ' '.join(bot[4:6])
+            bot_created.twitter_avatar_completed = True
+            bot_created.save()
+            return bot_created
+
+        def create_new_bots_from_file(file, fn_to_create):
+            new_bots = []
+            with open(file) as f:
+                bots_lines = f.readlines()
+                for bot in bots_lines:
+                    bot = bot.replace('\n', '').replace(' ', '').split(',')
+                    bot_username = bot[0].lower()
+                    if not self.filter(username=bot_username).exists():
+                        with transaction.atomic():
+                            bot_created = fn_to_create(bot)
+                        new_bots.append(bot_created)
+                    else:
+                        settings.LOGGER.info('%s already exists on DB' % bot_username)
+            return new_bots
+
+        new_bots_without_profile = create_new_bots_from_file(settings.NEW_BOTS_NO_PROFILE_FILE, create_without_profile)
+        new_bots_phone_verified = create_new_bots_from_file(settings.NEW_BOTS_PHONE_VERIFIED_FILE, create_phone_verified)
+
+        c1, c2 = len(new_bots_without_profile), len(new_bots_phone_verified)
+        settings.LOGGER.info('Created %i new bots, %i without profile and %i phone verified'
+                             %(c1+c2, c1, c2))
+
     def create_bot(self, **kwargs):
         try:
             connection.close()

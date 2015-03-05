@@ -66,8 +66,8 @@ DATABASES = {
         "NAME": "twitter_bots_dev",
         "USER": "root",
         "PASSWORD": "1aragon1",
-        # "HOST": "127.0.0.1",
-        "HOST": "88.26.212.82",
+        "HOST": "127.0.0.1",
+        # "HOST": "88.26.212.82",
         "PORT": "3306",
 
         # "NAME": "twitter_bots_dev",
@@ -128,7 +128,11 @@ LOGGING = {
     'filters': {
         'ignore_errors': {
             '()': IgnoreErrorsFilter
-        }
+        },
+        'queries_above_300ms': {
+            '()': 'django.utils.log.CallbackFilter',
+            'callback': lambda record: record.duration > 0.3 # output slow queries only
+        },
     },
     'handlers': {
         'console_info': {
@@ -162,10 +166,11 @@ LOGGING = {
         'db_log': {
             'level':'DEBUG',
             'class':'logging.handlers.RotatingFileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs/db.log'),
+            'filename': os.path.join(BASE_DIR, 'logs/db_slow_queries.log'),
             'maxBytes': 1024*1024*5, # 5 MB
             'backupCount': 5,
             'formatter':'verbose',
+            'filters': ['queries_above_300ms'],
         }
     },
     'loggers': {
