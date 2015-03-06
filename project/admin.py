@@ -471,11 +471,22 @@ class TwitterUserAdmin(admin.ModelAdmin):
         'date_saved',
         'is_on_tweets',
         'last_tweet_date',
+        'last_mention_date',
+        'where_extracted',
     )
 
     def is_on_tweets(self, obj):
         return obj.mentions.exists()
     is_on_tweets.boolean = True
+
+    def where_extracted(self, obj):
+        targetusers = ['@' + t.username for t in obj.target_users.all()]
+        hashtags = [h.q for h in obj.hashtags.all()]
+        return ', '.join(targetusers + hashtags)
+
+    def last_mention_date(self, obj):
+        return obj.mentions.latest('date_sent').date_sent
+    last_mention_date.admin_order_field = 'mentions__date_sent'
 
     search_fields = (
         'username',
