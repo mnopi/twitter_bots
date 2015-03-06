@@ -129,9 +129,9 @@ LOGGING = {
         'ignore_errors': {
             '()': IgnoreErrorsFilter
         },
-        'queries_above_300ms': {
+        'slow_queries': {
             '()': 'django.utils.log.CallbackFilter',
-            'callback': lambda record: record.duration > 0.3 # output slow queries only
+            'callback': lambda record: record.duration > 0.1 # output slow queries only
         },
     },
     'handlers': {
@@ -170,7 +170,7 @@ LOGGING = {
             'maxBytes': 1024*1024*5, # 5 MB
             'backupCount': 5,
             'formatter':'verbose',
-            'filters': ['queries_above_300ms'],
+            'filters': ['slow_queries'],
         }
     },
     'loggers': {

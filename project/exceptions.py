@@ -231,6 +231,14 @@ class DestinationBotIsBeingUsed(Exception):
                               (destination_bot.username, mctweet.bot_used.username))
 
 
+class DestinationBotIsDead(Exception):
+    def __init__(self, mctweet):
+        destination_bot = mctweet.mentioned_bots.first()
+        settings.LOGGER.warning('Bot %s can\'t verify mctweet %i because is dead. This mctweet will be deleted' %
+                                (destination_bot.username, mctweet.pk))
+        mctweet.delete()
+
+
 class LastMctweetFailedTimeWindowNotPassed(Exception):
     def __init__(self, bot):
         settings.LOGGER.debug('Bot %s not passed %s minutes after last mctweet failed (at %s)' % (

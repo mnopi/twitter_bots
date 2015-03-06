@@ -851,6 +851,7 @@ class Tweet(models.Model):
         # comprobando cuenta suspendida etc
         try:
             self.send_with_casperjs()
+            pass
         except BotNotLoggedIn:
             sender.login_twitter_with_webdriver()
         except (TweetAlreadySent,
@@ -970,6 +971,8 @@ class Tweet(models.Model):
                 destination_bot = self.mentioned_bots.first()
                 if destination_bot.is_already_being_used():
                     raise DestinationBotIsBeingUsed(self)
+                elif destination_bot.is_dead:
+                    raise DestinationBotIsDead(self)
                 else:
                     # comprobamos que si ya se ha pasado el time window desde que el bot que lanza el tweet
                     # fue detectado que no puede mencionar
@@ -1090,6 +1093,7 @@ class Tweet(models.Model):
                     mctweet.tweet_checking_mention.destination_bot_is_checking_mention = True
                     mctweet.tweet_checking_mention.save()
                     mentioned_bot = mctweet.mentioned_bots.first()
+
                     if pool:
                         log_task_adding('VERIFY MC_TWEET')
                         pool.add_task(mentioned_bot.verify_mctweet_if_received_ok, mctweet)
@@ -1097,6 +1101,7 @@ class Tweet(models.Model):
                         mentioned_bot.verify_mctweet_if_received_ok(mctweet)
                 except (TweetConstructionError,
                         DestinationBotIsBeingUsed,
+                        DestinationBotIsDead,
                         VerificationTimeWindowNotPassed,
                         SentOkMcTweetWithoutDateSent):
                     pass
