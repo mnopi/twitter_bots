@@ -471,9 +471,12 @@ class TwitterUserAdmin(admin.ModelAdmin):
         'date_saved',
         'is_on_tweets',
         'last_tweet_date',
-        'last_mention_date',
         'where_extracted',
+        # 'last_mention_date',
     )
+
+    # def get_queryset(self, request):
+    #     qs = super(TwitterUserAdmin, self).get_queryset(request)
 
     def is_on_tweets(self, obj):
         return obj.mentions.exists()

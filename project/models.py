@@ -1264,37 +1264,22 @@ class Extractor(models.Model):
         target_user.followers_count = tw_user.followers_count
         target_user.save()
 
-    def create_twitter_user_obj(self, tw_user_from_api):
-        """Crea un objeto twitteruser (no guarda en BD si es nuevo) a partir de tw_user_from_api, que es
-        el objeto devuelto por tweepy tras consultar la API. Si ya existía se actualiza
+    def create_new_twitter_user_obj(self, tw_user_from_api):
+        """Crea un nuevo objeto twitteruser a partir de tw_user_from_api. no se guarda en BD todavía"""
+        twitter_user = TwitterUser()
+        twitter_user.twitter_id = tw_user_from_api.id
+        twitter_user.created_date = naive_to_utc(tw_user_from_api.created_at)
+        twitter_user.followers_count = tw_user_from_api.followers_count
+        twitter_user.geo_enabled = tw_user_from_api.geo_enabled
+        twitter_user.language = tw_user_from_api.lang[:2] if tw_user_from_api.lang else TwitterUser.DEFAULT_LANG
+        twitter_user.full_name = tw_user_from_api.name
+        twitter_user.username = tw_user_from_api.screen_name
+        twitter_user.tweets_count = tw_user_from_api.statuses_count
+        twitter_user.time_zone = tw_user_from_api.time_zone
+        twitter_user.verified = tw_user_from_api.verified
+        twitter_user.set_last_tweet_date_and_source(tw_user_from_api)
 
-        :returns tupla con 2 cosas:
-            1. el objeto twitteruser (aún sin guardar en BD si no existe)
-            2. boolean indicando si el twitteruser ya existe en base de datos
-        """
-
-        twitter_user = TwitterUser.objects.filter(twitter_id=tw_user_from_api.id)
-        if twitter_user.exists():
-            if twitter_user.count() > 1:
-                raise Exception('Duplicated twitter user with id %i' % twitter_user[0].twitter_id)
-            else:
-                return twitter_user.first(), False
-        else:
-            twitter_user = TwitterUser()
-            twitter_user.twitter_id = tw_user_from_api.id
-            twitter_user.created_date = naive_to_utc(tw_user_from_api.created_at)
-            twitter_user.followers_count = tw_user_from_api.followers_count
-            twitter_user.geo_enabled = tw_user_from_api.geo_enabled
-            twitter_user.language = tw_user_from_api.lang[:2] if tw_user_from_api.lang else TwitterUser.DEFAULT_LANG
-            twitter_user.full_name = tw_user_from_api.name
-            twitter_user.username = tw_user_from_api.screen_name
-            twitter_user.tweets_count = tw_user_from_api.statuses_count
-            twitter_user.time_zone = tw_user_from_api.time_zone
-            twitter_user.verified = tw_user_from_api.verified
-
-            twitter_user.set_last_tweet_date_and_source(tw_user_from_api)
-
-            return twitter_user, True
+        return twitter_user
 
     def is_available(self):
         """Si fue marcadado como rate limited se mira si pasaron más de 15 minutos.
@@ -1326,31 +1311,17 @@ class Extractor(models.Model):
         @transaction.atomic
         def process_page(page):
 
-            def process_tw_follower(tw_follower):
-                # creamos twitter_user a partir del follower si ya no existe en BD
-                twitter_user, not_in_db = self.create_twitter_user_obj(tw_follower)
+            def process_new_tw_user(tw_user):
+                # creamos twitter_user a partir del follower dado por la api
+                twitter_user = self.create_new_twitter_user_obj(tw_user)
                 twitteruser_name = twitter_user.__unicode__()
 
-                if not_in_db:
-                    if twitter_user.is_active():
-                        new_twitter_users.append(twitter_user)
-                        settings.LOGGER.info('%s%s not in DB. Will be stored' % (pre_msg, twitteruser_name))
-                    else:
-                        settings.LOGGER.info('%s%s inactive. LTD: %s, CD: %s' %
-                                             (pre_msg, twitteruser_name, twitter_user.last_tweet_date, twitter_user.created_date))
+                if twitter_user.is_active():
+                    new_twitter_users.append(twitter_user)
+                    settings.LOGGER.info('%s%s added' % (pre_msg, twitteruser_name))
                 else:
-                    # en BD actualizamos el twitteruser que ya teníamos, por si su último tweet
-                    # tiene una fecha más reciente a la anterior extracción
-                    # twitter_user.save()
-
-                    follower = Follower(twitter_user=twitter_user, target_user=target_user)
-                    follower_already_exists = Follower.objects.select_related('twitter_user', 'target_user').filter(
-                        twitter_user=twitter_user, target_user=target_user).exists()
-                    if follower_already_exists:
-                        settings.LOGGER.info('%sRelationship %s is already in DB' % (pre_msg, follower.__unicode__()))
-                    elif follower.twitter_user.is_active():
-                        new_followers.append(follower)
-                        settings.LOGGER.info('%sRelationship %s not in DB. Will be stored' % (pre_msg, follower.__unicode__()))
+                    settings.LOGGER.info('%s%s inactive. LTD: %s, CD: %s' %
+                                         (pre_msg, twitteruser_name, twitter_user.last_tweet_date, twitter_user.created_date))
 
             self.last_request_date = utc_now()
             self.save()
@@ -1360,9 +1331,16 @@ class Extractor(models.Model):
             """ % (pre_msg, target_user.next_cursor, cursor.iterator.next_cursor,
                    cursor.iterator.prev_cursor))
 
+            # quitamos los twitterusers que ya estuvieran guardados y
             # guardamos cada follower recibido, sin duplicar en BD
-            for tw_follower in page:
-                process_tw_follower(tw_follower)
+            existing_twitterusers_ids = TwitterUser.objects\
+                .filter(twitter_id__in=page.ids()).values_list('twitter_id', flat=True)
+
+            new_twitter_users = []
+
+            for tw_user in page:
+                if tw_user.id not in existing_twitterusers_ids:
+                    process_new_tw_user(tw_user)
 
             if new_twitter_users:
                 # metemos los nuevos twitter users y followers en BD
@@ -1375,19 +1353,14 @@ class Extractor(models.Model):
                 new_twitter_users_ids = TwitterUser.objects\
                     .filter(date_saved__gt=before_saving)\
                     .values_list('id', flat=True)
-
-                for twitter_user in new_twitter_users_ids:
-                    new_followers.append(
-                        Follower(twitter_user_id=twitter_user, target_user=target_user)
-                    )
+                new_followers = []
+                for new_twuser_id in new_twitter_users_ids:
+                    new_followers.append(Follower(twitter_user_id=new_twuser_id, target_user=target_user))
+                Follower.objects.bulk_create(new_followers)
             else:
                  settings.LOGGER.warning('%s-- no new twitterusers to save in DB --' % pre_msg)
 
-            if new_followers:
-                Follower.objects.bulk_create(new_followers)
-                settings.LOGGER.info('%s-- saved %i new followers (twitteruser-targetuser) relationships in DB--' % (pre_msg, len(new_followers)))
-            else:
-                settings.LOGGER.warning('%s-- no new followers (twitteruser-targetuser) relationships to save in DB --' % pre_msg)
+            return new_twitter_users
 
         try:
             self.connect_twitter_api()
@@ -1410,10 +1383,7 @@ class Extractor(models.Model):
             num_pages_retrieved = 0
 
             for page in cursor.pages():
-                new_twitter_users = []
-                new_followers = []
-
-                process_page(page)
+                new_twitter_users, new_followers = process_page(page)
 
                 target_user.date_last_extraction = utc_now()
                 target_user.save()
@@ -1470,44 +1440,11 @@ class Extractor(models.Model):
                 if not page:
                     raise HashtagExtractionWithoutResults(hashtag)
 
-            def scan_page_for_new_entries():
-                check_if_results()
+            def save_new_twitterusers(page):
+                """Busca en la página obtenida qué usuarios son nuevos y los guarda"""
 
-                settings.LOGGER.info('%sScanning page %s (max_id=%s) with %i tweets..' %
-                                     (pre_msg, print_current_page_retrieved(), str(hashtag.max_id), len(page)))
-
-                # procesamos cada tweet recibido por la API
-                for result in page:
-                    # vemos que no se ha procesado antes (pueden haber varios twitterusers en una misma página)
-                    if result.user.id not in twitterusers_ids_already_processed_on_page:
-                        twitter_user, not_in_db = self.create_twitter_user_obj(result.user)
-
-                        # la fecha del último tweet siempre será la del recibido en esta página
-                        twitter_user.last_tweet_date = naive_to_utc(result.created_at)
-
-                        twitteruser_name = twitter_user.__unicode__()
-
-                        if not_in_db:
-                            # el el twitter_user no está en BD (es nuevo)..
-                            new_twitter_users.append(twitter_user)
-                            settings.LOGGER.debug('%s\t%s not in DB. Will be stored' % (pre_msg, twitteruser_name))
-                        else:
-                            settings.LOGGER.debug('%s\t%s already exists' % (pre_msg, twitteruser_name))
-                            # si no es nuevo, vemos si ya está o no asociado al hashtag (puede ocurrir que esté porque venga de un targetuser).
-                            # Si no está asociado lo asociamos
-                            if hashtag.twitter_users.filter(pk=twitter_user.pk).exists():
-                                settings.LOGGER.debug('%s\t%s is already related in DB with this hashtag' % (pre_msg, twitteruser_name))
-                            else:
-                                new_hashtag_twitterusers.append(
-                                    TwitterUserHasHashtag(twitter_user_id=twitter_user.pk, hashtag=hashtag)
-                                )
-                                settings.LOGGER.debug('%s\t%s in DB, but not yet related with this hashtag. '
-                                                     'New relationship will be stored' % (pre_msg, twitteruser_name))
-
-                        twitterusers_ids_already_processed_on_page.append(result.user.id)
-
-            def save_new_entries():
-                with transaction.atomic():
+                @transaction.atomic
+                def save_new_twusers_collected():
                     if new_twitter_users:
                         before_saving = utc_now()
                         time.sleep(2)  # para que se note la diferencia por si guarda muy rapido los twitterusers
@@ -1518,24 +1455,19 @@ class Extractor(models.Model):
                         new_twitter_users_ids = TwitterUser.objects\
                             .filter(date_saved__gt=before_saving)\
                             .values_list('id', flat=True)
-
+                        new_hashtags_twitterusers = []
                         for twitter_user_id in new_twitter_users_ids:
-                            new_hashtag_twitterusers.append(
+                            new_hashtags_twitterusers.append(
                                 TwitterUserHasHashtag(twitter_user_id=twitter_user_id, hashtag=hashtag)
                             )
+                        TwitterUserHasHashtag.objects.bulk_create(new_hashtags_twitterusers)
                     else:
-                        settings.LOGGER.warning('%s/! no new twitterusers to save in DB /!' % pre_msg)
+                        settings.LOGGER.warning('%s no new twitterusers to save in DB' % pre_msg)
 
-                    if new_hashtag_twitterusers:
-                        TwitterUserHasHashtag.objects.bulk_create(new_hashtag_twitterusers)
-                        settings.LOGGER.info('%ssaved %i new (twitteruser-hashtag) relationships in DB' % (pre_msg, len(new_hashtag_twitterusers)))
-                    else:
-                        settings.LOGGER.warning('%sno new (twitteruser-hastag) relationships to save in DB' % pre_msg)
-
+                def update_extraction_data():
                     # actualizamos para poder luego seguir por la siguiente página (cuando proceda, según límite de páginas por extracción)
                     if hashtag.round_just_begun():
                         hashtag.current_round_user_count = len(new_twitter_users)
-                        newest_tweet_date = naive_to_utc(page[0].created_at)
                         hashtag.next_round_oldest_tweet_limit = newest_tweet_date
                     else:
                         hashtag.current_round_user_count += len(new_twitter_users)
@@ -1544,6 +1476,45 @@ class Extractor(models.Model):
                     hashtag.max_id = oldest_tweet.id
                     hashtag.date_last_extraction = utc_now()
                     hashtag.save()
+
+                def process_new_tw_user(result):
+                    twitter_user = self.create_new_twitter_user_obj(result.user)
+
+                    # la fecha del último tweet siempre será la del recibido en esta página
+                    twitter_user.last_tweet_date = naive_to_utc(result.created_at)
+
+                    twitteruser_name = twitter_user.__unicode__()
+
+                    new_twitter_users.append(twitter_user)
+                    settings.LOGGER.debug('%s\t%s added' % (pre_msg, twitteruser_name))
+                    twitterusers_ids_already_processed_on_page.append(result.user.id)
+
+                def collect_new_twusers():
+                    check_if_results()
+
+                    settings.LOGGER.info('%sScanning page %s (max_id=%s) with %i tweets..' %
+                                         (pre_msg, print_current_page_retrieved(), str(hashtag.max_id), len(page)))
+
+                    page_twitterusers_ids = list(set([tweet.user.id for tweet in page]))
+                    existing_on_db_twitterusers_ids = TwitterUser.objects\
+                        .filter(twitter_id__in=page_twitterusers_ids).values_list('twitter_id', flat=True)
+
+                    # procesamos cada tweet recibido por la API
+                    for result in page:
+                        # vemos que no se ha procesado antes (pueden haber varios twitterusers en una misma página)
+                        if result.user.id not in twitterusers_ids_already_processed_on_page \
+                                and result.user.id not in existing_on_db_twitterusers_ids:
+                            process_new_tw_user(result)
+
+                collect_new_twusers()
+                save_new_twusers_collected()
+                update_extraction_data()
+
+                newest_tweet_date = naive_to_utc(page[0].created_at)
+                oldest_tweet_date = naive_to_utc(page[-1].created_at)
+                settings.LOGGER.info('%sPage %s processed (dates %s - %s)\n' %
+                                     (pre_msg, print_current_page_retrieved(),
+                                      datetime_to_str(newest_tweet_date), datetime_to_str(oldest_tweet_date)))
 
             page = self.api.search(
                 q=hashtag.q,
@@ -1558,18 +1529,11 @@ class Extractor(models.Model):
             self.last_request_date = utc_now()
             self.save()
 
-            # aquí meteremos las nuevas entradas a guardar en BD
+            # aquí meteremos los usuarios nuevos a guardar en BD
             new_twitter_users = []
-            new_hashtag_twitterusers = []
-
             # para no tener que volver a procesar un twitteruser ya tratado en la misma página
             twitterusers_ids_already_processed_on_page = []
-
-            scan_page_for_new_entries()
-            save_new_entries()
-
-            settings.LOGGER.info('%sPage %s processed\n' % (pre_msg, print_current_page_retrieved()))
-
+            save_new_twitterusers(page)
             check_if_limits_reached()
 
         def reached_max_consecutive_pages_retrieved():
