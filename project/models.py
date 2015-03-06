@@ -1508,10 +1508,11 @@ class Extractor(models.Model):
 
                 collect_new_twusers()
                 save_new_twusers_collected()
-                update_extraction_data()
 
                 newest_tweet_date = naive_to_utc(page[0].created_at)
                 oldest_tweet_date = naive_to_utc(page[-1].created_at)
+                update_extraction_data()
+
                 settings.LOGGER.info('%sPage %s processed (dates %s - %s)\n' %
                                      (pre_msg, print_current_page_retrieved(),
                                       datetime_to_str(newest_tweet_date), datetime_to_str(oldest_tweet_date)))
