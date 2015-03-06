@@ -1383,7 +1383,7 @@ class Extractor(models.Model):
             num_pages_retrieved = 0
 
             for page in cursor.pages():
-                new_twitter_users, new_followers = process_page(page)
+                new_twitter_users = process_page(page)
 
                 target_user.date_last_extraction = utc_now()
                 target_user.save()
