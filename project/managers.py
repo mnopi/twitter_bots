@@ -175,14 +175,18 @@ class TweetManager(MyManager):
                     if project_imgs.exists():
                         tweet_to_send.tweet_img = project_imgs.order_by('?').first()
 
-                    tweet_to_send.save()
+                    try:
+                        twitteruser_to_mention = unmentioned_twitterusers[lang_used][0]
+                    except IndexError:
+                        settings.LOGGER.error('Project %s has no more unmentioned twitterusers with lang: %s' % (project.name, lang_used))
+                        discarded_langs.append(lang_used)
+                    else:
+                        tweet_to_send.save()
+                        tweet_to_send.mentioned_users.add(twitteruser_to_mention)
+                        unmentioned_twitterusers[lang_used].remove(twitteruser_to_mention)
 
-                    twitteruser_to_mention = unmentioned_twitterusers[lang_used][0]
-                    tweet_to_send.mentioned_users.add(twitteruser_to_mention)
-                    unmentioned_twitterusers[lang_used].remove(twitteruser_to_mention)
-
-                    settings.LOGGER.info('Queued [proj: %s | bot: %s] >> %s' %
-                                 (project.__unicode__(), tweet_to_send.bot_used.__unicode__(), tweet_to_send.compose()))
+                        settings.LOGGER.info('Queued [proj: %s | bot: %s] >> %s' %
+                                     (project.__unicode__(), tweet_to_send.bot_used.__unicode__(), tweet_to_send.compose()))
 
         running_projects = Project.objects.running().order_by__queued_tweets()
         if running_projects.exists():
