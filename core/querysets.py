@@ -20,6 +20,10 @@ class TwitterBotQuerySet(MyQuerySet):
 
     q__completed = q__profile_passed & q__account_passed
 
+    q__not_dead_and_not_being_created = Q(is_being_created=False) & Q(is_dead=False)
+    q__usable_regardless_of_proxy = q__not_dead_and_not_being_created & q__completed
+    q__unusable_regardless_of_proxy = ~q__not_dead_and_not_being_created | ~q__completed
+
 
     def with_some_account_registered(self):
         return self.filter(Q(email_registered_ok=True) | Q(twitter_registered_ok=True))
@@ -32,11 +36,10 @@ class TwitterBotQuerySet(MyQuerySet):
         Devuelve bots con capacidad de poder ser usados, independientemente de como esté su proxy
         """
 
-        return self.filter(
-                is_being_created=False,
-                is_dead=False
-            )\
-            .completed()
+        return self.filter(self.q__usable_regardless_of_proxy)
+
+    def unusable_regardless_of_proxy(self):
+        return self.filter(self.q__unusable_regardless_of_proxy)
 
     def registrable(self):
         """

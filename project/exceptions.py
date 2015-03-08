@@ -37,6 +37,8 @@ class ProjectFullOfUnmentionedTwitterusers(Exception):
 
         settings.LOGGER.info('Project %s is full of unmentioned twitterusers%s (has: %d, max: %d)' %
                              (project.name, langs_msg, unmentioned_count, project.get_max_unmentioned_twitterusers()))
+        settings.LOGGER.info('Sleeping %i seconds..' % 60)
+        time.sleep(60)
 
 class ExtractorReachedMaxConsecutivePagesRetrievedPerTUser(Exception):
     def __init__(self, extractor):

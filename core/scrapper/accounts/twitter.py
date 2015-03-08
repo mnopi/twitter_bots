@@ -182,7 +182,7 @@ class TwitterScrapper(Scrapper):
                 if self.check_visibility('#signin-email'):
                     self.fill_input_text('#signin-email', self.user.username)
                     self.fill_input_text('#signin-password', self.user.password_twitter)
-                    self.click('.front-signin button')
+                    self.try_to_click('.front-signin button', 'input.submit')
                 else:
                     self.click('#signin-link')
                     self.delay.seconds(3)
@@ -219,7 +219,7 @@ class TwitterScrapper(Scrapper):
             if attempt == 5:
                 if settings.MARK_BOT_AS_DEATH_AFTER_TRYING_LIFTING_SUSPENSION:
                     self.logger.warning('Exceeded 5 attemps to lift suspension.')
-                    raise TwitterAccountDead(self)
+                    raise TwitterAccountDead(self.user)
                 else:
                     raise TwitterAccountSuspendedAfterTryingUnsuspend(self)
             else:
@@ -251,7 +251,7 @@ class TwitterScrapper(Scrapper):
             if self.check_visibility('#suspended_help_submit'):
                 submit_unsuspension(attempt=0)
             else:
-                raise TwitterAccountDead(self)
+                raise TwitterAccountDead(self.user)
         except TwitterAccountDead as e:
             raise e
         except Exception as e:

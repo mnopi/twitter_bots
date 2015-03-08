@@ -239,6 +239,22 @@ casper.wait(getRandomIntFromRange(5000, 10000),
                     capture('account_suspended', true);
                     unknown_error = false;
                 }
+                else
+                {
+                    // comprobamos que no esté bloqueada la cuenta
+                    //click('button.modal-btn.modal-close');
+                    //capture('clicked_close_modal_btn');
+                    var acc_blocked_card = '.PromptbirdPrompt-title';
+                    if(this.visible(acc_blocked_card))
+                    {
+                        acc_bloqued_card_text = this.fetchText(acc_blocked_card).toLowerCase();
+                        if (acc_bloqued_card_text.indexOf("locked") >= 0) {
+                            output.errors.push('account_locked');
+                            capture('account_locked', true);
+                            unknown_error = false;
+                        }
+                    }
+                }
             }
 
             if (unknown_error)

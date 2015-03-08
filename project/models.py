@@ -706,6 +706,8 @@ class Tweet(models.Model):
                 raise TwitterAccountSuspended(sender)
             elif 'internet_connection_error' in errors:
                 raise InternetConnectionError
+            elif 'account_locked' in errors:
+                raise TwitterAccountDead(sender)
             elif 'unknown_error' in errors:
                 raise UnknownErrorSendingTweet(self)
 
@@ -856,6 +858,7 @@ class Tweet(models.Model):
             sender.login_twitter_with_webdriver()
         except (TweetAlreadySent,
                 TwitterAccountSuspended,
+                TwitterAccountDead,
                 PageloadTimeoutExceeded,
                 simplejson.JSONDecodeError,
                 CasperJSWaitTimeoutExceeded,

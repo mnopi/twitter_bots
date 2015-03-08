@@ -89,12 +89,20 @@ class TwitterBotManager(models.Manager):
             bot_created.save()
             return bot_created
 
+        def create_profiled(bot):
+            bot_created = create_without_profile(bot)
+            bot_created.twitter_avatar_completed = True
+            bot_created.twitter_bio_completed = True
+            bot_created.save()
+            return bot_created
+
         def create_new_bots_from_file(file, fn_to_create):
             new_bots = []
             with open(file) as f:
                 bots_lines = f.readlines()
                 for bot in bots_lines:
-                    bot = bot.replace('\n', '').replace(' ', '').split(',')
+                    bot = bot.replace('\n', '').replace(' ', '')
+                    bot = bot.split(',') if ',' in bot else bot.split(':')
                     bot_username = bot[0].lower()
                     if not self.filter(username=bot_username).exists():
                         with transaction.atomic():
@@ -105,11 +113,12 @@ class TwitterBotManager(models.Manager):
             return new_bots
 
         new_bots_without_profile = create_new_bots_from_file(settings.NEW_BOTS_NO_PROFILE_FILE, create_without_profile)
+        new_bots_profiled= create_new_bots_from_file(settings.NEW_BOTS_PROFILED_FILE, create_profiled)
         new_bots_phone_verified = create_new_bots_from_file(settings.NEW_BOTS_PHONE_VERIFIED_FILE, create_phone_verified)
 
-        c1, c2 = len(new_bots_without_profile), len(new_bots_phone_verified)
-        settings.LOGGER.info('Created %i new bots, %i without profile and %i phone verified'
-                             %(c1+c2, c1, c2))
+        c1, c2, c3 = len(new_bots_without_profile), len(new_bots_profiled), len(new_bots_phone_verified)
+        settings.LOGGER.info('Created %i new bots, %i without profile, %i profiled and %i phone verified'
+                             %(c1+c2+c3, c1, c2, c3))
 
     def create_bot(self, **kwargs):
         try:
@@ -308,6 +317,9 @@ class TwitterBotManager(models.Manager):
 
     def usable_regardless_of_proxy(self):
         return self.get_queryset().usable_regardless_of_proxy()
+
+    def unusable_regardless_of_proxy(self):
+        return self.get_queryset().unusable_regardless_of_proxy()
 
     def registrable(self):
         return self.get_queryset().registrable()

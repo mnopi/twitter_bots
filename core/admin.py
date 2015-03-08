@@ -59,7 +59,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'proxy_for_usage__proxies_group'
     )
 
-    list_per_page = 15
+    list_per_page = 50
 
     search_fields = (
         'real_name',
@@ -80,6 +80,16 @@ class TwitterBotAdmin(admin.ModelAdmin):
                 return queryset.completed()
             elif self.no():
                 return queryset.uncompleted()
+
+    class BotUsableFilter(YesNoFilter):
+        title = 'Usable (reg. proxy)'
+        parameter_name = 'usable'
+
+        def queryset(self, request, queryset):
+            if self.yes():
+                return queryset.usable_regardless_of_proxy()
+            elif self.no():
+                return queryset.unusable_regardless_of_proxy()
 
     class HasSomeAccountFilter(YesNoFilter):
         title = 'Has some account'
@@ -103,6 +113,7 @@ class TwitterBotAdmin(admin.ModelAdmin):
 
     list_filter = (
         BotCompletedFilter,
+        BotUsableFilter,
         HasSomeAccountFilter,
         HasProxyWorkingFilter,
         'proxy_for_usage__proxies_group__webdriver',

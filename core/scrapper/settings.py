@@ -180,6 +180,7 @@ PRIORIZE_RUNNING_PROJECTS_FOR_BOT_CREATION = True
 
 NEW_BOTS_FILES_DIR = os.path.join(PROJECT_ROOT, 'core', 'bots')
 NEW_BOTS_NO_PROFILE_FILE = os.path.join(NEW_BOTS_FILES_DIR, 'no_profile.csv')
+NEW_BOTS_PROFILED_FILE = os.path.join(NEW_BOTS_FILES_DIR, 'profiled.csv')
 NEW_BOTS_PHONE_VERIFIED_FILE = os.path.join(NEW_BOTS_FILES_DIR, 'phone_verified.csv')
 
 

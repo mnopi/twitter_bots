@@ -89,11 +89,15 @@ class TwitterAccountSuspendedAfterTryingUnsuspend(Exception):
 
 
 class TwitterAccountDead(Exception):
-    def __init__(self, scrapper):
-        scrapper.user.is_dead = True
-        scrapper.user.date_death = utc_now()
-        scrapper.user.save()
-        scrapper.logger.warning('Twitter account dead :(')
+    def __init__(self, bot):
+        from project.models import Tweet
+
+        bot.is_dead = True
+        bot.date_death = utc_now()
+        bot.save()
+        # eliminamos todos sus tweets de la cola
+        Tweet.objects.filter(sent_ok=False, bot_used=bot).delete()
+        settings.LOGGER.error('Twitter account %s dead :(' % bot.username)
 
 
 class EmailAccountSuspended(Exception):
