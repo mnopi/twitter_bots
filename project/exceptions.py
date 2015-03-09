@@ -66,8 +66,9 @@ class NoAvailableBots(Exception):
 
 
 class NoAvailableBot(Exception):
-    def __init__(self, bot):
-        settings.LOGGER.warning('Bot %s not available now.' % bot.username)
+    def __init__(self, bot, reason=None):
+        reason = ' Reason: %s' % reason if reason else ''
+        settings.LOGGER.warning('Bot %s not available now.%s' % (bot.username, reason))
 
 
 class EmptyMentionQueue(Exception):

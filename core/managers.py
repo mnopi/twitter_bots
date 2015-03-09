@@ -200,7 +200,7 @@ class TwitterBotManager(models.Manager):
         else:
             if Tweet.objects.filter(sending=False, sent_ok=False).exists():
                 if bot:
-                    raise NoAvailableBot(bot)
+                    raise NoAvailableBot(bot, reason='has empty tweet to send queue')
                 else:
                     raise NoAvailableBots
             else:

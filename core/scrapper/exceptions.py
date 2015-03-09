@@ -290,9 +290,12 @@ class PageNotReadyState(PageLoadError):
 
 class NoElementToClick(Exception):
     def __init__(self, scrapper, el_str):
-        scrapper.take_screenshot('click_error__%s' % el_str, force_take=True)
-        scrapper.logger.error('no element %s present on %s, so can\'t be clicked' %
-                              (el_str, scrapper.browser.current_url))
+        try:
+            scrapper.take_screenshot('click_error__%s' % el_str, force_take=True)
+            scrapper.logger.error('no element %s present on %s, so can\'t be clicked' %
+                                  (el_str, scrapper.browser.current_url))
+        except URLError as e:
+            raise e
 
 
 class ErrorDownloadingPicFromGoogle(Exception):

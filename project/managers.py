@@ -202,8 +202,7 @@ class TweetManager(MyManager):
             settings.LOGGER.warning('No projects running at this moment')
 
     def get_queued_twitteruser_mentions_to_send(self, by_bot=None):
-        """Devuelve los tweets encolados pendientes de enviar a los twitter users. Si salen varios tweets por bots
-        dejamos sólo 1 por bot, ya que no puede enviar varios a la vez"""
+        """De entre los tweets encolados devuelve 1 por bot que pueda enviar"""
 
         queue = self.raw_as_qs("""
             select

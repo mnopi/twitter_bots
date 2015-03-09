@@ -3,6 +3,7 @@ from httplib import BadStatusLine
 
 import sys
 import urllib
+from urllib2 import URLError
 import numpy
 import psutil
 from selenium.common.exceptions import NoSuchFrameException, TimeoutException, NoSuchElementException, \
@@ -802,6 +803,8 @@ class Scrapper(object):
                 self.logger.debug('Taking screenshot: %s' % screenshot_path)
                 self.browser.save_screenshot(screenshot_path)
             self.screenshot_num += 1
+        except URLError:
+            pass
         except Exception:
             self.logger.exception('Error shooting %i_%s.jpg' % (self.screenshot_num, title))
 

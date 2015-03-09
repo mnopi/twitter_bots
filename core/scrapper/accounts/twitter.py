@@ -206,7 +206,9 @@ class TwitterScrapper(Scrapper):
             self.take_screenshot('twitter_email_not_confirmed_after_login', force_take=True)
             self.user.clear_all_not_sent_ok_tweets()
             raise LoginTwitterError(self.user)
-        except PageLoadError:
+        except (PageLoadError,
+                URLError,
+                TwitterBotDontExistsOnTwitterException):
             raise LoginTwitterError(self.user)
         except Exception as e:
             self.logger.exception('Login on twitter error')

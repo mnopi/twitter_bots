@@ -131,7 +131,7 @@ LOGGING = {
         },
         'slow_queries': {
             '()': 'django.utils.log.CallbackFilter',
-            'callback': lambda record: record.duration > 0.1 # output slow queries only
+            'callback': lambda record: record.duration > 0.05 # output slow queries only
         },
     },
     'handlers': {
@@ -163,7 +163,7 @@ LOGGING = {
             'backupCount': 5,
             'formatter':'verbose',
         },
-        'db_log': {
+        'db_log_slow': {
             'level':'DEBUG',
             'class':'logging.handlers.RotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs/db_slow_queries.log'),
@@ -171,6 +171,14 @@ LOGGING = {
             'backupCount': 5,
             'formatter':'verbose',
             'filters': ['slow_queries'],
+        },
+        'db_log': {
+            'level':'DEBUG',
+            'class':'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs/db.log'),
+            'maxBytes': 1024*1024*5, # 5 MB
+            'backupCount': 5,
+            'formatter':'verbose',
         }
     },
     'loggers': {

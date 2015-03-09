@@ -123,6 +123,11 @@ class TwitterBot(models.Model):
     def has_tw_profile_completed(self):
         return not self.has_to_set_tw_avatar() and not self.has_to_set_tw_bio()
 
+    def has_ftweets_enabled(self):
+        """Nos dice si el bot pertenece a un grupo que tenga habilitado el envío de ftweets,
+        es decir, si el intervalo de ftweets por tweet es mayor que 0"""
+        return str_interval_to_random_num(self.get_group().feedtweets_per_twitteruser_mention) > 0
+
     def mark_as_suspended(self):
         """Se marca como suspendido y se eliminan todos los tweets en la cola pendientes de enviar por ese robot"""
         from project.models import Tweet
@@ -941,7 +946,7 @@ class TwitterBot(models.Model):
             mentions_timeline_el = scr.get_css_elements('#stream-items-id > li')
             for mention_el in mentions_timeline_el:
                 # buscamos en la lista el último tweet enviado por ese bot
-                user_mentioning = mention_el.find_element_by_css_selector('.username.js-action-profile-name').text.strip('@')
+                user_mentioning = mention_el.find_element_by_css_selector('.username.js-action-profile-name').text.strip('@').lower()
                 user_mentioning_is_bot = TwitterBot.objects.filter(username=user_mentioning).exists()
 
                 if user_mentioning_is_bot and user_mentioning == mctweet.bot_used.username:
@@ -1002,8 +1007,10 @@ class TwitterBot(models.Model):
                     settings.LOGGER.debug('Verifier %s has to confirm email first. Deleting mctweet %d sent from %s' %
                                           (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
                     mctweet.delete()
-                except PageLoadError as e:
-                    raise e
+                except (PageLoadError,
+                        LoginTwitterError,
+                        NoAvailableProxiesToAssignBotsForUse):
+                    pass
                 except Exception as e:
                     scr.take_screenshot('error_verifying', force_take=True)
                     settings.LOGGER.exception('Error on bot %s verifying mctweet %d sent from %s' %
