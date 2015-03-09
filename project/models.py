@@ -14,6 +14,7 @@ import feedparser
 import psutil
 import tweepy
 from tweepy.error import TweepError
+from core.scrapper.captcha_resolvers import DeathByCaptchaResolver
 from core.scrapper.exceptions import *
 from project.exceptions import *
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
@@ -708,6 +709,8 @@ class Tweet(models.Model):
                 raise InternetConnectionError
             elif 'account_locked' in errors:
                 raise TwitterAccountDead(sender)
+            elif 'captcha_required' in errors:
+                raise CaptchaRequiredTweet(self)
             elif 'unknown_error' in errors:
                 raise UnknownErrorSendingTweet(self)
 
@@ -758,7 +761,6 @@ class Tweet(models.Model):
             # si el timer agota la espera, es decir, se mato casperjs
             raise CasperJSProcessTimeoutError(sender)
 
-
     def send_with_webdriver(self):
         """Deprecated"""
         def check_if_sent_ok():
@@ -788,8 +790,18 @@ class Tweet(models.Model):
                                                         "/div[2]/div[4]/form/div[2]/div[1]/div[1]/div/label/input")
                 el.send_keys(self.get_image().img.path)
 
-            scr.click('#global-tweet-dialog-dialog .tweet-button button')
-            scr.delay.seconds(5)
+            send_tweet_btn_css = '#global-tweet-dialog-dialog .tweet-button button'
+            scr.click(send_tweet_btn_css)
+            scr.delay.seconds(3)
+            if scr.check_visibility('#recaptcha_response_field'):
+                cr = DeathByCaptchaResolver(scr)
+                cr.resolve_captcha(
+                    scr.get_css_element('#recaptcha_challenge_image'),
+                    scr.get_css_element('#recaptcha_response_field')
+                )
+                scr.click('#recaptcha_submit')
+                scr.delay.seconds(2)
+                scr.click(send_tweet_btn_css)
             check_if_sent_ok()
             scr.delay.seconds(7)
         except TwitterEmailNotConfirmed:
@@ -854,7 +866,9 @@ class Tweet(models.Model):
         # comprobando cuenta suspendida etc
         try:
             self.send_with_casperjs()
-            pass
+        except CaptchaRequiredTweet:
+            settings.LOGGER.info('Resending tweet with webdriver..')
+            self.send_with_webdriver()
         except BotNotLoggedIn:
             sender.login_twitter_with_webdriver()
         except (TweetAlreadySent,

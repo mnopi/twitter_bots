@@ -151,6 +151,11 @@ class UnknownErrorSendingTweet(Exception):
         settings.LOGGER.error('Unknown error sending tweet %s by bot %s' % (tweet.pk, tweet.bot_used.username))
 
 
+class CaptchaRequiredTweet(Exception):
+    def __init__(self, tweet):
+        settings.LOGGER.error('Captcha required tweet %i to send by bot %s' % (tweet.pk, tweet.bot_used.username))
+
+
 class BotMustVerifyPhone(Exception):
     def __init__(self, scrapper):
         scrapper.user.proxy_for_usage.is_phone_required = True

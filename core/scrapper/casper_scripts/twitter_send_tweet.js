@@ -225,8 +225,17 @@ casper.wait(getRandomIntFromRange(5000, 10000),
         {
             unknown_error = true;
 
-            var msg_drawer = '#message-drawer .message-text';
-            if (this.visible(msg_drawer))
+            var msg_drawer = '#message-drawer .message-text',
+                captcha_form = '#captcha-challenge-form',
+                acc_blocked_card = '.PromptbirdPrompt-title';
+
+            if (this.visible(captcha_form))
+            {
+                output.errors.push('captcha_required');
+                capture('captcha_required', true);
+                unknown_error = false;
+            }
+            else if (this.visible(msg_drawer))
             {
                 msg_drawer_text = this.fetchText(msg_drawer).toLowerCase();
                 if (msg_drawer_text.indexOf("already sent") >= 0) {
@@ -239,20 +248,13 @@ casper.wait(getRandomIntFromRange(5000, 10000),
                     capture('account_suspended', true);
                     unknown_error = false;
                 }
-                else
+                else if(this.visible(acc_blocked_card))
                 {
-                    // comprobamos que no esté bloqueada la cuenta
-                    //click('button.modal-btn.modal-close');
-                    //capture('clicked_close_modal_btn');
-                    var acc_blocked_card = '.PromptbirdPrompt-title';
-                    if(this.visible(acc_blocked_card))
-                    {
-                        acc_bloqued_card_text = this.fetchText(acc_blocked_card).toLowerCase();
-                        if (acc_bloqued_card_text.indexOf("locked") >= 0) {
-                            output.errors.push('account_locked');
-                            capture('account_locked', true);
-                            unknown_error = false;
-                        }
+                    acc_bloqued_card_text = this.fetchText(acc_blocked_card).toLowerCase();
+                    if (acc_bloqued_card_text.indexOf("locked") >= 0) {
+                        output.errors.push('account_locked');
+                        capture('account_locked', true);
+                        unknown_error = false;
                     }
                 }
             }
