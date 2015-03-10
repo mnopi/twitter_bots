@@ -67,8 +67,13 @@ class NoAvailableBots(Exception):
 
 class NoAvailableBot(Exception):
     def __init__(self, bot, reason=None):
-        reason = ' Reason: %s' % reason if reason else ''
-        settings.LOGGER.warning('Bot %s not available now.%s' % (bot.username, reason))
+        if bot.is_being_used:
+            reason = 'Is being used'
+        elif not bot.tweets.pending_to_send().exists():
+            reason = 'Has tweet to send queue empty'
+        else:
+            reason = 'Unknown'
+        settings.LOGGER.warning('Bot %s not available now. Reason: %s' % (bot.username, reason))
 
 
 class EmptyMentionQueue(Exception):

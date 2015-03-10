@@ -31,7 +31,7 @@ class Command(BaseCommand):
 
         try:
             Tweet.objects.clean_not_ok()
-            TwitterBot.objects.filter(is_following=True).update(is_following=False)
+            TwitterBot.objects.filter(is_being_used=True).update(is_being_used=False)
             Project.objects.check_bots_on_all_running()
 
             bot = TwitterBot.objects.get(username=options['bot']) \

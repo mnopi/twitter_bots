@@ -61,6 +61,7 @@ class TwitterBot(models.Model):
     date_suspended_email = models.DateTimeField(null=True, blank=True)
 
     is_being_created = models.BooleanField(default=True)
+    is_being_used = models.BooleanField(default=False)
     is_manually_registered = models.BooleanField(default=False)
     user_agent = models.TextField(null=False, blank=True)
 
@@ -484,7 +485,13 @@ class TwitterBot(models.Model):
             self.clear_all_not_sent_ok_tweets()
             raise e
         finally:
+            self.is_being_used = False
+            self.save()
             scr.close_browser()
+
+    def is_logged_on_twitter(self):
+        """Nos dice si el bot está logueado en twitter, es decir, si existe el archivo para sus cookies"""
+        return os.path.exists(self.get_cookies_filepath())
 
     def get_users_mentioned(self):
         "Devuelve todos los usuarios que ha mencionado el robot a lo largo de todos sus tweets"
@@ -543,14 +550,11 @@ class TwitterBot(models.Model):
             tweet__mentioned_bots=self
         ).exists()
 
-    def is_already_being_used(self):
-        return self.is_already_sending_tweet() or self.is_already_checking_mention() or self.is_following
-
     def can_tweet(self):
         """Nos dice si el bot puede tuitear"""
 
         # no podrá tuitear si está siendo usado
-        if self.is_already_being_used():
+        if self.is_being_used:
             return False
         # tampoco si no pasó el tiempo suficiente desde que envió el último tweet
         elif not self.has_enough_time_passed_since_his_last_tweet():
@@ -1193,7 +1197,7 @@ class TwitterBot(models.Model):
             raise e
         finally:
             scr.close_browser()
-            self.is_following = False
+            self.is_being_used = False
             self.save()
             connection.close()
 

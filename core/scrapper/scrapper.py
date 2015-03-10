@@ -433,6 +433,8 @@ class Scrapper(object):
                 self._quit_focus_from_address_bar()
                 self.logger.debug('go_to: %s' % url)
                 self.take_screenshot('go_to')
+        except URLError:
+            raise PageLoadError
         except BadStatusLine:
             self.logger.error('Bad status line getting %s using proxy %s' % (url, self.user.proxy_for_usage.__unicode__()))
             raise PageLoadError

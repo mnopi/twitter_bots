@@ -869,8 +869,8 @@ class Tweet(models.Model):
         except CaptchaRequiredTweet:
             settings.LOGGER.info('Resending tweet with webdriver..')
             self.send_with_webdriver()
-        except BotNotLoggedIn:
-            sender.login_twitter_with_webdriver()
+        except BotNotLoggedIn as e:
+            raise e
         except (TweetAlreadySent,
                 TwitterAccountSuspended,
                 TwitterAccountDead,
@@ -897,6 +897,9 @@ class Tweet(models.Model):
             if Tweet.objects.filter(pk=self.pk).exists():
                 self.sending = False
                 self.save()
+
+            sender.is_being_used = False
+            sender.save()
 
             # cerramos conexión con BD
             connection.close()
@@ -933,7 +936,7 @@ class Tweet(models.Model):
     def check_if_can_be_sent(self):
         """Comprueba si el tweet puede enviarse o no"""
 
-        self._check_if_errors_on_construction()
+        # self._check_if_errors_on_construction()
 
         sender_bot = self.bot_used
 
@@ -990,7 +993,7 @@ class Tweet(models.Model):
             else:
                 # comprobamos que el bot destino no esté siendo usando
                 destination_bot = self.mentioned_bots.first()
-                if destination_bot.is_already_being_used():
+                if destination_bot.is_being_used:
                     raise DestinationBotIsBeingUsed(self)
                 elif destination_bot.is_dead:
                     raise DestinationBotIsDead(self)
@@ -1096,29 +1099,49 @@ class Tweet(models.Model):
         def log_task_adding(task_name):
             settings.LOGGER.debug('Adding task [%s] (total unfinished: %d)' % (task_name, pool.tasks.unfinished_tasks))
 
+        def add_task_send_tweet(tweet):
+            tweet.sending = True
+            tweet.bot_used.is_being_used = True
+            tweet.bot_used.save()
+            tweet.save()
+            if pool:
+                log_task_adding('SEND MU_TWEET')
+                pool.add_task(tweet.send)
+            else:
+                tweet.send()
+
+        def add_task_login_twitter(sender):
+            sender.is_being_using = True
+            sender.save()
+            if pool:
+                log_task_adding('LOGIN TWITTER')
+                pool.add_task(sender.login_twitter_with_webdriver)
+            else:
+                sender.login_twitter_with_webdriver()
+
         try:
             self.check_if_can_be_sent()
 
-            # si el bot es de un grupo que permite envíos de muchos tweets a la vez añadimos
-            # mas tweets a enviar para ese mismo bot
-            sender_group = self.bot_used.get_group()
-            max_tweets_at_once = str_interval_to_random_num(sender_group.max_tweets_at_once)
-            tweets_queued_for_sender = self.bot_used.tweets.pending_to_send()[:max_tweets_at_once]
-            num_tweets_to_send = tweets_queued_for_sender.count()
-            if num_tweets_to_send < max_tweets_at_once:
-                settings.LOGGER.warning('Not enough mentions created for bot %s sending %i at once (only %i queued for now)'
-                                        % (self.bot_used.username, max_tweets_at_once, num_tweets_to_send))
-            settings.LOGGER.info('%s sending %i tweets at once..' % (self.bot_used.username, num_tweets_to_send))
-            for i, tweet in enumerate(tweets_queued_for_sender):
-                settings.LOGGER.info('%s sending tweet %i/%i' % (self.bot_used.username, i+1, num_tweets_to_send))
-                tweet.sending = True
-                tweet.save()
-                if pool:
-                    log_task_adding('SEND MU_TWEET')
+            sender = self.bot_used
+            if sender.is_logged_on_twitter():
+                # si el bot es de un grupo que permite envíos de muchos tweets a la vez añadimos
+                # mas tweets a enviar para ese mismo bot
+                sender_group = sender.get_group()
+                max_tweets_at_once = str_interval_to_random_num(sender_group.max_tweets_at_once)
+                tweets_queued_for_sender = sender.tweets.pending_to_send()[:max_tweets_at_once]
+                num_tweets_to_send = tweets_queued_for_sender.count()
+                if num_tweets_to_send < max_tweets_at_once:
+                    settings.LOGGER.warning('Not enough mentions created for bot %s sending %i at once (only %i queued for now)'
+                                            % (sender.username, max_tweets_at_once, num_tweets_to_send))
+                settings.LOGGER.info('%s sending %i tweets at once..' % (sender.username, num_tweets_to_send))
+                for i, tweet in enumerate(tweets_queued_for_sender):
+                    settings.LOGGER.info('%s sending tweet %i/%i' % (sender.username, i+1, num_tweets_to_send))
+                    add_task_send_tweet(tweet)
+            else:
+                # si no está logueado sólo intentamos loguearlo
+                add_task_login_twitter(sender)
 
-                    pool.add_task(tweet.send)
-                else:
-                    tweet.send()
+
         except (TweetConstructionError,
                 BotIsAlreadyBeingUsed,
                 BotHasNotEnoughTimePassedToTweetAgain):
@@ -1153,6 +1176,8 @@ class Tweet(models.Model):
                 else:
                     try:
                         mctweet_sender_bot.check_if_can_send_mctweet()
+                        mctweet.bot_used.is_being_used = True
+                        mctweet.bot_used.save()
                         mctweet.sending = True
                         mctweet.save()
                         if pool:
@@ -1160,11 +1185,15 @@ class Tweet(models.Model):
                             pool.add_task(mctweet.send)
                         else:
                             mctweet.send()
+                    except BotNotLoggedIn:
+                        add_task_login_twitter(mctweet_sender_bot)
                     except LastMctweetFailedTimeWindowNotPassed:
                         pass
         except MuTweetHasNotSentFTweetsEnough as e:
             ftweet = e.mutweet.get_or_create_ftweet_to_send()
             ftweet.sending = True
+            ftweet.bot_used.is_being_used = True
+            ftweet.bot_used.save()
             ftweet.save()
             if pool:
                 log_task_adding('SEND F_TWEET')
@@ -1177,7 +1206,7 @@ class Tweet(models.Model):
 
         except SenderBotHasToFollowPeople as e:
             sender_bot = e.sender_bot
-            sender_bot.is_following = True
+            sender_bot.is_being_used = True
             sender_bot.save()
             # marcamos los twitterusers a seguir por el bot
             sender_bot.mark_twitterusers_to_follow_at_once()
