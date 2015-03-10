@@ -818,38 +818,6 @@ class Tweet(models.Model):
         finally:
             scr.close_browser()
 
-    def send_with_burst(self):
-        """Envía el tweet junto a una ráfaga de tweets a enviar por el mismo bot"""
-
-        # class SendTweetThread(Thread):
-        #
-        #     def __init__(self, tweet):
-        #         self.tweet = tweet
-        #         self.output = None
-        #         super(SendTweetThread, self).__init__()
-        #
-        #     def run(self):
-        #         self.tweet.send()
-        #         try:
-        #             self.sTitle = str(audio["TIT2"])
-        #         except KeyError:
-        #             self.sTitle = os.path.basename(self.fileName)
-        #
-        #         self.sTitle = replace_all(self.sTitle) #remove special chars
-        #
-        # # miramos qué rafaga tiene asignada el grupo del que envía este tweet. Si es > 1 entonces
-        # # enviaremos más tweets
-        # burst_size = self.bot_used.get_group().tweets_per_burst
-        # for i in xrange(burst_size):
-        #     settings.LOGGER.info('Bot %s sending tweet %i [%s] (%i/%i in burst): >> %s' %
-        #                          (i+1,
-        #                           burst_size,
-        #                           self.bot_used.__unicode__(),
-        #                           self.pk,
-        #                           self.print_type(),
-        #                           self.compose()))
-        pass
-
     def send(self):
         if not settings.LOGGER:
             set_logger('tweet_sender')
@@ -1135,9 +1103,6 @@ class Tweet(models.Model):
                                             % (sender.username, max_tweets_at_once, num_tweets_to_send))
                 settings.LOGGER.info('%s sending %i tweets at once..' % (sender.username, num_tweets_to_send))
                 for i, tweet in enumerate(tweets_queued_for_sender):
-                    if i > 0:
-                        # esperamos entre x-y segs para envío de siguiente mención
-                        time.sleep(str_interval_to_random_num('10-30'))
                     settings.LOGGER.info('%s sending tweet %i/%i' % (sender.username, i+1, num_tweets_to_send))
                     add_task_send_tweet(tweet)
             else:
