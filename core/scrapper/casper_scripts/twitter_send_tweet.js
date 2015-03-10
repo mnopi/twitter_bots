@@ -1,11 +1,12 @@
 var casper = require('casper').create({
-    viewportSize: {width: 1024, height: 768}
+    viewportSize: {width: 1024, height: 768},
     //verbose: true,
     //logLevel: "debug"
 
-    //pageSettings: {
+    pageSettings: {
+        loadImages: false
     //    userAgent: this.cli.get('useragent')
-    //}
+    }
 });
 
 var mouse = require("mouse").create(casper);

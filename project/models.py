@@ -1135,6 +1135,9 @@ class Tweet(models.Model):
                                             % (sender.username, max_tweets_at_once, num_tweets_to_send))
                 settings.LOGGER.info('%s sending %i tweets at once..' % (sender.username, num_tweets_to_send))
                 for i, tweet in enumerate(tweets_queued_for_sender):
+                    if i > 0:
+                        # esperamos entre x-y segs para envío de siguiente mención
+                        time.sleep(str_interval_to_random_num('10-30'))
                     settings.LOGGER.info('%s sending tweet %i/%i' % (sender.username, i+1, num_tweets_to_send))
                     add_task_send_tweet(tweet)
             else:
