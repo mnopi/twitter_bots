@@ -34,7 +34,7 @@ COMPATIBLE_EMAIL_ACCOUNTS = [
 # SCRAPPER SETTINGS
 USE_PROXY = True
 PAGE_LOAD_TIMEOUT = 120  # segundos que se espera a la respuesta al pedir una URL
-PAGE_LOAD_TIMEOUT_SENDING_TWEETS = 40  # segundos que casperjs espera a que se cargue twitter para enviar tweet
+PAGE_LOAD_TIMEOUT_SENDING_TWEETS = 120  # segundos que casperjs espera a que se cargue twitter para enviar tweet
 CASPERJS_PROCESS_TIMEOUT = 120  # segundos que esperamos como maximo para que casperjs termine de ejecutarse desde su invocacion
 PAGE_READYSTATE_TIMEOUT = 90  # segundos que se espera a que el DOM de la página esté listo
 RANDOM_OFFSETS_ON_EL_CLICK = False  # activar offset al hacer click con el ratón sobre un elemento dado

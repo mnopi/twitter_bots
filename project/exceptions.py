@@ -249,10 +249,10 @@ class DestinationBotIsDead(Exception):
 
 class LastMctweetFailedTimeWindowNotPassed(Exception):
     def __init__(self, bot):
-        settings.LOGGER.debug('Bot %s not passed %s minutes after last mctweet failed (at %s)' % (
-            bot.username,
-            bot.get_group().mention_fail_time_window,
-            bot.get_mctweets_verified().last().tweet_checking_mention.destination_bot_checked_mention_date))
+        settings.LOGGER.debug('Bot %s not passed %s minutes after last mctweet failed (at %s)'
+                              % (bot.username,
+                                 bot.get_group().mention_fail_time_window,
+                                 bot.get_mctweets_verified().last().tweet_checking_mention.destination_bot_checked_mention_date))
 
 
 class MethodOnlyAppliesToTuMentions(Exception):
