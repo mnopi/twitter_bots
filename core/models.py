@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
 from shutil import copyfile
 from django.db.models import Q, Count, Sum
-import feedparser
 from django.contrib.auth.models import AbstractUser
 from django.db import models, connection
 from selenium.common.exceptions import NoSuchElementException, WebDriverException
-from selenium.webdriver import ActionChains
-from selenium.webdriver.common.keys import Keys
 from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableProxiesToAssignBotsForUse,\
     TweetCreationException, LastMctweetFailedTimeWindowNotPassed, BotHasToWaitToRegister, CancelCreation
 from core.scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
@@ -17,7 +14,6 @@ from core.scrapper.utils import *
 from core.managers import TwitterBotManager, ProxyManager, mutex
 from project.models import TwitterBotFollowing
 from twitter_bots import settings
-from django.core.exceptions import ObjectDoesNotExist
 
 
 class User(AbstractUser):
@@ -1328,3 +1324,14 @@ class Proxy(models.Model):
     def get_active_bots_using(self):
         """Devuelve los bots activos que están usando el proxy"""
         return self.twitter_bots_using.twitteable_regardless_of_proxy()
+
+    def clear_pending_tweets_queue(self):
+        """Elimina todos los tweets a la cola que hayan para todos los robots con este proxy"""
+        from project.models import Tweet
+
+        tweets_to_remove = Tweet.objects.filter(bot_used__proxy_for_usage=self).pending_to_send()
+        count = tweets_to_remove.count()
+        tweets_to_remove.delete()
+        if count > 0:
+            settings.LOGGER.info('Removed %i pending to send tweets from previously created in another group for proxy %s'
+                                 %(count, self.__unicode__()))

@@ -1,6 +1,7 @@
+# -*- coding: utf-8 -*-
+
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from django.db.models import Count
 from django.http import HttpResponseRedirect
 from django.shortcuts import render_to_response
 from django.template import RequestContext
@@ -12,6 +13,8 @@ from core.scrapper.scrapper import Scrapper
 from django.contrib import messages
 from core.scrapper.accounts.twitter import TwitterScrapper
 from twitter_bots import settings
+from twitter_bots.settings import set_logger
+
 
 class YesNoFilter(admin.SimpleListFilter):
     def lookups(self, request, model_admin):
@@ -274,11 +277,13 @@ class TwitterBotAdmin(admin.ModelAdmin):
         # http://www.jpichon.net/blog/2010/08/django-admin-actions-and-intermediate-pages/
         # http://sysmagazine.com/posts/140409/
         from django import forms
-        from querysets import TwitterBotQuerySet
+
         class AssignProxiesForm(forms.Form):
             _selected_action = forms.CharField(widget=forms.MultipleHiddenInput)
             action = forms.CharField(widget=forms.HiddenInput)
             proxies_group = forms.ModelChoiceField(queryset=ProxiesGroup.objects.all(), required=False)
+
+        set_logger('default')
 
         if 'apply' in request.POST:
             form = AssignProxiesForm(request.POST)
@@ -290,6 +295,8 @@ class TwitterBotAdmin(admin.ModelAdmin):
                 for bot in queryset:
                     try:
                         bot.assign_proxy(proxies_group=proxies_group)
+                        # también eliminamos todos los tweets que tuviera en la cola pendientes de enviar
+                        bot.clear_all_not_sent_ok_tweets()
                         assigned_count += 1
                     except (NoMoreAvailableProxiesForRegistration,
                         NoAvailableProxiesToAssignBotsForUse):
@@ -379,25 +386,25 @@ class ProxyAdmin(admin.ModelAdmin):
             elif self.no():
                 return queryset.connection_fail()
 
-    class ValidForBotRegistrationListFilter(YesNoFilter):
-        title = 'Valid for bot registration'
-        parameter_name = 'valid_for_bot_registration'
+    # class ValidForBotRegistrationListFilter(YesNoFilter):
+    #     title = 'Valid for bot registration'
+    #     parameter_name = 'valid_for_bot_registration'
+    #
+    #     def queryset(self, request, queryset):
+    #         if self.yes():
+    #             return queryset.available_to_assign_bots_for_registration()
+    #         elif self.no():
+    #             return queryset.unavailable_to_assign_bots_for_registration()
 
-        def queryset(self, request, queryset):
-            if self.yes():
-                return queryset.available_to_assign_bots_for_registration()
-            elif self.no():
-                return queryset.unavailable_to_assign_bots_for_registration()
-
-    class ValidForBotUsageListFilter(YesNoFilter):
-        title = 'Valid for bot usage'
-        parameter_name = 'valid_for_bot_usage'
-
-        def queryset(self, request, queryset):
-            if self.yes():
-                return queryset.available_to_assign_bots_for_use()
-            elif self.no():
-                return queryset.unavailable_to_assign_bots_for_use()
+    # class ValidForBotUsageListFilter(YesNoFilter):
+    #     title = 'Valid for bot usage'
+    #     parameter_name = 'valid_for_bot_usage'
+    #
+    #     def queryset(self, request, queryset):
+    #         if self.yes():
+    #             return queryset.available_to_assign_bots_for_use()
+    #         elif self.no():
+    #             return queryset.unavailable_to_assign_bots_for_use()
 
     class HasCompletedBotsListFilter(YesNoFilter):
         title = 'Has completed bots'
@@ -451,8 +458,8 @@ class ProxyAdmin(admin.ModelAdmin):
 
     list_filter = (
         IsConnectionOkListFilter,
-        ValidForBotRegistrationListFilter,
-        ValidForBotUsageListFilter,
+        # ValidForBotRegistrationListFilter,
+        # ValidForBotUsageListFilter,
         # ValidForAssignGroupListFilter,
         HasCompletedBotsListFilter,
         HasRegisteredBotsListFilter,
@@ -479,6 +486,7 @@ class ProxyAdmin(admin.ModelAdmin):
     ]
 
     def assign_proxies_group(self, request, queryset):
+
         return assign_proxies_group(self, request, queryset)
 
     def mark_as_unavailable_for_use(self, request, queryset):
@@ -503,6 +511,7 @@ def assign_proxies_group(admin_obj, request, queryset):
     # http://sysmagazine.com/posts/140409/
     from django import forms
     from querysets import TwitterBotQuerySet
+
     class AssignProxiesForm(forms.Form):
         _selected_action = forms.CharField(widget=forms.MultipleHiddenInput)
         action = forms.CharField(widget=forms.HiddenInput)
@@ -517,10 +526,15 @@ def assign_proxies_group(admin_obj, request, queryset):
 
     def sucessfull_msg():
         if type(queryset) is TwitterBotQuerySet:
-            return 'Successfully assigned proxies_group "%s" to %d proxies (%d bots were reassigned)' % \
-                   (proxies_group, count, TwitterBot.objects.using_proxies_group(proxies_group).count())
+            return 'Successfully assigned proxies_group "%s" to %d proxies (%d bots were reassigned, %i are active)' % \
+                   (proxies_group,
+                    count,
+                    TwitterBot.objects.using_proxies_group(proxies_group).count(),
+                    proxies_group.get_active_bots_using().count())
         else:
             return 'Successfully assigned proxies_group "%s" to %d proxies' % (proxies_group, count)
+
+    set_logger('default')
 
     if 'apply' in request.POST:
         form = AssignProxiesForm(request.POST)
@@ -531,6 +545,7 @@ def assign_proxies_group(admin_obj, request, queryset):
             count = 0
             for proxy in get_proxy_queryset():
                 proxy.proxies_group = proxies_group
+                proxy.clear_pending_tweets_queue()
                 proxy.save()
                 count += 1
 

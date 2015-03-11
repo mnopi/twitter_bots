@@ -1,4 +1,5 @@
-import datetime
+# -*- coding: utf-8 -*-
+
 from django import forms
 from django.contrib import admin
 from django.core.exceptions import ValidationError
@@ -229,6 +230,7 @@ class TweetMsgInlineFormset(forms.models.BaseInlineFormSet):
                         raise ValidationError(error_msg)
         super(TweetMsgInlineFormset, self).clean()
 
+
 class TweetMsgAdmin(admin.ModelAdmin):
     list_display = (
         'text',
@@ -240,6 +242,7 @@ class TweetMsgAdmin(admin.ModelAdmin):
         'project',
         'language',
     )
+
 
 class ProjectAdminForm(forms.ModelForm):
     class Meta:
@@ -285,9 +288,20 @@ class ProjectProxiesGroupInline(admin.TabularInline):
     model = ProxiesGroup.projects.through
     extra = 0
 
+
 class FeedsGroupProxiesGroupInline(admin.TabularInline):
+    class FeedsGroupInlineFormset(forms.models.BaseInlineFormSet):
+        def clean(self):
+            """Comprobamos que como mínimo haya un FeedsGroup asociado"""
+
+            related_feeds_groups = [r for r in self.forms if 'DELETE' not in r.changed_data]
+            if len(related_feeds_groups) == 0:
+                raise ValidationError('Minimum 1 feedsgroup must be related')
+
     model = FeedsGroup.proxies_groups.through
     extra = 0
+    formset = FeedsGroupInlineFormset
+
 
 class ProjectTUGroupInline(admin.TabularInline):
     model = TUGroup.projects.through
@@ -424,6 +438,7 @@ class TweetAdmin(admin.ModelAdmin):
         'date_created',
         'date_sent',
         'project',
+        'bot_used__proxy_for_usage__proxies_group',
         'bot_used__proxy_for_usage__proxy_provider',
         'link',
         'page_announced',

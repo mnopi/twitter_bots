@@ -542,7 +542,7 @@ class Tweet(models.Model):
             else:
                 compose_txt += self.feed_item.text
 
-        return compose_txt
+        return compose_txt.strip()
 
     def length(self):
         total_length = len(self.compose(with_link=False))
@@ -2025,8 +2025,8 @@ class FeedItem(models.Model):
 
 class FeedsGroup(models.Model):
     name = models.CharField(max_length=100, null=False, blank=False)
-    feeds = models.ManyToManyField(Feed, related_name='feeds_groups', null=True, blank=True)
-    proxies_groups = models.ManyToManyField(ProxiesGroup, related_name='feeds_groups', null=True, blank=True)
+    feeds = models.ManyToManyField(Feed, related_name='feeds_groups', null=False, blank=False)
+    proxies_groups = models.ManyToManyField(ProxiesGroup, related_name='feeds_groups', null=False, blank=False)
 
     def __unicode__(self):
         return self.name
