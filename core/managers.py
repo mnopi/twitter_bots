@@ -193,7 +193,7 @@ class TwitterBotManager(models.Manager):
         pending_mentions = Tweet.objects.get_queued_twitteruser_mentions_to_send(by_bot=bot)\
             .select_related('bot_used').select_related('bot_used__proxy_for_usage__proxies_group')
         if pending_mentions.exists():
-            settings.LOGGER.info('Processing %d pending mentions..' % pending_mentions.count())
+            settings.LOGGER.info('Processing %d pending mentions (1 per available bot)..' % pending_mentions.count())
             for mention in pending_mentions:
                 mention.process(pool)
                 # pool.add_task(pr)

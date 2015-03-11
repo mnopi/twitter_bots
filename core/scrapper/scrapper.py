@@ -147,7 +147,7 @@ class Scrapper(object):
             raise PageLoadError
 
         self.browser.maximize_window()
-        self.browser.set_page_load_timeout(settings.PAGE_LOAD_TIMEOUT)
+        self.browser.set_page_load_timeout(settings.WEBDRIVER_PAGE_LOAD_TIMEOUT)
         self.logger.debug('%s instance opened successfully' % self.user.get_webdriver())
 
     def close_browser(self):
@@ -367,7 +367,7 @@ class Scrapper(object):
             self.logger.debug('waiting to page readystate..: %s' % self.browser.current_url)
             wait_condition(
                 lambda: self.browser.execute_script("return document.readyState;") == 'complete',
-                timeout=settings.PAGE_READYSTATE_TIMEOUT
+                timeout=settings.WEBDRIVER_PAGE_READYSTATE_TIMEOUT
             )
             self.logger.debug('..ready')
             self.take_screenshot('page_readystate')
@@ -461,7 +461,7 @@ class Scrapper(object):
         finally:
             if timeout:
                 # si hubo timeout entonces restauramos al puesto en settings
-                self.browser.set_page_load_timeout(settings.PAGE_LOAD_TIMEOUT)
+                self.browser.set_page_load_timeout(settings.WEBDRIVER_PAGE_LOAD_TIMEOUT)
 
     def check_user_agent_compatibility(self):
         """Dice si el user agent usado es de móvil o no compatible"""

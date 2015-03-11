@@ -167,6 +167,11 @@ def rmdir_if_exists(path_to_dir):
         shutil.rmtree(path_to_dir)
 
 
+def rmfile_if_exists(path_to_file):
+    if os.path.exists(path_to_file):
+        os.remove(path_to_file)
+
+
 def create_file_if_not_exists(file):
     if not os.path.exists(file):
         open(file, 'w').close()

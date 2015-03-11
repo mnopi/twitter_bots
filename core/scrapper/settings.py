@@ -33,10 +33,9 @@ COMPATIBLE_EMAIL_ACCOUNTS = [
 #
 # SCRAPPER SETTINGS
 USE_PROXY = True
-PAGE_LOAD_TIMEOUT = 120  # segundos que se espera a la respuesta al pedir una URL
-PAGE_LOAD_TIMEOUT_SENDING_TWEETS = 120  # segundos que casperjs espera a que se cargue twitter para enviar tweet
+WEBDRIVER_PAGE_LOAD_TIMEOUT = 120  # segundos que se espera a la respuesta al pedir una URL
+WEBDRIVER_PAGE_READYSTATE_TIMEOUT = 90  # segundos que se espera a que el DOM de la página esté listo
 CASPERJS_PROCESS_TIMEOUT = 120  # segundos que esperamos como maximo para que casperjs termine de ejecutarse desde su invocacion
-PAGE_READYSTATE_TIMEOUT = 90  # segundos que se espera a que el DOM de la página esté listo
 RANDOM_OFFSETS_ON_EL_CLICK = False  # activar offset al hacer click con el ratón sobre un elemento dado
 TYPING_SPEED = (20, 40)  # en ms, el tiempo que pasa entre que se presiona/levanta una tecla
 WEBDRIVER = 'PH'
@@ -115,6 +114,8 @@ TOTAL_TASKS_SENDING_TWEETS = MAX_THREADS_SENDING_TWEETS  # número total de tare
 TIME_WAITING_NEXT_LOOKUP = 30
 TIME_SLEEPING_AFTER_NO_BOTS_FOUND = 120  # tiempo que se duerme la hebra si no encuentra ningún bot disponible para lanzar tweet
 TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER = 15
+CASPERJS_PAGE_LOAD_TIMEOUT_SENDING_TWEETS = 30000  # ms que casperjs espera a que se cargue twitter para enviar tweet
+CASPERJS_MAX_RETRIES_SENDING_PER_THREAD = 3
 
 TWEET_LINK_LENGTH = 22
 TWEET_IMG_LENGTH = 23

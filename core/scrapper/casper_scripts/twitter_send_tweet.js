@@ -1,26 +1,3 @@
-var casper = require('casper').create({
-    viewportSize: {width: 1024, height: 768},
-    //verbose: true,
-    //logLevel: "debug"
-
-    pageSettings: {
-        loadImages: false
-    //    userAgent: this.cli.get('useragent')
-    }
-});
-
-var mouse = require("mouse").create(casper);
-
-var utils = require('utils');
-
-var output = {
-    errors: [],
-    not_found_el_css: null
-};
-
-var capture_index = 0,
-    cookies_file = casper.cli.get('cookies-file2');
-
 function getRandomIntFromRange(min, max) {
   return Math.round(Math.random() * (max - min)) + min;
 }
@@ -105,14 +82,40 @@ function exit()
     casper.exit();
 }
 
-casper.start();
 
-//casper.echo(casper.cli.get('useragent'));
-//casper.echo(casper.cli.get('pageload-timeout'));
+//
+// MAIN
+//
+
+var casper = require('casper').create({
+    viewportSize: {width: 1024, height: 768},
+    //verbose: true,
+    //logLevel: "debug"
+
+    pageSettings: {
+        loadImages: false
+    //    userAgent: this.cli.get('useragent')
+    }
+});
+
+var mouse = require("mouse").create(casper);
+
+var utils = require('utils');
+
+var output = {
+    errors: [],
+    not_found_el_css: null
+};
+
+var capture_index = 0,
+    cookies_file = casper.cli.get('cookies-file2');
+
+casper.start();
 
 casper.userAgent(casper.cli.get('useragent'));
 casper.page.customHeaders = {'Accept-Language': 'en'};
-casper.options.waitTimeout = parseInt(casper.cli.get('pageload-timeout')) * 1000;
+//casper.options.waitTimeout = parseInt(casper.cli.get('pageload-timeout')) * 1000;
+//casper.options.waitTimeout = 10;
 
 casper.onError = function(){
     capture('casperjs_error');
@@ -151,8 +154,18 @@ casper.onError = function(){
 //}, pageloadtimeout);// custom timeOut setting.
 
 casper.thenOpen('https://twitter.com', function then(){
-    //capture('hola');
-    //this.echo(this.page.cookies);
+    // vemos si carga a tiempo o no twitter
+    pageload_timeout = parseInt(casper.cli.get('pageload-timeout'));
+    this.waitForResource(this.getCurrentUrl(),
+        function then() {
+            //do stuff, page loaded
+        }, function onTimeout() {
+            //page load failed after x seconds
+            output.errors.push('pageload_timeout_expired');
+            exit();
+        },
+        pageload_timeout
+    );
 });
 
 casper.then(function () {

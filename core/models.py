@@ -489,6 +489,11 @@ class TwitterBot(models.Model):
         """Nos dice si el bot está logueado en twitter, es decir, si existe el archivo para sus cookies"""
         return os.path.exists(self.get_cookies_filepath())
 
+    def remove_cookies(self):
+        """Eliminamos los archivos donde guardamos las cookies, por lo cual se da el bot como deslogueado"""
+        rmfile_if_exists(self.get_cookies_file_for_casperjs())
+        rmfile_if_exists(self.get_cookies_filepath())
+
     def get_users_mentioned(self):
         "Devuelve todos los usuarios que ha mencionado el robot a lo largo de todos sus tweets"
         from project.models import TwitterUser

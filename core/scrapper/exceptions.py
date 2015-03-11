@@ -156,6 +156,10 @@ class CaptchaRequiredTweet(Exception):
         settings.LOGGER.error('Captcha required tweet %i to send by bot %s' % (tweet.pk, tweet.bot_used.username))
 
 
+class CaptchaIncorrect(Exception):
+    pass
+
+
 class BotMustVerifyPhone(Exception):
     def __init__(self, scrapper):
         scrapper.user.proxy_for_usage.is_phone_required = True
@@ -195,7 +199,7 @@ class ProxyTimeoutError(ConnectionError):
         scrapper.logger.error('Timeout error using proxy %s to request url %s, maybe you are using '
                               'unauthorized IP to connect. Page load timeout: %i secs' %
                               (scrapper.user.proxy_for_usage.__unicode__(),
-                               scrapper.browser.current_url, settings.PAGE_LOAD_TIMEOUT))
+                               scrapper.browser.current_url, settings.WEBDRIVER_PAGE_LOAD_TIMEOUT))
 
         scrapper.take_screenshot('proxy_timeout_error', force_take=True)
 
@@ -285,7 +289,7 @@ class PageNotReadyState(PageLoadError):
         try:
             scrapper.take_screenshot('page_not_readystate')
             scrapper.logger.error('Exceeded %i secs waiting for DOM readystate after loading %s for bot %s under proxy %s' %
-                                    (settings.PAGE_READYSTATE_TIMEOUT, scrapper.browser.current_url, scrapper.user.username,
+                                    (settings.WEBDRIVER_PAGE_READYSTATE_TIMEOUT, scrapper.browser.current_url, scrapper.user.username,
                                     scrapper.user.proxy_for_usage.__unicode__()))
         except URLError as e:
             # scrapper.logger.error('URLError: cannot retrieve URL from scrapper. Proxy used: %s' %
@@ -331,11 +335,8 @@ class CasperJSNotFoundElement(Exception):
 
 
 class CasperJSWaitTimeoutExceeded(Exception):
-    def __init__(self, bot):
-        settings.LOGGER.error('CasperJSWaitTimeoutExceeded - bot %s, proxy: %s' %
-                              (bot.username, bot.proxy_for_usage.__unicode__()))
+    pass
 
 
-class PageloadTimeoutExceeded(Exception):
-    def __init__(self, seconds):
-        settings.LOGGER.error('PageloadTimeoutExceeded - exceeded %i seconds waiting' % seconds)
+class PageloadTimeoutExpired(Exception):
+    pass

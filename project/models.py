@@ -696,7 +696,7 @@ class Tweet(models.Model):
         def check_if_errors():
             errors = o['errors']
             if 'pageload_timeout_expired' in errors:
-                raise PageloadTimeoutExceeded(settings.PAGE_LOAD_TIMEOUT_SENDING_TWEETS)
+                raise PageloadTimeoutExpired(settings.CASPERJS_PAGE_LOAD_TIMEOUT_SENDING_TWEETS)
             elif 'casperjs_error' in errors:
                 raise CasperJSError(sender)
             elif 'not_logged_in' in errors:
@@ -728,7 +728,7 @@ class Tweet(models.Model):
             '--useragent=%s' % sender.user_agent,
             '--screenshots=%s/' % screenshots_dir,
             '--take-screenshots=%s' % settings.TAKE_SCREENSHOTS,
-            '--pageload-timeout=%i' % settings.PAGE_LOAD_TIMEOUT_SENDING_TWEETS,
+            '--pageload-timeout=%i' % settings.CASPERJS_PAGE_LOAD_TIMEOUT_SENDING_TWEETS,
             '--tweetmsg=%s' % self.compose().encode('utf-8')
         ]
 
@@ -773,6 +773,28 @@ class Tweet(models.Model):
                 else:
                     raise FailureSendingTweet(self)
 
+        def resolve_captcha(retries=0):
+            """máximo 3 intentos"""
+            if retries == 3:
+                raise CaptchaIncorrect
+            else:
+                scr.logger.info('Resolving captcha (retry %i/%i)' % (retries+1, 3))
+                cr = DeathByCaptchaResolver(scr)
+                cr.resolve_captcha(
+                    scr.get_css_element('#recaptcha_challenge_image'),
+                    scr.get_css_element('#recaptcha_response_field')
+                )
+                scr.click('#recaptcha_submit')
+                scr.delay.seconds(2)
+                if scr.check_visibility('#recaptcha_response_field'):
+                    resolve_captcha(retries=retries+1)
+
+        settings.LOGGER.info('%s sending tweet %i [%s] [WITH WEBDRIVER]: >> %s' %
+                                 (self.bot_used.__unicode__(),
+                                  self.pk,
+                                  self.print_type(),
+                                  self.compose()))
+
         scr = self.bot_used.scrapper
         try:
             screenshots_dir_name = '%d_%s' % (self.pk, self.print_type())
@@ -794,20 +816,18 @@ class Tweet(models.Model):
             scr.click(send_tweet_btn_css)
             scr.delay.seconds(3)
             if scr.check_visibility('#recaptcha_response_field'):
-                cr = DeathByCaptchaResolver(scr)
-                cr.resolve_captcha(
-                    scr.get_css_element('#recaptcha_challenge_image'),
-                    scr.get_css_element('#recaptcha_response_field')
-                )
-                scr.click('#recaptcha_submit')
-                scr.delay.seconds(2)
+                resolve_captcha()
                 scr.click(send_tweet_btn_css)
             check_if_sent_ok()
             scr.delay.seconds(7)
+            scr.logger.info('Tweet %i sent ok' % self.pk)
         except TwitterEmailNotConfirmed:
             # si al intentar enviar el tweet el usuario no estaba realmente confirmado eliminamos su tweet
             scr.logger.warning('Tweet %i will be deleted' % self.pk)
             self.delete()
+        except CaptchaIncorrect:
+            scr.logger.error('Exceeded max retries solving captcha for sending tweet %i' % self.pk)
+            self.bot_used.remove_cookies()
         except (TweetAlreadySent,
                 ProxyUrlRequestError,
                 ConnectionError,
@@ -818,35 +838,47 @@ class Tweet(models.Model):
         finally:
             scr.close_browser()
 
-    def send(self):
+    def send(self, retries=0):
         if not settings.LOGGER:
             set_logger('tweet_sender')
 
         sender = self.bot_used
 
-        settings.LOGGER.info('%s sending tweet %i [%s]: >> %s' %
-                             (sender.__unicode__(),
-                              self.pk,
-                              self.print_type(),
-                              self.compose()))
+        if retries == 0:
+            settings.LOGGER.info('%s sending tweet %i [%s]: >> %s' %
+                                 (sender.__unicode__(),
+                                  self.pk,
+                                  self.print_type(),
+                                  self.compose()))
 
         # intentamos enviar con casperjs. si no es posible logueamos usando webdriver,
         # comprobando cuenta suspendida etc
         try:
             self.send_with_casperjs()
         except CaptchaRequiredTweet:
-            settings.LOGGER.info('Resending tweet with webdriver..')
-            self.send_with_webdriver()
+            # si pide captcha le borramos las cookies para que vuelva a loguearse con webdriver
+            sender.remove_cookies()
         except BotNotLoggedIn as e:
             raise e
+        except PageloadTimeoutExpired as e:
+            if retries == settings.CASPERJS_MAX_RETRIES_SENDING_PER_THREAD:
+                settings.LOGGER.error('Exceeded %i retries with PageloadTimeoutExpired - bot %s, proxy: %s' %
+                              (retries, sender.username, sender.proxy_for_usage.__unicode__()))
+                raise FailureSendingTweet(self)
+            else:
+                settings.LOGGER.warning('PageloadTimeoutExpired (max. %ims) (retry %i) - bot %s, proxy: %s' %
+                                        (settings.CASPERJS_PAGE_LOAD_TIMEOUT_SENDING_TWEETS,
+                                         retries,
+                                         sender.username,
+                                         sender.proxy_for_usage.__unicode__()))
+                self.send(retries=retries+1)
         except (TweetAlreadySent,
                 TwitterAccountSuspended,
                 TwitterAccountDead,
                 LoginTwitterError,
                 PageLoadError,
-                PageloadTimeoutExceeded,
-                simplejson.JSONDecodeError,
                 CasperJSWaitTimeoutExceeded,
+                simplejson.JSONDecodeError,
                 CasperJSProcessTimeoutError,
                 UnknownErrorSendingTweet):
             raise FailureSendingTweet(self)
@@ -1067,16 +1099,16 @@ class Tweet(models.Model):
         def log_task_adding(task_name):
             settings.LOGGER.debug('Adding task [%s] (total unfinished: %d)' % (task_name, pool.tasks.unfinished_tasks))
 
-        def add_task_send_tweet(tweet):
-            tweet.sending = True
-            tweet.bot_used.is_being_used = True
-            tweet.bot_used.save()
-            tweet.save()
+        def add_task_send_tweet(send_method):
+            self.sending = True
+            self.bot_used.is_being_used = True
+            self.bot_used.save()
+            self.save()
             if pool:
                 log_task_adding('SEND MU_TWEET')
-                pool.add_task(tweet.send)
+                pool.add_task(send_method)
             else:
-                tweet.send()
+                send_method()
 
         def add_task_login_twitter(sender):
             sender.is_being_using = True
@@ -1104,11 +1136,10 @@ class Tweet(models.Model):
                 settings.LOGGER.info('%s sending %i tweets at once..' % (sender.username, num_tweets_to_send))
                 for i, tweet in enumerate(tweets_queued_for_sender):
                     settings.LOGGER.info('%s sending tweet %i/%i' % (sender.username, i+1, num_tweets_to_send))
-                    add_task_send_tweet(tweet)
+                    add_task_send_tweet(tweet.send)
             else:
-                # si no está logueado sólo intentamos loguearlo
-                add_task_login_twitter(sender)
-
+                # si no está logueado enviamos con webdriver
+                add_task_send_tweet(self.send_with_webdriver)
 
         except (TweetConstructionError,
                 BotIsAlreadyBeingUsed,
