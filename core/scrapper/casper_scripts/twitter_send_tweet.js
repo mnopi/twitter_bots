@@ -194,9 +194,12 @@ casper.waitUntilVisible(tweet_btn_css,
         click(tweet_btn_css);
     },
     function onTimeout() {
-        capture('not_logged_in', true);
-        output.errors.push('not_logged_in');
-        exit();
+        if (casper.visible('#signin-email'))
+        {
+            capture('not_logged_in', true);
+            output.errors.push('not_logged_in');
+            exit();
+        }
     }
 );
 
