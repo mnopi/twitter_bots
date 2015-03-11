@@ -949,7 +949,7 @@ class TwitterBot(models.Model):
                 user_mentioning = mention_el.find_element_by_css_selector('.username.js-action-profile-name').text.strip('@').lower()
                 user_mentioning_is_bot = TwitterBot.objects.filter(username=user_mentioning).exists()
 
-                if user_mentioning_is_bot and user_mentioning == mctweet.bot_used.username:
+                if user_mentioning_is_bot and user_mentioning == mctweet.bot_used.username.lower():
                     # una vez que encontramos el último tweet enviado por ese bot vemos si coincide con el
                     # tweet que dice nuestra BD que se le mandó, sin contar con el link
                     mention_text = mention_el.find_element_by_css_selector('.js-tweet-text').text.strip()

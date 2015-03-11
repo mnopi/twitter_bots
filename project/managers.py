@@ -207,7 +207,7 @@ class TweetManager(MyManager):
         queue = self.raw_as_qs("""
             select
                 project_tweet.id,
-                core_twitterbot.id
+                core_twitterbot.id,
 
                 #
                 # sender sending
@@ -231,22 +231,22 @@ class TweetManager(MyManager):
                 #
                 # tweeting time window passed
                 #
-                # (SELECT max(project_tweet.date_sent) as max
-                #     FROM project_tweet
-                #     WHERE
-                #     project_tweet.sent_ok = True
-                #     and project_tweet.bot_used_id = core_twitterbot.id
-                # ) as last_tweet_date,
-                # (select project_proxiesgroup.time_between_tweets
-                #     from project_proxiesgroup
-                #     inner join core_proxy on project_proxiesgroup.id = core_proxy.proxies_group_id
-                #     where core_twitterbot.proxy_for_usage_id = core_proxy.id
-                # ) as time_between_tweets,
-                # (SELECT SUBSTRING_INDEX(time_between_tweets, '-', 1)) as min_time,
-                # (SELECT SUBSTRING_INDEX(time_between_tweets, '-', -1)) as max_time,
-                # (select ROUND(RAND() * (max_time*60 - min_time*60)) + min_time*60) as random_secs,
-                # (select DATE_SUB(UTC_TIMESTAMP(), INTERVAL random_secs SECOND)) as last_tweet_min_date,
-                # (select last_tweet_min_date >= last_tweet_date or last_tweet_date is null) as timewindow_passed
+                (SELECT max(project_tweet.date_sent) as max
+                    FROM project_tweet
+                    WHERE
+                    project_tweet.sent_ok = True
+                    and project_tweet.bot_used_id = core_twitterbot.id
+                ) as last_tweet_date,
+                (select project_proxiesgroup.time_between_tweets
+                    from project_proxiesgroup
+                    inner join core_proxy on project_proxiesgroup.id = core_proxy.proxies_group_id
+                    where core_twitterbot.proxy_for_usage_id = core_proxy.id
+                ) as time_between_tweets,
+                (SELECT SUBSTRING_INDEX(time_between_tweets, '-', 1)) as min_time,
+                (SELECT SUBSTRING_INDEX(time_between_tweets, '-', -1)) as max_time,
+                (select ROUND(RAND() * (max_time*60 - min_time*60)) + min_time*60) as random_secs,
+                (select DATE_SUB(UTC_TIMESTAMP(), INTERVAL random_secs SECOND)) as last_tweet_min_date,
+                (select last_tweet_min_date >= last_tweet_date or last_tweet_date is null) as timewindow_passed
 
             from project_tweet
 
@@ -261,10 +261,9 @@ class TweetManager(MyManager):
 
             group by core_twitterbot.id
 
-            # having
+            having timewindow_passed = True
             #     sender_already_sending = False
             #     and sender_verifying = False
-            #     and timewindow_passed = True
         """
         )
 
