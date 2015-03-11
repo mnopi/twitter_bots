@@ -855,10 +855,10 @@ class Tweet(models.Model):
         # comprobando cuenta suspendida etc
         try:
             self.send_with_casperjs()
-        except CaptchaRequiredTweet:
-            # si pide captcha le borramos las cookies para que vuelva a loguearse con webdriver
+        except (CaptchaRequiredTweet,
+            BotNotLoggedIn) as e:
+            # si pide captcha o no está logueado le borramos las cookies para que vuelva a loguearse con webdriver
             sender.remove_cookies()
-        except BotNotLoggedIn as e:
             raise e
         except PageloadTimeoutExpired as e:
             if retries == settings.CASPERJS_MAX_RETRIES_SENDING_PER_THREAD:
@@ -1099,11 +1099,11 @@ class Tweet(models.Model):
         def log_task_adding(task_name):
             settings.LOGGER.debug('Adding task [%s] (total unfinished: %d)' % (task_name, pool.tasks.unfinished_tasks))
 
-        def add_task_send_tweet(send_method):
-            self.sending = True
-            self.bot_used.is_being_used = True
-            self.bot_used.save()
-            self.save()
+        def add_task_send_tweet(tweet, send_method):
+            tweet.sending = True
+            tweet.bot_used.is_being_used = True
+            tweet.bot_used.save()
+            tweet.save()
             if pool:
                 log_task_adding('SEND MU_TWEET')
                 pool.add_task(send_method)
@@ -1136,10 +1136,10 @@ class Tweet(models.Model):
                 settings.LOGGER.info('%s sending %i tweets at once..' % (sender.username, num_tweets_to_send))
                 for i, tweet in enumerate(tweets_queued_for_sender):
                     settings.LOGGER.info('%s sending tweet %i/%i' % (sender.username, i+1, num_tweets_to_send))
-                    add_task_send_tweet(tweet.send)
+                    add_task_send_tweet(tweet, tweet.send)
             else:
                 # si no está logueado enviamos con webdriver
-                add_task_send_tweet(self.send_with_webdriver)
+                add_task_send_tweet(self, self.send_with_webdriver)
 
         except (TweetConstructionError,
                 BotIsAlreadyBeingUsed,
