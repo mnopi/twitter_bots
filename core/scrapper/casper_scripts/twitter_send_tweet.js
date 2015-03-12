@@ -49,6 +49,7 @@ function write_tweet()
 {
     var tweet_msg = casper.cli.get('tweetmsg');
     casper.sendKeys(tweet_dialog_css, tweet_msg, {keepFocus: true});
+    capture('tweet_written');
 }
 
 function print_output()
@@ -90,7 +91,7 @@ function exit()
 var casper = require('casper').create({
     viewportSize: {width: 1024, height: 768},
     //verbose: true,
-    //logLevel: "debug"
+    //logLevel: "debug",
 
     pageSettings: {
         loadImages: false
@@ -106,12 +107,13 @@ var output = {
     errors: [],
     not_found_el_css: null
 };
+var unknown_error = true;
 
-var capture_index = 0,
-    cookies_file = casper.cli.get('cookies-file2');
 
 casper.start();
 
+var capture_index = 0,
+    pageload_timeout = parseInt(casper.cli.get('pageload-timeout'));
 casper.userAgent(casper.cli.get('useragent'));
 casper.page.customHeaders = {'Accept-Language': 'en'};
 //casper.options.waitTimeout = parseInt(casper.cli.get('pageload-timeout')) * 1000;
@@ -123,39 +125,8 @@ casper.onError = function(){
     exit();
 };
 
-//pageloadtimeout = parseInt(casper.cli.get('pageload-timeout')) * 1000;
-//pageloadtimeout = 20;
-//pageloadtimeout_error = false;
-//casper.waitFor(function check() {
-//    casper.thenOpen("https://twitter.com", function() {
-//        //+++ casper will wait until this returns true to move forward.
-//        //+++ The default timeout is set to 5000ms
-//        this.echo('meeeee');
-//        this.evaluate(function() {
-//            //checks for element exist
-//            //tweet_btn_exists = document.getElementById('#global-new-tweet-button');
-//            //login_btn_exists = document.getElementById('#signin-email');
-//            //if (tweet_btn_exists || login_btn_exists) {
-//            //    // console.log('Im loaded!');
-//            //    return true;
-//            //}
-//            return true;
-//        });
-//    });
-//}, function then() {    // step to execute when function check() is ok
-//    //+++ executes ONLY after the 'casper.thenOpen' returns true.
-//    //this.echo("THEN!", "GREEN_BAR");
-//    this.echo('oook');
-//
-//}, function timeout() { // step to execute if check has failed
-//    //+++ code for on timeout.  This is different than onStepTimeOut.
-//    this.echo('timeout!');
-//    this.exit();
-//}, pageloadtimeout);// custom timeOut setting.
-
 casper.thenOpen('https://twitter.com', function then(){
     // vemos si carga a tiempo o no twitter
-    pageload_timeout = parseInt(casper.cli.get('pageload-timeout'));
     this.waitForResource(this.getCurrentUrl(),
         function then() {
             //do stuff, page loaded
@@ -209,29 +180,41 @@ casper.waitUntilVisible(tweet_dialog_css,
     function then() {
         capture('tweet_dialog_loaded');
 
-        casper.wait(getRandomIntFromRange(2000, 5000));
+        this.wait(getRandomIntFromRange(2000, 5000));
         write_tweet();
-        casper.wait(getRandomIntFromRange(7000, 15000));
+        this.wait(getRandomIntFromRange(7000, 15000));
 
         img_path = casper.cli.get('tweetimg');
-        if (img_path)
-        {
-            casper.wait(getRandomIntFromRange(3000, 5000));
+        if (img_path) {
+            this.wait(getRandomIntFromRange(3000, 5000));
             form_css = '#global-tweet-dialog-dialog > div.modal-content > div.modal-tweet-form-container > form';
-            casper.fillSelectors(form_css, {
+            this.fillSelectors(form_css, {
                 'input[type="file"][name="media_empty"]': img_path
             }, false);
             //img_btn_css = '#global-tweet-dialog-dialog > div.modal-content > div.modal-tweet-form-container > form > div.toolbar.js-toolbar > div.tweet-box-extras > div.photo-selector > div > label > input';
             //casper.sendKeys(img_btn_css, img_path);
-            casper.wait(getRandomIntFromRange(800, 2000));
+            this.wait(getRandomIntFromRange(800, 2000));
         }
+    },
+    function onTimeout()
+    {
+        // si no ha dado tiempo a mostrar la cajita con el diálogo para escribir el tweet..
+        capture('tweet_dialog_not_loaded', true);
+        output.errors.push('tweet_dialog_not_loaded');
+        exit();
+    },
+    pageload_timeout
+);
+
+
+// pulsamos en botón de enviar el tweet ya escrito
+var send_tweet_btn_css = '#global-tweet-dialog-dialog .tweet-button button';
+casper.waitUntilVisible(send_tweet_btn_css,
+    function then(){
+        click(send_tweet_btn_css);
     }
 );
 
-// pulsamos el botón para enviarlo
-casper.then(function(){
-    casper.click('#global-tweet-dialog-dialog .tweet-button button');
-});
 
 // esperamos a ver si se envió bien o no
 casper.wait(getRandomIntFromRange(5000, 10000),
@@ -240,8 +223,6 @@ casper.wait(getRandomIntFromRange(5000, 10000),
 
         if (this.visible('#global-tweet-dialog-dialog'))
         {
-            unknown_error = true;
-
             var msg_drawer = '#message-drawer .message-text',
                 captcha_form = '#captcha-challenge-form',
                 acc_blocked_card = '.PromptbirdPrompt-title';
@@ -275,17 +256,20 @@ casper.wait(getRandomIntFromRange(5000, 10000),
                     }
                 }
             }
-
-            if (unknown_error)
-            {
-                output.errors.push('unknown_error');
-                capture('unknown_error', true);
-            }
+        }
+        else
+        {
+            unknown_error = false;
         }
     }
 );
 
 casper.then(function () {
+    if (unknown_error)
+    {
+        output.errors.push('unknown_error');
+        capture('unknown_error', true);
+    }
     this.echo(JSON.stringify(output));
 });
 

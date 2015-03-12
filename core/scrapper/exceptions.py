@@ -335,8 +335,22 @@ class CasperJSNotFoundElement(Exception):
 
 
 class CasperJSWaitTimeoutExceeded(Exception):
+    def __init__(self, sender, waited_for=None, seconds=None):
+        msg = 'CasperJSWaitTimeoutExceeded on bot %s' % sender.username
+        if waited_for:
+            msg += '. Waited for: %s' % waited_for
+        if seconds:
+            msg += '(%i secs)' % seconds
+        settings.LOGGER.warning(msg)
+
+
+class NoStdoutReturned(Exception):
     pass
 
 
 class PageloadTimeoutExpired(Exception):
-    pass
+    def __init__(self, sender, seconds=None):
+        msg = 'PageloadTimeoutExpired on bot %s' % sender.username
+        if seconds:
+            msg += ' (%i secs)' % seconds
+        settings.LOGGER.warning(msg)

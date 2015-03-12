@@ -696,7 +696,7 @@ class Tweet(models.Model):
         def check_if_errors():
             errors = o['errors']
             if 'pageload_timeout_expired' in errors:
-                raise PageloadTimeoutExpired(settings.CASPERJS_PAGE_LOAD_TIMEOUT_SENDING_TWEETS)
+                raise PageloadTimeoutExpired(sender, seconds=settings.CASPERJS_PAGE_LOAD_TIMEOUT_SENDING_TWEETS/1000)
             elif 'casperjs_error' in errors:
                 raise CasperJSError(sender)
             elif 'not_logged_in' in errors:
@@ -711,6 +711,9 @@ class Tweet(models.Model):
                 raise TwitterAccountDead(sender)
             elif 'captcha_required' in errors:
                 raise CaptchaRequiredTweet(self)
+            elif 'tweet_dialog_not_loaded' in errors:
+                raise CasperJSWaitTimeoutExceeded(sender, waited_for='tweet dialog',
+                                                  seconds=settings.CASPERJS_PAGE_LOAD_TIMEOUT_SENDING_TWEETS/1000)
             elif 'unknown_error' in errors:
                 raise UnknownErrorSendingTweet(self)
 
@@ -755,7 +758,9 @@ class Tweet(models.Model):
                     else:
                         settings.LOGGER.error('Error parsing json stdout: %s' % stdout)
                 else:
-                    settings.LOGGER.error('No stdout returned (bot %s)' % sender.username)
+                    settings.LOGGER.warning('No stdout returned (bot %s, tweet %i)'
+                                            % (sender.username, self.pk))
+                    raise NoStdoutReturned
                 raise e
         else:
             # si el timer agota la espera, es decir, se mato casperjs
@@ -850,6 +855,14 @@ class Tweet(models.Model):
                                   self.pk,
                                   self.print_type(),
                                   self.compose()))
+        else:
+            settings.LOGGER.warning('%s resending tweet %i (retry %i/%i) [%s]: >> %s' %
+                                 (sender.__unicode__(),
+                                  self.pk,
+                                  retries,
+                                  settings.CASPERJS_MAX_RETRIES_SENDING_PER_THREAD,
+                                  self.print_type(),
+                                  self.compose()))
 
         # intentamos enviar con casperjs. si no es posible logueamos usando webdriver,
         # comprobando cuenta suspendida etc
@@ -860,17 +873,14 @@ class Tweet(models.Model):
             # si pide captcha o no está logueado le borramos las cookies para que vuelva a loguearse con webdriver
             sender.remove_cookies()
             raise e
-        except PageloadTimeoutExpired as e:
+        except (PageloadTimeoutExpired,
+                CasperJSWaitTimeoutExceeded,
+                NoStdoutReturned) as e:
             if retries == settings.CASPERJS_MAX_RETRIES_SENDING_PER_THREAD:
-                settings.LOGGER.error('Exceeded %i retries with PageloadTimeoutExpired - bot %s, proxy: %s' %
-                              (retries, sender.username, sender.proxy_for_usage.__unicode__()))
+                settings.LOGGER.error('Exceeded %i retries to send tweet %i - bot %s, proxy: %s' %
+                              (retries, self.pk, sender.username, sender.proxy_for_usage.__unicode__()))
                 raise FailureSendingTweet(self)
             else:
-                settings.LOGGER.warning('PageloadTimeoutExpired (max. %ims) (retry %i) - bot %s, proxy: %s' %
-                                        (settings.CASPERJS_PAGE_LOAD_TIMEOUT_SENDING_TWEETS,
-                                         retries,
-                                         sender.username,
-                                         sender.proxy_for_usage.__unicode__()))
                 self.send(retries=retries+1)
         except (TweetAlreadySent,
                 TwitterAccountSuspended,
