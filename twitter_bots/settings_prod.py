@@ -9,21 +9,18 @@ import os
 settings.PROD_MODE = True
 DEBUG = settings.TEMPLATE_DEBUG = True
 ALLOWED_HOSTS = ['localhost', '88.26.212.82', '192.168.1.115']
+
+DATABASE_HOST = 'localhost' if socket.gethostname() == 'p1' else '88.26.212.82'
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
         "NAME": "twitter_bots_prod",
         "USER": "root",
         "PASSWORD": "1aragon1",
+        "HOST": DATABASE_HOST,
         "PORT": "3306",
     }
 }
-
-if socket.gethostname() == 'p1':
-    DATABASES['DEFAULT']['HOST'] = 'localhost'
-else:
-    DATABASES['DEFAULT']['HOST'] = '88.26.212.82'
-
 
 #
 # scrapping settings
