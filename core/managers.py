@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from multiprocessing import Pool
+import dispy
 from django.db.models import Count, Q, Max, Manager
 from django.db.models.query import QuerySet
 import os
@@ -64,12 +66,19 @@ class TwitterBotManager(models.Manager):
         def create_without_profile(bot):
             """Crea bot a partir de la línea leída"""
 
-            settings.LOGGER.info('Creating new bot %s..' % bot[0])
+            settings.LOGGER.debug('Creating new bot %s..' % bot[0])
+
+            # en caso de venir sin contraseña el email pondremos el mismo que para la cuenta de twitter
+            try:
+                email_password = bot[3]
+            except IndexError:
+                email_password = bot[1]
+
             bot_obj = self.create(
                 username=bot[0].lower(),
                 password_twitter=bot[1],
                 email=bot[2],
-                password_email=bot[3],
+                password_email=email_password,
                 email_registered_ok=True,
                 twitter_registered_ok=True,
                 twitter_confirmed_email_ok=True,
@@ -97,7 +106,7 @@ class TwitterBotManager(models.Manager):
             return bot_created
 
         def create_new_bots_from_file(file, fn_to_create):
-            new_bots = []
+            new_bots, existing_bots = [], []
             with open(file) as f:
                 bots_lines = f.readlines()
                 for bot in bots_lines:
@@ -109,16 +118,54 @@ class TwitterBotManager(models.Manager):
                             bot_created = fn_to_create(bot)
                         new_bots.append(bot_created)
                     else:
-                        settings.LOGGER.info('%s already exists on DB' % bot_username)
-            return new_bots
+                        settings.LOGGER.debug('%s already exists on DB' % bot_username)
+                        existing_bots.append(bot)
+            return new_bots, existing_bots
 
-        new_bots_without_profile = create_new_bots_from_file(settings.NEW_BOTS_NO_PROFILE_FILE, create_without_profile)
-        new_bots_profiled= create_new_bots_from_file(settings.NEW_BOTS_PROFILED_FILE, create_profiled)
-        new_bots_phone_verified = create_new_bots_from_file(settings.NEW_BOTS_PHONE_VERIFIED_FILE, create_phone_verified)
+        def extend_new_existant(l1, l2):
+            """a l1 se extiende sus componentes 0 y 1 con los que tiene l2 en 0 y 1 respectivamente"""
+            l1[0].extend(l2[0])
+            l1[1].extend(l2[1])
 
-        c1, c2, c3 = len(new_bots_without_profile), len(new_bots_profiled), len(new_bots_phone_verified)
-        settings.LOGGER.info('Created %i new bots, %i without profile, %i profiled and %i phone verified'
-                             %(c1+c2+c3, c1, c2, c3))
+        new_bots_dirs = {
+            'non_profiled': os.path.join(settings.NEW_BOTS_DIR, 'non_profiled'),
+            'profiled': os.path.join(settings.NEW_BOTS_DIR, 'profiled'),
+            'phone_verified': os.path.join(settings.NEW_BOTS_DIR, 'phone_verified'),
+        }
+
+        non_profiled_bots = [], []
+        profiled_bots = [], []
+        phone_verified_bots = [], []
+
+        for k, dir in new_bots_dirs.items():
+            for (dirpath, dirnames, filenames) in os.walk(dir):
+                settings.LOGGER.info('Checking bots files on %s dir..' % k)
+                for filename in filenames:
+                    settings.LOGGER.info('\tChecking file %s..' % filename)
+                    path = os.path.join(dirpath, filename)
+                    if k == 'non_profiled':
+                        bots = create_new_bots_from_file(path, create_without_profile)
+                        extend_new_existant(non_profiled_bots, bots)
+                    elif k == 'profiled':
+                        bots = create_new_bots_from_file(path, create_profiled)
+                        extend_new_existant(profiled_bots, bots)
+                    elif k == 'phone_verified':
+                        bots = create_new_bots_from_file(path, create_phone_verified)
+                        extend_new_existant(phone_verified_bots, bots)
+
+        n1, n2, n3 = len(non_profiled_bots[0]), len(profiled_bots[0]), len(phone_verified_bots[0])
+        ntotal = n1+n2+n3
+        if ntotal:
+            settings.LOGGER.info('New bots created: %i (%i without profile, %i profiled and %i phone verified)'
+                                 %(ntotal, n1, n2, n3))
+        else:
+            settings.LOGGER.warning('No new bots created!. Ensure you added new bots files')
+
+        e1, e2, e3 = len(non_profiled_bots[1]), len(profiled_bots[1]), len(phone_verified_bots[1])
+        etotal = e1+e2+e3
+        if etotal:
+            settings.LOGGER.info('Existing bots: %i (%i without profile, %i profiled and %i phone verified)'
+                                 %(etotal, e1, e2, e3))
 
     def create_bot(self, **kwargs):
         try:
@@ -179,7 +226,7 @@ class TwitterBotManager(models.Manager):
     def put_previous_being_created_to_false(self):
             self.filter(is_being_created=True).update(is_being_created=False)
 
-    def queue_tasks_from_mention_queue(self, pool, bot=None):
+    def queue_tasks_from_mention_queue(self, cluster, bot=None):
         """Consulta la cola de menciones para añadirlas a la cola de tareas"""
         from project.models import Tweet
         import random
@@ -194,9 +241,21 @@ class TwitterBotManager(models.Manager):
             .select_related('bot_used').select_related('bot_used__proxy_for_usage__proxies_group')
         if pending_mentions.exists():
             settings.LOGGER.info('Processing %d pending mentions (1 per available bot)..' % pending_mentions.count())
+            jobs = []
             for mention in pending_mentions:
-                mention.process(pool)
-                # pool.add_task(pr)
+                # mention.process(cluster)
+                job = cluster.submit(mention.pk)
+                job.id = mention.pk
+                jobs.append(job)
+
+            for job in jobs:
+                settings.LOGGER.info('Executing job id=%i..' % job.id)
+                job()
+                if job.exception:
+                    settings.LOGGER.error('Error executing job id=%i: %s' % (job.id, job.exception))
+                else:
+                    host, result = job.result
+                    settings.LOGGER.info('..job %i executed on host %s with result: %s' % (job.id, host, result))
         else:
             if Tweet.objects.filter(sending=False, sent_ok=False).exists():
                 if bot:
@@ -207,16 +266,26 @@ class TwitterBotManager(models.Manager):
                 raise EmptyMentionQueue(bot=bot)
 
 
-    def perform_sending_tweets(self, bot=None, num_threads=None, max_lookups=None):
+    def perform_sending_tweets(self, bot=None, num_processes=None, max_lookups=None):
         """Mira n veces (max_lookups) en la cola de menciones cada x segundos y encola tweets a enviar"""
 
-        pool = ThreadPool(num_threads or settings.MAX_THREADS_SENDING_TWEETS, timeout=60*10) \
-            if num_threads > 1 else None
+        # pool = Pool(processes=num_processes) if num_processes > 1 else None
+        from project.management.commands.tweet_sender import cluster, process_mention, DISPY_NODES, CLIENT_IP_PRIVATE, CLIENT_IP_PUBLIC
+        import twitter_bots
+
+        if num_processes > 1:
+            cluster = dispy.JobCluster(
+                process_mention,
+                depends=[twitter_bots],
+                ip_addr=CLIENT_IP_PRIVATE,
+                ext_ip_addr=CLIENT_IP_PUBLIC,
+                nodes=DISPY_NODES
+            )
 
         for l in xrange(max_lookups or 1):
             settings.LOGGER.info('LOOKUP %d' % (l+1))
             try:
-                self.queue_tasks_from_mention_queue(pool, bot=bot)
+                self.queue_tasks_from_mention_queue(cluster, bot=bot)
             except (EmptyMentionQueue,
                     NoAvailableBot,
                     NoAvailableBots):
@@ -226,8 +295,10 @@ class TwitterBotManager(models.Manager):
 
         settings.LOGGER.debug('Waiting completing tasks..')
 
-        if pool:
-            pool.wait_completion()
+        # if pool:
+        #     pool.wait_completion()
+        if cluster:
+            cluster.wait()
 
             # for task_num in range(num_tasks or settings.TOTAL_TASKS_SENDING_TWEETS):
             #     pool.add_task(self.send_twusermention_from_pending_queue, bot)

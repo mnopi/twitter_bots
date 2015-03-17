@@ -16,6 +16,7 @@ import tweepy
 from tweepy.error import TweepError
 from core.scrapper.captcha_resolvers import DeathByCaptchaResolver
 from core.scrapper.exceptions import *
+from core.scrapper.thread_pool import ThreadPool
 from project.exceptions import *
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
     TwitterUserManager, McTweetManager, FeedItemManager, HashtagManager
@@ -1103,8 +1104,8 @@ class Tweet(models.Model):
         else:
             return False
 
-    def process(self, pool=None):
-        """Procesa el tweet de la cola para ver qué tarea tenemos que enviar al pool de threads"""
+    def process_sending(self):
+        """Procesa el tweet de la cola para ver qué tarea tiene que realizar el tweet sender con este tweet"""
 
         def log_task_adding(task_name):
             settings.LOGGER.debug('Adding task [%s] (total unfinished: %d)' % (task_name, pool.tasks.unfinished_tasks))
@@ -1130,6 +1131,8 @@ class Tweet(models.Model):
                 sender.login_twitter_with_webdriver()
 
         try:
+            pool = None
+
             self.check_if_can_be_sent()
 
             sender = self.bot_used
@@ -1144,9 +1147,16 @@ class Tweet(models.Model):
                     settings.LOGGER.warning('Not enough mentions created for bot %s sending %i at once (only %i queued for now)'
                                             % (sender.username, max_tweets_at_once, num_tweets_to_send))
                 settings.LOGGER.info('%s sending %i tweets at once..' % (sender.username, num_tweets_to_send))
+
+                if num_tweets_to_send > 1:
+                    pool = ThreadPool(num_tweets_to_send)
+
                 for i, tweet in enumerate(tweets_queued_for_sender):
                     settings.LOGGER.info('%s sending tweet %i/%i' % (sender.username, i+1, num_tweets_to_send))
                     add_task_send_tweet(tweet, tweet.send)
+
+                if pool:
+                    pool.wait_completion()
             else:
                 # si no está logueado enviamos con webdriver
                 add_task_send_tweet(self, self.send_with_webdriver)

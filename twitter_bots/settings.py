@@ -192,6 +192,14 @@ LOGGING = {
             'level': 'DEBUG',
             'propagate': True,
         },
+        'project.management.commands.mention_processor': {
+            'handlers': [
+                'management_logs_file_info',
+                'management_logs_file_debug'
+            ],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
         'default': {
             'handlers': ['console_info', 'console_error'],
             'level': 'DEBUG',

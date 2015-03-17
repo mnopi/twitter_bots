@@ -310,6 +310,10 @@ class TweetManager(MyManager):
         else:
             settings.LOGGER.info('There are no mctweets not verified to delete')
 
+    def process_mention(self, mention_pk):
+        mention = self.get(pk=mention_pk)
+        mention.process_sending()
+
 
     #
     # proxy queryset methods

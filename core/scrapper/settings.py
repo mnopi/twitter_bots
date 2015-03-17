@@ -109,8 +109,8 @@ MAX_QUEUED_TWEETS_TO_SEND_PER_BOT = 50
 
 #
 # TWEET SENDER
-MAX_THREADS_SENDING_TWEETS = 8  # máximo de hilos para enviar tweets
-TOTAL_TASKS_SENDING_TWEETS = MAX_THREADS_SENDING_TWEETS  # número total de tareas para las hebras por cada vez que se ejecuta el proceso de enviar tweets
+MAX_PROCESSES_SENDING_TWEETS = 8  # máximo de hilos para enviar tweets
+TOTAL_TASKS_SENDING_TWEETS = MAX_PROCESSES_SENDING_TWEETS  # número total de tareas para las hebras por cada vez que se ejecuta el proceso de enviar tweets
 TIME_WAITING_NEXT_LOOKUP = 30
 TIME_SLEEPING_AFTER_NO_BOTS_FOUND = 120  # tiempo que se duerme la hebra si no encuentra ningún bot disponible para lanzar tweet
 TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER = 15
@@ -179,10 +179,7 @@ TIME_SLEEPING_FOR_RESPAWN_BOT_CREATOR = 120
 REUSE_PROXIES_REQUIRING_PHONE_VERIFICATION = False
 PRIORIZE_RUNNING_PROJECTS_FOR_BOT_CREATION = True
 
-NEW_BOTS_FILES_DIR = os.path.join(PROJECT_ROOT, 'core', 'bots')
-NEW_BOTS_NO_PROFILE_FILE = os.path.join(NEW_BOTS_FILES_DIR, 'no_profile.csv')
-NEW_BOTS_PROFILED_FILE = os.path.join(NEW_BOTS_FILES_DIR, 'profiled.csv')
-NEW_BOTS_PHONE_VERIFIED_FILE = os.path.join(NEW_BOTS_FILES_DIR, 'phone_verified.csv')
+NEW_BOTS_DIR = os.path.join(PROJECT_ROOT, 'core', 'bots')
 
 
 #

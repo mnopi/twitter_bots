@@ -15,6 +15,65 @@ from twitter_bots.settings import set_logger
 
 MODULE_NAME = __name__.split('.')[-1]
 
+CLIENT_IP_PRIVATE = '192.168.1.115'
+CLIENT_IP_PUBLIC = '88.26.212.82'
+# CLIENT_IP_PRIVATE = '192.168.0.115'
+# CLIENT_IP_PUBLIC = '77.228.76.30'
+
+DISPY_NODES = [
+    # '46.101.61.145',  # gallina1
+    # '88.26.212.82',  # pepino1
+    CLIENT_IP_PRIVATE,  # local
+    # '*',
+]
+
+
+def process_mention(mention_id):
+    from threading import Timer
+    import time, socket, subprocess
+    # settings.LOGGER.info('Processing mention %i..' % mention_id)
+    # Tweet.objects.process_mention(mention_id)
+    HOSTS = {
+        'p1': {
+            'manage.py': '/home/robots/Dropbox/dev/proyectos/twitter_bots/manage.py',
+        }
+    }
+
+    # estos son los paths por defecto para intérprete y manage.py
+    DEFAULTS = {
+        'python': '/home/robots/virtualenvs/twitter_bots/bin/python',
+        'manage.py': '/home/robots/prod/twitter_bots/manage.py',
+    }
+
+    host = socket.gethostname()
+
+    command = [
+        HOSTS[host].get('python', DEFAULTS['python']),
+        HOSTS[host].get('manage.py', DEFAULTS['manage.py']),
+        'mention_processor',
+        str(mention_id),
+        '--settings=twitter_bots.settings_prod'
+    ]
+
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    timer = Timer(60*10, proc.kill)  # ponemos timeout de 10 minutos al proceso
+    timer.start()
+    stdout, stderr = proc.communicate()
+    if timer.is_alive():
+        timer.cancel()
+        return host, stdout or stderr
+    else:
+        # si el timer agota la espera
+        return host, 'Timeout exceeded processing mention %i' % mention_id
+
+    # time.sleep(7)
+    # settings.LOGGER.info('..mention %i processed ok' % mention_id)
+    # return host, mention_id
+    # return 'hola',  44
+
+
+cluster = None
+
 
 class Command(BaseCommand):
     help = 'Send pending tweets'
@@ -41,9 +100,9 @@ class Command(BaseCommand):
             if bot:
                 settings.TAKE_SCREENSHOTS = True
 
-            num_threads, max_lookups = get_2_args(args)
+            num_processes, max_lookups = get_2_args(args)
 
-            TwitterBot.objects.perform_sending_tweets(bot=bot, num_threads=num_threads, max_lookups=max_lookups)
+            TwitterBot.objects.perform_sending_tweets(bot=bot, num_processes=num_processes, max_lookups=max_lookups)
 
             time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER)
         except Full as e:
