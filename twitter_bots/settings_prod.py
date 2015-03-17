@@ -1,3 +1,4 @@
+import socket
 from settings import *
 import settings
 import os
@@ -14,11 +15,14 @@ DATABASES = {
         "NAME": "twitter_bots_prod",
         "USER": "root",
         "PASSWORD": "1aragon1",
-        # "HOST": "88.26.212.82",
-        "HOST": "localhost",
         "PORT": "3306",
     }
 }
+
+if socket.gethostname() == 'p1':
+    DATABASES['DEFAULT']['HOST'] = 'localhost'
+else:
+    DATABASES['DEFAULT']['HOST'] = '88.26.212.82'
 
 
 #
