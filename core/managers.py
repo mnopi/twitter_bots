@@ -295,7 +295,7 @@ class TwitterBotManager(models.Manager):
                     NoAvailableBots):
                 pass
 
-            time.sleep(settings.TIME_WAITING_NEXT_LOOKUP)
+            # time.sleep(settings.TIME_WAITING_NEXT_LOOKUP)
 
         settings.LOGGER.debug('Waiting completing tasks..')
 

@@ -827,7 +827,7 @@ class Tweet(models.Model):
                     scr.click(send_tweet_btn_css)
                 check_if_sent_ok()
                 scr.delay.seconds(7)
-                msg = 'Tweet %i sent ok' % self.pk
+                msg = 'Tweet %i sent ok with webdriver (needed of login for bot %s)' % (self.pk, self.bot_used.username)
                 scr.logger.info(msg)
                 sending_results.append(msg)
             except TwitterEmailNotConfirmed as e:
@@ -842,7 +842,7 @@ class Tweet(models.Model):
                 raise e
         except Exception as e:
             if not hasattr(e, 'msg'):
-                msg = 'Error on bot %s (%s) sending tweet with id=%i)' \
+                msg = 'Error on bot %s (%s) sending tweet with id=%i (using webdriver)' \
                       % (self.bot_used.username, self.bot_used.real_name, self.pk)
                 settings.LOGGER.exception(msg)
             else:
@@ -1150,6 +1150,8 @@ class Tweet(models.Model):
                 if num_tweets_to_send > 1:
                     pool = ThreadPool(num_tweets_to_send)
 
+                sender.set_cookies_files_for_casperjs()
+
                 for i, tweet in enumerate(tweets_queued_for_sender):
                     settings.LOGGER.info('%s sending tweet %i/%i' % (sender.username, i+1, num_tweets_to_send))
                     add_task_send_tweet(tweet, tweet.send)
@@ -1226,11 +1228,12 @@ class Tweet(models.Model):
             return sender_bot.follow_twitterusers()
 
         except Exception as e:
-            default_msg = 'Error getting tumention from queue for bot %s: %s' \
-                          % (self.bot_used.username, self.compose())
-            e.msg = e.msg if hasattr(e, 'msg') else default_msg
-            settings.LOGGER.exception(e.msg)
-            return e.msg
+            if not hasattr(e, 'msg'):
+                msg = 'Error getting tumention from queue for bot %s: %s' % (self.bot_used.username, self.compose())
+                settings.LOGGER.exception(e.msg)
+                return msg
+            else:
+                return e.msg
         finally:
             if self.sending:
                 self.sending = False

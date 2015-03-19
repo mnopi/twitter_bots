@@ -1061,17 +1061,21 @@ class TwitterBot(models.Model):
         return os.path.join(settings.PHANTOMJS_COOKIES_DIR, self.get_cookies_filename())
 
     def get_cookies_file_for_casperjs(self):
+        return '%s.casperjs' % self.get_cookies_filepath()
+
+    def set_cookies_files_for_casperjs(self):
         """Se loguea con webdriver y luego cada vez que queramos tomar el archivo de cookies para casperjs
         lo que hacemos es copiar el base generado con el webdriver ya que con casperjs lo modifica y siempre
         nos vuelve a pedir login"""
         cookies_filepath = self.get_cookies_filepath()
-        casperjs_cookies_filepath = '%s.casperjs' % cookies_filepath
+        casperjs_cookies_filepath = self.get_cookies_file_for_casperjs()
         if os.path.exists(cookies_filepath):
+
+            # si existen cookies para casperjs anteriores las eliminamos y metemos las nuevas
             if os.path.exists(casperjs_cookies_filepath):
                 os.remove(casperjs_cookies_filepath)
-            copyfile(cookies_filepath, casperjs_cookies_filepath)
 
-        return casperjs_cookies_filepath
+            copyfile(cookies_filepath, casperjs_cookies_filepath)
 
     def get_screenshots_dir(self):
         return os.path.join(settings.SCREENSHOTS_DIR, self.real_name + ' - ' + self.username)
