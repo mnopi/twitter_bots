@@ -162,6 +162,7 @@ casper.then(function () {
 var tweet_box_css = '#tweet-box-mini-home-profile';
 casper.waitUntilVisible(tweet_box_css,
     function then() {
+        this.wait(getRandomIntFromRange(2000, 5000));
         click(tweet_box_css);
     },
     function onTimeout() {
@@ -204,7 +205,7 @@ casper.waitUntilVisible(send_tweet_btn_css,
         output.errors.push('tweet_dialog_not_loaded');
         exit();
     },
-    5000
+    pageload_timeout
 );
 
 
