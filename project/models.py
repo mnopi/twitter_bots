@@ -1187,12 +1187,13 @@ class Tweet(models.Model):
                     mctweet.sending = True
                     mctweet.save()
 
+                    mctweet_sender_bot.set_cookies_files_for_casperjs()
+
                     res = []
                     mctweet.send(sending_results=res)
                     return '\n'.join(res)
             except BotNotLoggedIn:
                 # si al enviar con casperjs resulta que el bot no está logueado se loguea con selenium
-                mctweet_sender_bot.remove_cookies()
                 mctweet_sender_bot.login_twitter_with_webdriver()
                 return 'Bot %s (%s) needed to login twitter before sending mctweet' \
                        % (mctweet_sender_bot.username, mctweet_sender_bot.real_name)
