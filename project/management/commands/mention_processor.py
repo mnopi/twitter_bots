@@ -15,7 +15,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         set_logger(__name__)
 
-        settings.LOGGER.info('-- INITIALIZED %s --' % MODULE_NAME)
+        # settings.LOGGER.info('-- INITIALIZED %s --' % MODULE_NAME)
 
         mention_pk = int(args[0]) if args else None
         try:
@@ -36,4 +36,4 @@ class Command(BaseCommand):
         except Exception as e:
             raise FatalError(e)
 
-        settings.LOGGER.info('-- FINISHED %s --' % MODULE_NAME)
+        # settings.LOGGER.info('-- FINISHED %s --' % MODULE_NAME)

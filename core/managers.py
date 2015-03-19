@@ -226,9 +226,10 @@ class TwitterBotManager(models.Manager):
     def put_previous_being_created_to_false(self):
             self.filter(is_being_created=True).update(is_being_created=False)
 
-    def queue_tasks_from_mention_queue(self, cluster, bot=None):
+    def queue_tasks_from_mention_queue(self, pool=None, cluster=None, bot=None):
         """Consulta la cola de menciones para añadirlas a la cola de tareas"""
         from project.models import Tweet
+        from project.management.commands.tweet_sender import call_process_mention_command
         import random
 
         def pr():
@@ -241,25 +242,15 @@ class TwitterBotManager(models.Manager):
             .select_related('bot_used').select_related('bot_used__proxy_for_usage__proxies_group')
         if pending_mentions.exists():
             settings.LOGGER.info('Processing %d pending mentions (1 per available bot)..' % pending_mentions.count())
-            jobs = []
             for mention in pending_mentions:
                 mention.sending = True
                 mention.bot_used.is_being_used = True
                 mention.bot_used.save()
                 mention.save()
-
-                job = cluster.submit(mention.pk)
-                job.id = mention.pk
-                jobs.append(job)
-
-            for job in jobs:
-                settings.LOGGER.info('Executing job id=%i..' % job.id)
-                job()
-                if job.exception:
-                    settings.LOGGER.error('Error executing job id=%i: %s' % (job.id, job.exception))
+                if pool:
+                    pool.add_task(call_process_mention_command, mention, cluster)
                 else:
-                    host, result = job.result
-                    settings.LOGGER.info('..job %i executed on host %s with result: %s' % (job.id, host, result))
+                    mention.process_sending()
         else:
             if Tweet.objects.filter(sending=False, sent_ok=False).exists():
                 if bot:
@@ -274,22 +265,24 @@ class TwitterBotManager(models.Manager):
         """Mira n veces (max_lookups) en la cola de menciones cada x segundos y encola tweets a enviar"""
 
         # pool = Pool(processes=num_processes) if num_processes > 1 else None
-        from project.management.commands.tweet_sender import cluster, process_mention, DISPY_NODES, CLIENT_IP_PRIVATE, CLIENT_IP_PUBLIC
+        from project.management.commands.tweet_sender import process_mention, DISPY_NODES, CLIENT_IP_PRIVATE, CLIENT_IP_PUBLIC
         import twitter_bots
 
+        cluster = None
+        pool = None
         if num_processes > 1:
             cluster = dispy.JobCluster(
                 process_mention,
-                depends=[twitter_bots],
                 ip_addr=CLIENT_IP_PRIVATE,
                 ext_ip_addr=CLIENT_IP_PUBLIC,
                 nodes=DISPY_NODES
             )
+            pool = ThreadPool(num_processes)
 
         for l in xrange(max_lookups or 1):
             settings.LOGGER.info('LOOKUP %d' % (l+1))
             try:
-                self.queue_tasks_from_mention_queue(cluster, bot=bot)
+                self.queue_tasks_from_mention_queue(cluster=cluster, pool=pool, bot=bot)
             except (EmptyMentionQueue,
                     NoAvailableBot,
                     NoAvailableBots):
@@ -299,10 +292,10 @@ class TwitterBotManager(models.Manager):
 
         settings.LOGGER.debug('Waiting completing tasks..')
 
-        # if pool:
-        #     pool.wait_completion()
-        if cluster:
-            cluster.wait()
+        if pool:
+            pool.wait_completion()
+        # if cluster:
+        #     cluster.wait()
 
             # for task_num in range(num_tasks or settings.TOTAL_TASKS_SENDING_TWEETS):
             #     pool.add_task(self.send_twusermention_from_pending_queue, bot)

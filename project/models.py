@@ -1192,8 +1192,10 @@ class Tweet(models.Model):
                     return '\n'.join(res)
             except BotNotLoggedIn:
                 # si al enviar con casperjs resulta que el bot no está logueado se loguea con selenium
+                mctweet_sender_bot.remove_cookies()
                 mctweet_sender_bot.login_twitter_with_webdriver()
-                return 'Bot %s needed to login twitter before sending mctweet' % mctweet_sender_bot.username
+                return 'Bot %s (%s) needed to login twitter before sending mctweet' \
+                       % (mctweet_sender_bot.username, mctweet_sender_bot.real_name)
             except Exception as e:
                 if not hasattr(e, 'msg'):
                     if mctweet and not mctweet.sent_ok:

@@ -76,7 +76,17 @@ def process_mention(mention_id):
     # return 'hola',  44
 
 
-cluster = None
+def call_process_mention_command(mention, cluster):
+    job = cluster.submit(mention.pk)
+    job.id = mention.pk
+    settings.LOGGER.info('Executing job id=%i..' % job.id)
+    job()
+    if job.exception:
+        settings.LOGGER.error('Error executing job id=%i: %s' % (job.id, job.exception))
+    else:
+        host, result = job.result
+        settings.LOGGER.info('..job %i executed on host %s with result: %s' % (job.id, host, result))
+    cluster.wait()
 
 
 class Command(BaseCommand):
