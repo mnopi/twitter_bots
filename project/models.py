@@ -827,9 +827,10 @@ class Tweet(models.Model):
                     scr.click(send_tweet_btn_css)
                 check_if_sent_ok()
                 scr.delay.seconds(7)
-                msg = 'Tweet %i sent ok with webdriver (needed of login for bot %s)' % (self.pk, self.bot_used.username)
+                msg = 'Tweet %i sent ok with webdriver' % (self.pk)
                 scr.logger.info(msg)
-                sending_results.append(msg)
+                if sending_results:
+                    sending_results.append(msg)
             except TwitterEmailNotConfirmed as e:
                 # si al intentar enviar el tweet el usuario no estaba realmente confirmado eliminamos su tweet
                 scr.logger.warning('Tweet %i will be deleted' % self.pk)
@@ -848,7 +849,8 @@ class Tweet(models.Model):
             else:
                 msg = e.msg
 
-            sending_results.append(msg)
+            if sending_results:
+                sending_results.append(msg)
         finally:
             scr.close_browser()
 
@@ -878,7 +880,10 @@ class Tweet(models.Model):
             # intentamos enviar con casperjs. si no es posible logueamos usando webdriver,
             # comprobando cuenta suspendida etc
             try:
-                self.send_with_casperjs()
+                if settings.SENDING_METHOD == 'casperjs':
+                    self.send_with_casperjs()
+                elif settings.SENDING_METHOD == 'webdriver':
+                    self.send_with_webdriver()
             except (CaptchaRequiredTweet,
                 BotNotLoggedIn) as e:
                 # si pide captcha o no está logueado le borramos las cookies para que vuelva a loguearse con webdriver
@@ -897,8 +902,8 @@ class Tweet(models.Model):
                 self.sent_ok = True
                 self.date_sent = utc_now()
                 self.save()
-                msg = '%s sent ok tweet %s [%s] with casperJS' \
-                      % (sender.username, self.pk, self.print_type())
+                msg = '%s sent ok tweet %s [%s] with %s' \
+                      % (sender.username, self.pk, self.print_type(), settings.SENDING_METHOD)
                 settings.LOGGER.info(msg)
                 sending_results.append(msg)
         except Exception as e:

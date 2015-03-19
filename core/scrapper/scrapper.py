@@ -600,16 +600,20 @@ class Scrapper(object):
         ActionChains(self.browser).send_keys(special_key).perform()
         self.delay.key_stroke()
 
-    def send_keys(self, keys):
+    def send_keys(self, keys, fast_mode=True):
         """Escribe cada caracter entre 0.2 y 0.9 segs de forma aleatoria, dando la impresión de
         que escriba un humano. se termina con un retardo mayor para que dé la impresión de que es un humano
         el que cambia de casilla en el formulario"""
         if type(keys) is int:
             keys = str(keys)
 
-        for key in keys:
-            ActionChains(self.browser).send_keys(key).perform()
-            self.delay.key_stroke()
+        if not fast_mode:
+            for key in keys:
+                ActionChains(self.browser).send_keys(key).perform()
+                self.delay.key_stroke()
+        else:
+            ActionChains(self.browser).send_keys(keys).perform()
+            self.delay.seconds(0.2*len(keys))
 
         self.logger.debug('send_keys >> "%s"' % keys)
         self.take_screenshot('send_keys')

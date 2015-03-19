@@ -109,6 +109,7 @@ MAX_QUEUED_TWEETS_TO_SEND_PER_BOT = 50
 
 #
 # TWEET SENDER
+SENDING_METHOD = 'casperjs'
 MAX_PROCESSES_SENDING_TWEETS = 8  # máximo de hilos para enviar tweets
 TOTAL_TASKS_SENDING_TWEETS = MAX_PROCESSES_SENDING_TWEETS  # número total de tareas para las hebras por cada vez que se ejecuta el proceso de enviar tweets
 TIME_WAITING_NEXT_LOOKUP = 30
