@@ -48,7 +48,7 @@ function write_tweet_delayed_keys()
 function write_tweet()
 {
     var tweet_msg = casper.cli.get('tweetmsg');
-    casper.sendKeys(tweet_dialog_css, tweet_msg, {keepFocus: true});
+    casper.sendKeys(tweet_box_css, tweet_msg, {keepFocus: true});
     capture('tweet_written');
 }
 
@@ -158,11 +158,11 @@ casper.then(function () {
     }
 });
 
-// hacemos click en botón de escribir nuevo tweet
-var tweet_btn_css = '#global-new-tweet-button';
-casper.waitUntilVisible(tweet_btn_css,
+// hacemos click en la caja de texto para escribir nuevo tweet
+var tweet_box_css = '#tweet-box-mini-home-profile';
+casper.waitUntilVisible(tweet_box_css,
     function then() {
-        click(tweet_btn_css);
+        click(tweet_box_css);
     },
     function onTimeout() {
         if (casper.visible('#signin-email'))
@@ -175,10 +175,11 @@ casper.waitUntilVisible(tweet_btn_css,
 );
 
 // escribimos el tweet, adjuntamos imagen si fuera necesario
-var tweet_dialog_css = '#global-tweet-dialog-dialog div.tweet-content';
-casper.waitUntilVisible(tweet_dialog_css,
+//var opened_tweet_box_css = '.timeline-tweet-box form.tweet-form .tweet-box-extras';
+var send_tweet_btn_css = '.timeline-tweet-box form.tweet-form .tweet-button button';
+casper.waitUntilVisible(send_tweet_btn_css,
     function then() {
-        capture('tweet_dialog_loaded');
+        capture('tweet_box_loaded');
 
         this.wait(getRandomIntFromRange(2000, 5000));
         write_tweet();
@@ -187,7 +188,7 @@ casper.waitUntilVisible(tweet_dialog_css,
         img_path = casper.cli.get('tweetimg');
         if (img_path) {
             this.wait(getRandomIntFromRange(3000, 5000));
-            form_css = '#global-tweet-dialog-dialog > div.modal-content > div.modal-tweet-form-container > form';
+            form_css = '#timeline > div.timeline-tweet-box > div > form';
             this.fillSelectors(form_css, {
                 'input[type="file"][name="media_empty"]': img_path
             }, false);
@@ -203,12 +204,11 @@ casper.waitUntilVisible(tweet_dialog_css,
         output.errors.push('tweet_dialog_not_loaded');
         exit();
     },
-    pageload_timeout
+    5000
 );
 
 
 // pulsamos en botón de enviar el tweet ya escrito
-var send_tweet_btn_css = '#global-tweet-dialog-dialog .tweet-button button';
 casper.waitUntilVisible(send_tweet_btn_css,
     function then(){
         click(send_tweet_btn_css);
@@ -221,7 +221,7 @@ casper.wait(getRandomIntFromRange(5000, 10000),
     function then() {
         capture('clicked_send_tweet_btn');
 
-        if (this.visible('#global-tweet-dialog-dialog'))
+        if (this.visible(send_tweet_btn_css))
         {
             var msg_drawer = '#message-drawer .message-text',
                 captcha_form = '#captcha-challenge-form',

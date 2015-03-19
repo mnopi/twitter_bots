@@ -1,7 +1,9 @@
-from core.scrapper.exceptions import PageLoadError, FailureSendingTweet
-from project.models import Extractor, Tweet
-from project.exceptions import FatalError, NoRunningProjects, NoAvaiableExtractors
-from twitter_bots import settings
+# -*- coding: utf-8 -*-
+
+
+from django.db import connection
+from project.models import Tweet
+from project.exceptions import FatalError
 from twitter_bots.settings import set_logger
 from django.core.management.base import BaseCommand
 
@@ -35,5 +37,9 @@ class Command(BaseCommand):
         #     print 'Pageload error. Maybe u need to add this host public ip address to authorized ones on proxy provider'
         except Exception as e:
             raise FatalError(e)
+
+        finally:
+            # cerramos conexión con BD
+            connection.close()
 
         # settings.LOGGER.info('-- FINISHED %s --' % MODULE_NAME)

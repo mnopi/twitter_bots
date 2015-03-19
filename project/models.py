@@ -920,8 +920,8 @@ class Tweet(models.Model):
             sender.is_being_used = False
             sender.save()
 
-            # cerramos conexión con BD
-            connection.close()
+            # # cerramos conexión con BD
+            # connection.close()
 
     def enough_time_passed_since_last(self):
         """
