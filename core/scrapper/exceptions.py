@@ -36,12 +36,14 @@ class TwitterEmailNotConfirmed(Exception):
     def __init__(self, scrapper):
         scrapper.user.twitter_confirmed_email_ok = False
         scrapper.user.save()
-        scrapper.logger.warning('Twitter email not confirmed yet')
+        self.msg = 'Twitter email not confirmed yet'
+        scrapper.logger.warning(self.msg)
 
 
 class AboutBlankPage(PageLoadError):
     def __init__(self, scrapper):
-        scrapper.logger.error('about:blank')
+        self.msg = 'about:blank page error'
+        scrapper.logger.error(self.msg)
         scrapper.take_screenshot('about_blank_error')
 
 
@@ -72,8 +74,9 @@ class NotInEmailInbox(Exception):
 class TwitterAccountSuspended(Exception):
     def __init__(self, bot):
         bot.mark_as_suspended()
-        settings.LOGGER.warning('Twitter account suspended for bot %s behind proxy %s'
-                              % (bot.username, bot.proxy_for_usage.__unicode__()))
+        self.msg = 'Twitter account suspended for bot %s behind proxy %s'\
+                   % (bot.username, bot.proxy_for_usage.__unicode__())
+        settings.LOGGER.warning(self.msg)
 
 
 class TargetUserWasSuspended(Exception):
@@ -97,7 +100,8 @@ class TwitterAccountDead(Exception):
         bot.save()
         # eliminamos todos sus tweets de la cola
         Tweet.objects.filter(sent_ok=False, bot_used=bot).delete()
-        settings.LOGGER.error('Twitter account %s dead :(' % bot.username)
+        self.msg = 'Twitter account %s dead :(' % bot.username
+        settings.LOGGER.error(self.msg)
 
 
 class EmailAccountSuspended(Exception):
@@ -105,40 +109,46 @@ class EmailAccountSuspended(Exception):
         scrapper.user.is_suspended_email = True
         scrapper.user.date_suspended_email = utc_now()
         scrapper.user.save()
-        scrapper.logger.warning('Email account suspended')
+        self.msg = 'Email account suspended'
+        scrapper.logger.warning(self.msg)
 
 
 class BotDetectedAsSpammerException(Exception):
     def __init__(self, scrapper):
         scrapper.user.is_suspended = False
         scrapper.user.save()
-        scrapper.logger.warning('Twitter has detected this bot as spammer')
+        self.msg = 'Twitter has detected bot %s as spammer' % scrapper.user.username
+        scrapper.logger.warning(self.msg)
 
 
 class FailureSendingTweet(Exception):
     def __init__(self, tweet):
-        settings.LOGGER.error('Error on bot %s sending tweet %s' %
-                                (tweet.bot_used.username, tweet.pk))
+        self.msg = 'Error on bot %s sending tweet %s' \
+                   % (tweet.bot_used.username, tweet.pk)
+        settings.LOGGER.error(self.msg)
 
 
 class BotNotLoggedIn(Exception):
     def __init__(self, bot):
-        settings.LOGGER.warning('Bot %s not logged in twitter' % bot.username)
+        self.msg = 'Bot %s not logged in twitter' % bot.username
+        settings.LOGGER.warning(self.msg)
 
 
 class FailureReplyingMcTweet(Exception):
     def __init__(self, scrapper, mctweet):
         receiver = mctweet.mentioned_bots.first()
         sender = mctweet.bot_used
-        settings.LOGGER.warning('Bot %s can\'t reply mctweet %d sent by %s' %
-                                (receiver.username, mctweet.pk, sender.username))
+        self.msg = 'Bot %s can\'t reply mctweet %d sent by %s' \
+                   % (receiver.username, mctweet.pk, sender.username)
+        settings.LOGGER.warning(self.msg)
         scrapper.take_screenshot('failure_replying_mctweet', force_take=True)
 
 
 class TweetAlreadySent(Exception):
     def __init__(self, tweet):
-        settings.LOGGER.warning('Tweet %d was already sent by bot %s' %
-                                (tweet.pk, tweet.bot_used.username))
+        self.msg = 'Tweet %d was already sent by bot %s' \
+                   % (tweet.pk, tweet.bot_used.username)
+        settings.LOGGER.warning(self.msg)
         tweet.sent_ok = True
         tweet.sending = False
         if not tweet.date_sent:
@@ -148,12 +158,14 @@ class TweetAlreadySent(Exception):
 
 class UnknownErrorSendingTweet(Exception):
     def __init__(self, tweet):
-        settings.LOGGER.error('Unknown error sending tweet %s by bot %s' % (tweet.pk, tweet.bot_used.username))
+        self.msg = 'Unknown error sending tweet %s by bot %s' % (tweet.pk, tweet.bot_used.username)
+        settings.LOGGER.error(self.msg)
 
 
 class CaptchaRequiredTweet(Exception):
     def __init__(self, tweet):
-        settings.LOGGER.error('Captcha required tweet %i to send by bot %s' % (tweet.pk, tweet.bot_used.username))
+        self.msg = 'Captcha required tweet %i to send by bot %s' % (tweet.pk, tweet.bot_used.username)
+        settings.LOGGER.error(self.msg)
 
 
 class CaptchaIncorrect(Exception):
@@ -182,24 +194,27 @@ class TwitterBotDontExistsOnTwitterException(Exception):
 class ProxyConnectionError(ConnectionError):
     """Cuando no se puede conectar al proxy"""
     def __init__(self, bot):
-        settings.LOGGER.error('Bot %s can\'t connect to proxy: %s' % (bot.username, bot.proxy_for_usage.__unicode__()))
+        self.msg = 'Bot %s can\'t connect to proxy: %s' % (bot.username, bot.proxy_for_usage.__unicode__())
+        settings.LOGGER.error(self.msg)
 
 
 class InternetConnectionError(ConnectionError):
     """Cuando, aun sin usar proxy, no se puede conectar a Internet"""
     def __init__(self):
-        settings.LOGGER.error('Error connecting to Internet')
+        self.msg = 'Error connecting to Internet'
+        settings.LOGGER.error(self.msg)
         time.sleep(100)
 
 
 class ProxyTimeoutError(ConnectionError):
     """Cuando se puede conectar al proxy pero no responde la página que pedimos"""
     def __init__(self, scrapper):
-
-        scrapper.logger.error('Timeout error using proxy %s to request url %s, maybe you are using '
-                              'unauthorized IP to connect. Page load timeout: %i secs' %
-                              (scrapper.user.proxy_for_usage.__unicode__(),
-                               scrapper.browser.current_url, settings.WEBDRIVER_PAGE_LOAD_TIMEOUT))
+        self.msg = 'Timeout error using proxy %s to request url %s, maybe you are using ' \
+                   'unauthorized IP to connect. Page load timeout: %i secs' \
+                   % (scrapper.user.proxy_for_usage.__unicode__(),
+                      scrapper.browser.current_url,
+                      settings.WEBDRIVER_PAGE_LOAD_TIMEOUT)
+        scrapper.logger.error(self.msg)
 
         scrapper.take_screenshot('proxy_timeout_error', force_take=True)
 
@@ -213,20 +228,23 @@ class ProxyTimeoutError(ConnectionError):
 
 class ProxyUrlRequestError(ConnectionError):
     def __init__(self, scrapper, url):
-        scrapper.logger.error('Proxy %s gets google.com ok, but couldn\'t get %s' % (scrapper.user.proxy_for_usage.__unicode__(), url))
+        self.msg = 'Proxy %s gets google.com ok, but couldn\'t get %s' % (scrapper.user.proxy_for_usage.__unicode__(), url)
+        scrapper.logger.error(self.msg)
         time.sleep(5)
 
 
 class BlankPageError(PageLoadError):
     def __init__(self, scrapper, url):
         scrapper.take_screenshot('blank_page_source_failure')
-        scrapper.logger.error('Blank page source taken from url %s' % url)
+        self.msg = 'Blank page source taken from url %s' % url
+        scrapper.logger.error(self.msg)
         time.sleep(5)
 
 
 class ProxyAccessDeniedError(ConnectionError):
     def __init__(self, scrapper, url):
-        scrapper.logger.error('Access denied to proxy %s requesting url %s' % (scrapper.user.proxy_for_usage.__unicode__(), url))
+        self.msg = 'Access denied to proxy %s requesting url %s' % (scrapper.user.proxy_for_usage.__unicode__(), url)
+        scrapper.logger.error(self.msg)
         scrapper.user.proxy_for_usage.mark_as_unavailable_for_use()
         time.sleep(5)
 
@@ -261,12 +279,14 @@ class SignupTwitterError(Exception):
 
 class LoginTwitterError(Exception):
     def __init__(self, bot):
-        settings.LOGGER.error('Error on bot %s login on twitter' % bot.username)
+        self.msg = 'Error on bot %s login on twitter' % bot.username
+        settings.LOGGER.error(self.msg)
 
 
 class FollowTwitterUsersError(Exception):
     def __init__(self, bot):
-        settings.LOGGER.error('Error on bot %s following twitterusers' % bot.username)
+        self.msg = 'Error on bot %s following twitterusers' % bot.username
+        settings.LOGGER.error(self.msg)
 
 
 class ConfirmTwEmailError(Exception):
@@ -280,7 +300,8 @@ class TwitterProfileCreationError(Exception):
 class PageNotRetrievedOkByWebdriver(PageLoadError):
     def __init__(self, scrapper):
         scrapper.take_screenshot('page_not_retrieved_ok')
-        scrapper.logger.error('page not retrieved ok by webdriver: %s' % scrapper.browser.current_url)
+        self.msg = 'page not retrieved ok by webdriver: %s' % scrapper.browser.current_url
+        scrapper.logger.error(self.msg)
         scrapper.close_browser()
 
 
@@ -288,9 +309,10 @@ class PageNotReadyState(PageLoadError):
     def __init__(self, scrapper):
         try:
             scrapper.take_screenshot('page_not_readystate')
-            scrapper.logger.error('Exceeded %i secs waiting for DOM readystate after loading %s for bot %s under proxy %s' %
-                                    (settings.WEBDRIVER_PAGE_READYSTATE_TIMEOUT, scrapper.browser.current_url, scrapper.user.username,
-                                    scrapper.user.proxy_for_usage.__unicode__()))
+            self.msg = 'Exceeded %i secs waiting for DOM readystate after loading %s for bot %s under proxy %s' \
+                       % (settings.WEBDRIVER_PAGE_READYSTATE_TIMEOUT, scrapper.browser.current_url, scrapper.user.username,
+                        scrapper.user.proxy_for_usage.__unicode__())
+            scrapper.logger.error(self.msg)
         except URLError as e:
             # scrapper.logger.error('URLError: cannot retrieve URL from scrapper. Proxy used: %s' %
             #                       scrapper.user.proxy_for_usage.__unicode__())
@@ -325,8 +347,9 @@ class CasperJSError(Exception):
 
 class CasperJSProcessTimeoutError(Exception):
     def __init__(self, bot):
-        settings.LOGGER.error('CasperJSProcessTimeoutError (exceeded %i secs waiting to terminate) - bot %s' %
-                              (settings.CASPERJS_PROCESS_TIMEOUT, bot.username))
+        self.msg = 'CasperJSProcessTimeoutError (exceeded %i secs waiting to terminate) - bot %s' \
+                   % (settings.CASPERJS_PROCESS_TIMEOUT, bot.username)
+        settings.LOGGER.error(self.msg)
 
 
 class CasperJSNotFoundElement(Exception):
@@ -336,12 +359,12 @@ class CasperJSNotFoundElement(Exception):
 
 class CasperJSWaitTimeoutExceeded(Exception):
     def __init__(self, sender, waited_for=None, seconds=None):
-        msg = 'CasperJSWaitTimeoutExceeded on bot %s' % sender.username
+        self.msg = 'CasperJSWaitTimeoutExceeded on bot %s' % sender.username
         if waited_for:
-            msg += '. Waited for: %s' % waited_for
+            self.msg += '. Waited for: %s' % waited_for
         if seconds:
-            msg += '(%i secs)' % seconds
-        settings.LOGGER.warning(msg)
+            self.msg += '(%i secs)' % seconds
+        settings.LOGGER.warning(self.msg)
 
 
 class NoStdoutReturned(Exception):
@@ -350,7 +373,7 @@ class NoStdoutReturned(Exception):
 
 class PageloadTimeoutExpired(Exception):
     def __init__(self, sender, seconds=None):
-        msg = 'PageloadTimeoutExpired on bot %s' % sender.username
+        self.msg = 'PageloadTimeoutExpired on bot %s' % sender.username
         if seconds:
-            msg += ' (%i secs)' % seconds
-        settings.LOGGER.warning(msg)
+            self.msg += ' (%i secs)' % seconds
+        settings.LOGGER.warning(self.msg)

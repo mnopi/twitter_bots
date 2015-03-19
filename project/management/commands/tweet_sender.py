@@ -15,14 +15,14 @@ from twitter_bots.settings import set_logger
 
 MODULE_NAME = __name__.split('.')[-1]
 
-CLIENT_IP_PRIVATE = '192.168.1.115'
-CLIENT_IP_PUBLIC = '88.26.212.82'
-# CLIENT_IP_PRIVATE = '192.168.0.115'
-# CLIENT_IP_PUBLIC = '77.228.76.30'
+# CLIENT_IP_PRIVATE = '192.168.1.115'
+# CLIENT_IP_PUBLIC = '88.26.212.82'
+CLIENT_IP_PRIVATE = '192.168.0.115'
+CLIENT_IP_PUBLIC = '77.228.76.30'
 
 DISPY_NODES = [
     # '46.101.61.145',  # gallina1
-    # '88.26.212.82',  # pepino1
+    '88.26.212.82',  # pepino1
     CLIENT_IP_PRIVATE,  # local
     # '*',
 ]
@@ -36,6 +36,10 @@ def process_mention(mention_id):
     HOSTS = {
         'p1': {
             'manage.py': '/home/robots/Dropbox/dev/proyectos/twitter_bots/manage.py',
+        },
+        'rmaja': {
+            'python': '/home/rmaja/virtualenvs/twitter_bots/bin/python',
+            'manage.py': '/home/rmaja/Dropbox/dev/proyectos/twitter_bots/manage.py',
         }
     }
 
@@ -56,7 +60,7 @@ def process_mention(mention_id):
     ]
 
     proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    timer = Timer(60*10, proc.kill)  # ponemos timeout de 10 minutos al proceso
+    timer = Timer(60*5, proc.kill)  # ponemos timeout de x minutos al proceso
     timer.start()
     stdout, stderr = proc.communicate()
     if timer.is_alive():

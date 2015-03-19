@@ -925,26 +925,22 @@ class TwitterBot(models.Model):
                 except NoSuchElementException:
                     raise FailureReplyingMcTweet(scr, mctweet)
 
-                settings.LOGGER.info('Bot %s replied ok "%s" to mention from %s' %
-                                     (mentioned_bot.username, reply_msg, mctweet.bot_used.username))
-                scr.take_screenshot('mention_replied_ok', force_take=True)
+            mention_received_ok_el = get_mention_received_ok_el()
+            reply_btn = mention_received_ok_el.find_element_by_css_selector('.js-actionReply')
+            scr.click(reply_btn)
 
-            try:
-                mention_received_ok_el = get_mention_received_ok_el()
-                reply_btn = mention_received_ok_el.find_element_by_css_selector('.js-actionReply')
-                scr.click(reply_btn)
+            input_text = mention_received_ok_el.find_element_by_css_selector('#tweet-box-template')
+            reply_msg = scr.get_random_reply()
+            scr.fill_input_text(input_text, reply_msg)
 
-                input_text = mention_received_ok_el.find_element_by_css_selector('#tweet-box-template')
-                reply_msg = scr.get_random_reply()
-                scr.fill_input_text(input_text, reply_msg)
-
-                tweet_btn = mention_received_ok_el.find_element_by_css_selector('.tweet-button .btn')
-                scr.click(tweet_btn)
-                scr.delay.seconds(5)
-                check_replied_ok()
-            except Exception:
-                scr.take_screenshot('error_replying', force_take=True)
-                settings.LOGGER.exception('Error replying bot %s to %s' % (mentioned_bot.username, mctweet.bot_used.username))
+            tweet_btn = mention_received_ok_el.find_element_by_css_selector('.tweet-button .btn')
+            scr.click(tweet_btn)
+            scr.delay.seconds(5)
+            check_replied_ok()
+            msg = 'Bot %s replied ok "%s" to mention from %s' % (mentioned_bot.username, reply_msg, mctweet.bot_used.username)
+            settings.LOGGER.info(msg)
+            scr.take_screenshot('mention_replied_ok', force_take=True)
+            return msg
 
         def get_mention_received_ok_el():
             mention_received_ok_el = None
@@ -988,38 +984,43 @@ class TwitterBot(models.Model):
 
                     if get_mention_received_ok_el():
                         scr.take_screenshot('mention_arrived_ok', force_take=True)
-                        settings.LOGGER.info('Bot %s received mention ok from %s' %
-                                             (mentioned_bot.username, mctweet.bot_used.username))
+                        msg = 'Bot %s received mention ok from %s' % (mentioned_bot.username, mctweet.bot_used.username)
+                        settings.LOGGER.info(msg)
                         tcm.mentioning_works = True
                         tcm.destination_bot_checked_mention = True
                         tcm.destination_bot_checked_mention_date = utc_now()
                         tcm.save()
+
                         try:
-                            do_reply()
-                        except FailureReplyingMcTweet:
-                            # de momento sólo sacamos mensajito si no se pudo responder
-                            pass
+                            msg2 = do_reply()
+                        except Exception as e:
+                            msg2 = 'Error replying bot %s to %s.' % (mentioned_bot.username, mctweet.bot_used.username)
+                            if not hasattr(e, 'msg'):
+                                settings.LOGGER.exception(msg2)
+                                scr.take_screenshot('error_replying', force_take=True)
+                            else:
+                                msg2 = msg2 + ' Reason: ' + e.msg
+
+                        return msg + '\n' + msg2
                     else:
+                        msg = 'Bot %s not received mention from %s tweeting: %s' \
+                              % (mentioned_bot.username, mctweet.bot_used.username, mctweet.compose())
                         scr.take_screenshot('mention_not_arrived', force_take=True)
-                        settings.LOGGER.error('Bot %s not received mention from %s tweeting: %s' %
-                                              (mentioned_bot.username, mctweet.bot_used.username, mctweet.compose()))
+                        settings.LOGGER.error(msg)
                         tcm.mentioning_works = False
                         tcm.destination_bot_checked_mention = True
                         tcm.destination_bot_checked_mention_date = utc_now()
                         tcm.save()
+                        return msg
 
-                except TwitterEmailNotConfirmed:
-                    settings.LOGGER.debug('Verifier %s has to confirm email first. Deleting mctweet %d sent from %s' %
-                                          (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
+                except TwitterEmailNotConfirmed as e:
+                    e.msg = 'Verifier %s has to confirm email first. Deleting mctweet %d sent from %s' \
+                            % (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username)
+                    settings.LOGGER.debug(e.msg)
                     mctweet.delete()
-                except (PageLoadError,
-                        LoginTwitterError,
-                        NoAvailableProxiesToAssignBotsForUse):
-                    pass
+                    raise e
                 except Exception as e:
                     scr.take_screenshot('error_verifying', force_take=True)
-                    settings.LOGGER.exception('Error on bot %s verifying mctweet %d sent from %s' %
-                                              (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username))
                     raise e
                 finally:
                     scr.close_browser()
@@ -1030,6 +1031,14 @@ class TwitterBot(models.Model):
                         tcm.save()
                     except TweetCheckingMention.DoesNotExist:
                         pass
+        except Exception as e:
+            msg = 'Error on bot %s verifying mctweet %d sent from %s.' \
+                  % (mentioned_bot.username, mctweet.pk, mctweet.bot_used.username)
+            if not hasattr(e, 'msg'):
+                settings.LOGGER.exception(msg)
+            else:
+                msg = msg + ' Reason: ' + e.msg
+            return msg
         finally:
             connection.close()
 
@@ -1171,36 +1180,44 @@ class TwitterBot(models.Model):
         scr.set_screenshots_dir('following_people_%s' % utc_now_to_str())
 
         try:
-            scr.open_browser()
-            scr.login()
-            scr.click('.DashboardProfileCard-name a')
+            try:
+                scr.open_browser()
+                scr.login()
+                scr.click('.DashboardProfileCard-name a')
 
-            # miramos qué ratio tiene de following/followers. Si inferior al del bot entonces
-            # lo ponemos a seguir los que se marcaron como pendientes durante el mutex
-            ratio = get_ratio()
-            ratio_is_below = ratio < self.following_ratio
-            if ratio_is_below:
-                twusers_to_follow = self.get_twitterusers_to_follow_at_once()
-                settings.LOGGER.info('Bot %s following %d twitterusers..' % (self.username, twusers_to_follow.count()))
-                for twitteruser in twusers_to_follow:
-                    follow_twitteruser(twitteruser)
-                settings.LOGGER.info('Bot %s followed %d twitterusers ok' % (self.username, twusers_to_follow.count()))
-            else:
-                settings.LOGGER.info('%s not have to follow anyone for now. current ratio: %.1f, max ratio: %.1f' %
-                                      (self.username, ratio, self.following_ratio))
-            self.date_last_following = utc_now()
-            self.save()
-        except (LoginTwitterError, PageLoadError):
-            scr.take_screenshot('following_people_error')
-            raise FollowTwitterUsersError(self)
+                # miramos qué ratio tiene de following/followers. Si inferior al del bot entonces
+                # lo ponemos a seguir los que se marcaron como pendientes durante el mutex
+                ratio = get_ratio()
+                ratio_is_below = ratio < self.following_ratio
+                if ratio_is_below:
+                    twusers_to_follow = self.get_twitterusers_to_follow_at_once()
+                    settings.LOGGER.info('Bot %s following %d twitterusers..' % (self.username, twusers_to_follow.count()))
+                    for twitteruser in twusers_to_follow:
+                        follow_twitteruser(twitteruser)
+                    msg = 'Bot %s followed %d twitterusers ok' % (self.username, twusers_to_follow.count())
+                else:
+                    msg = '%s not have to follow anyone for now. current ratio: %.1f, max ratio: %.1f' \
+                          % (self.username, ratio, self.following_ratio)
+                self.date_last_following = utc_now()
+                self.save()
+                settings.LOGGER.info(msg)
+                return msg
+            except (LoginTwitterError, PageLoadError) as e:
+                scr.take_screenshot('following_people_error')
+                raise e
+            finally:
+                scr.close_browser()
+                self.is_being_used = False
+                self.save()
+                connection.close()
         except Exception as e:
-            settings.LOGGER.exception('Error on bot %s following twitterusers' % self.username)
-            raise e
-        finally:
-            scr.close_browser()
-            self.is_being_used = False
-            self.save()
-            connection.close()
+            msg = 'Error on bot %s following twitterusers.' % self.username
+            if not hasattr(e, 'msg'):
+                settings.LOGGER.exception(msg)
+            else:
+                msg = msg + ' Reason: ' + e.msg
+
+            return msg
 
     def mark_twitterusers_to_follow_at_once(self):
         """Reserva dentro del mutex los twitterusers que el bot ha de seguir de una vez"""

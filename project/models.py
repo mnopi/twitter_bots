@@ -767,7 +767,7 @@ class Tweet(models.Model):
             # si el timer agota la espera, es decir, se mato casperjs
             raise CasperJSProcessTimeoutError(sender)
 
-    def send_with_webdriver(self):
+    def send_with_webdriver(self, sending_results=None):
         """Deprecated"""
         def check_if_sent_ok():
             # si aún aparece el diálogo de twitear es que no se envió ok
@@ -803,48 +803,56 @@ class Tweet(models.Model):
 
         scr = self.bot_used.scrapper
         try:
-            screenshots_dir_name = '%d_%s' % (self.pk, self.print_type())
-            scr.set_screenshots_dir(screenshots_dir_name)
-            scr.open_browser()
-            scr.login()
-            scr.delay.seconds(5)
+            try:
+                screenshots_dir_name = '%d_%s' % (self.pk, self.print_type())
+                scr.set_screenshots_dir(screenshots_dir_name)
+                scr.open_browser()
+                scr.login()
+                scr.delay.seconds(5)
 
-            scr.click('#global-new-tweet-button')
+                scr.click('#global-new-tweet-button')
 
-            scr.send_keys(self.compose())
+                scr.send_keys(self.compose())
 
-            if self.has_image():
-                el = self.browser.find_element_by_xpath("//*[@id=\"global-tweet-dialog-dialog\"]"
-                                                        "/div[2]/div[4]/form/div[2]/div[1]/div[1]/div/label/input")
-                el.send_keys(self.get_image().img.path)
+                if self.has_image():
+                    el = self.browser.find_element_by_xpath("//*[@id=\"global-tweet-dialog-dialog\"]"
+                                                            "/div[2]/div[4]/form/div[2]/div[1]/div[1]/div/label/input")
+                    el.send_keys(self.get_image().img.path)
 
-            send_tweet_btn_css = '#global-tweet-dialog-dialog .tweet-button button'
-            scr.click(send_tweet_btn_css)
-            scr.delay.seconds(3)
-            if scr.check_visibility('#recaptcha_response_field'):
-                resolve_captcha()
+                send_tweet_btn_css = '#global-tweet-dialog-dialog .tweet-button button'
                 scr.click(send_tweet_btn_css)
-            check_if_sent_ok()
-            scr.delay.seconds(7)
-            scr.logger.info('Tweet %i sent ok' % self.pk)
-        except TwitterEmailNotConfirmed:
-            # si al intentar enviar el tweet el usuario no estaba realmente confirmado eliminamos su tweet
-            scr.logger.warning('Tweet %i will be deleted' % self.pk)
-            self.delete()
-        except CaptchaIncorrect:
-            scr.logger.error('Exceeded max retries solving captcha for sending tweet %i' % self.pk)
-            self.bot_used.remove_cookies()
-        except (TweetAlreadySent,
-                ProxyUrlRequestError,
-                ConnectionError,
-                NoAvailableProxiesToAssignBotsForUse,
-                FailureSendingTweet,
-                LoginTwitterError):
-            pass
+                scr.delay.seconds(3)
+                if scr.check_visibility('#recaptcha_response_field'):
+                    resolve_captcha()
+                    scr.click(send_tweet_btn_css)
+                check_if_sent_ok()
+                scr.delay.seconds(7)
+                msg = 'Tweet %i sent ok' % self.pk
+                scr.logger.info(msg)
+                sending_results.append(msg)
+            except TwitterEmailNotConfirmed as e:
+                # si al intentar enviar el tweet el usuario no estaba realmente confirmado eliminamos su tweet
+                scr.logger.warning('Tweet %i will be deleted' % self.pk)
+                self.delete()
+                raise e
+            except CaptchaIncorrect as e:
+                e.msg = 'Exceeded max retries solving captcha for sending tweet %i' % self.pk
+                scr.logger.error(e.msg)
+                self.bot_used.remove_cookies()
+                raise e
+        except Exception as e:
+            if not hasattr(e, 'msg'):
+                msg = 'Error on bot %s (%s) sending tweet with id=%i)' \
+                      % (self.bot_used.username, self.bot_used.real_name, self.pk)
+                settings.LOGGER.exception(msg)
+            else:
+                msg = e.msg
+
+            sending_results.append(msg)
         finally:
             scr.close_browser()
 
-    def send(self, retries=0):
+    def send(self, retries=0, sending_results=None):
         if not settings.LOGGER:
             set_logger('tweet_sender')
 
@@ -865,44 +873,44 @@ class Tweet(models.Model):
                                   self.print_type(),
                                   self.compose()))
 
-        # intentamos enviar con casperjs. si no es posible logueamos usando webdriver,
-        # comprobando cuenta suspendida etc
+        # try global para capturar la salida de la excepción, por si se está ejecutando en otro hilo
         try:
-            self.send_with_casperjs()
-        except (CaptchaRequiredTweet,
-            BotNotLoggedIn) as e:
-            # si pide captcha o no está logueado le borramos las cookies para que vuelva a loguearse con webdriver
-            sender.remove_cookies()
-            raise e
-        except (PageloadTimeoutExpired,
-                CasperJSWaitTimeoutExceeded,
-                NoStdoutReturned) as e:
-            if retries == settings.CASPERJS_MAX_RETRIES_SENDING_PER_THREAD:
-                settings.LOGGER.error('Exceeded %i retries to send tweet %i - bot %s, proxy: %s' %
-                              (retries, self.pk, sender.username, sender.proxy_for_usage.__unicode__()))
-                raise FailureSendingTweet(self)
+            # intentamos enviar con casperjs. si no es posible logueamos usando webdriver,
+            # comprobando cuenta suspendida etc
+            try:
+                self.send_with_casperjs()
+            except (CaptchaRequiredTweet,
+                BotNotLoggedIn) as e:
+                # si pide captcha o no está logueado le borramos las cookies para que vuelva a loguearse con webdriver
+                sender.remove_cookies()
+                raise e
+            except (PageloadTimeoutExpired,
+                    CasperJSWaitTimeoutExceeded,
+                    NoStdoutReturned) as e:
+                if retries == settings.CASPERJS_MAX_RETRIES_SENDING_PER_THREAD:
+                    settings.LOGGER.error('Exceeded %i retries to send tweet %i - bot %s, proxy: %s' %
+                                  (retries, self.pk, sender.username, sender.proxy_for_usage.__unicode__()))
+                    raise e
+                else:
+                    self.send(retries=retries+1)
             else:
-                self.send(retries=retries+1)
-        except (TweetAlreadySent,
-                TwitterAccountSuspended,
-                TwitterAccountDead,
-                LoginTwitterError,
-                PageLoadError,
-                CasperJSWaitTimeoutExceeded,
-                simplejson.JSONDecodeError,
-                CasperJSProcessTimeoutError,
-                UnknownErrorSendingTweet):
-            raise FailureSendingTweet(self)
+                self.sent_ok = True
+                self.date_sent = utc_now()
+                self.save()
+                msg = '%s sent ok tweet %s [%s] with casperJS' \
+                      % (sender.username, self.pk, self.print_type())
+                settings.LOGGER.info(msg)
+                sending_results.append(msg)
         except Exception as e:
-             settings.LOGGER.exception('Error on bot %s (%s) sending tweet with id=%i)' %
-                                      (self.bot_used.username, self.bot_used.real_name, self.pk))
-             raise e
-        else:
-            self.sent_ok = True
-            self.date_sent = utc_now()
-            self.save()
-            settings.LOGGER.info('%s sent ok tweet %s [%s] with casperJS'
-                                 % (sender.username, self.pk, self.print_type()))
+            if not hasattr(e, 'msg'):
+                msg = 'Error on bot %s (%s) sending tweet with id=%i)' \
+                      % (self.bot_used.username, self.bot_used.real_name, self.pk)
+                settings.LOGGER.exception(msg)
+            else:
+                msg = e.msg
+
+            sending_results.append(msg)
+            raise e
         finally:
             # si el tweet sigue en BD se desmarca como enviando
             if Tweet.objects.filter(pk=self.pk).exists():
@@ -1104,35 +1112,26 @@ class Tweet(models.Model):
         else:
             return False
 
-    def process_sending(self):
+    def process_sending(self, burst_size=None):
         """Procesa el tweet de la cola para ver qué tarea tiene que realizar el tweet sender con este tweet"""
 
         def log_task_adding(task_name):
-            settings.LOGGER.debug('Adding task [%s] (total unfinished: %d)' % (task_name, pool.tasks.unfinished_tasks))
+            settings.LOGGER.debug('Adding task [%s] to pool. (total unfinished: %d)' % (task_name, pool.tasks.unfinished_tasks))
 
         def add_task_send_tweet(tweet, send_method):
-            tweet.sending = True
-            tweet.bot_used.is_being_used = True
-            tweet.bot_used.save()
-            tweet.save()
             if pool:
                 log_task_adding('SEND MU_TWEET')
-                pool.add_task(send_method)
+                pool.add_task(send_method, sending_results=sending_mentions_results)
             else:
-                send_method()
+                send_method(sending_results=sending_mentions_results)
 
-        def add_task_login_twitter(sender):
-            sender.is_being_using = True
-            sender.save()
-            if pool:
-                log_task_adding('LOGIN TWITTER')
-                pool.add_task(sender.login_twitter_with_webdriver)
-            else:
-                sender.login_twitter_with_webdriver()
+        pool = None
+
+        # se guarda aquí cada salida de procesar cada mención en la ráfaga o bien la de procesar
+        # una sola mención
+        sending_mentions_results = []
 
         try:
-            pool = None
-
             self.check_if_can_be_sent()
 
             sender = self.bot_used
@@ -1140,7 +1139,7 @@ class Tweet(models.Model):
                 # si el bot es de un grupo que permite envíos de muchos tweets a la vez añadimos
                 # mas tweets a enviar para ese mismo bot
                 sender_group = sender.get_group()
-                max_tweets_at_once = str_interval_to_random_num(sender_group.max_tweets_at_once)
+                max_tweets_at_once = burst_size or str_interval_to_random_num(sender_group.max_tweets_at_once)
                 tweets_queued_for_sender = sender.tweets.pending_to_send()[:max_tweets_at_once]
                 num_tweets_to_send = tweets_queued_for_sender.count()
                 if num_tweets_to_send < max_tweets_at_once:
@@ -1161,67 +1160,61 @@ class Tweet(models.Model):
                 # si no está logueado enviamos con webdriver
                 add_task_send_tweet(self, self.send_with_webdriver)
 
-        except (TweetConstructionError,
-                BotIsAlreadyBeingUsed,
-                BotHasNotEnoughTimePassedToTweetAgain):
-            pass
+            sal = ''
+            for i, result in enumerate(sending_mentions_results):
+                sal += 'Tweet %i/%i: %s\n' % (i+1, len(sending_mentions_results), result)
+            return sal
 
         except BotHasReachedConsecutiveTUMentions as e:
             mctweet_sender_bot = e.bot
+            mctweet = None
 
             try:
                 mctweet = mctweet_sender_bot.get_or_create_mctweet()
-            except BotWithoutBotsToMention:
-                pass
-            else:
                 if mctweet.sent_ok:
-                    try:
-                        mctweet.check_if_can_be_verified()
-                        mctweet.tweet_checking_mention.destination_bot_is_checking_mention = True
-                        mctweet.tweet_checking_mention.save()
-                        mentioned_bot = mctweet.mentioned_bots.first()
+                    mctweet.check_if_can_be_verified()
+                    mctweet.tweet_checking_mention.destination_bot_is_checking_mention = True
+                    mctweet.tweet_checking_mention.save()
+                    mentioned_bot = mctweet.mentioned_bots.first()
 
-                        if pool:
-                            log_task_adding('VERIFY MC_TWEET')
-                            pool.add_task(mentioned_bot.verify_mctweet_if_received_ok, mctweet)
-                        else:
-                            mentioned_bot.verify_mctweet_if_received_ok(mctweet)
-                    except (TweetConstructionError,
-                            DestinationBotIsBeingUsed,
-                            DestinationBotIsDead,
-                            VerificationTimeWindowNotPassed,
-                            SentOkMcTweetWithoutDateSent):
-                        pass
+                    return mentioned_bot.verify_mctweet_if_received_ok(mctweet)
                 else:
-                    try:
-                        mctweet_sender_bot.check_if_can_send_mctweet()
-                        mctweet.bot_used.is_being_used = True
-                        mctweet.bot_used.save()
-                        mctweet.sending = True
-                        mctweet.save()
-                        if pool:
-                            log_task_adding('SEND MC_TWEET')
-                            pool.add_task(mctweet.send)
-                        else:
-                            mctweet.send()
-                    except BotNotLoggedIn:
-                        add_task_login_twitter(mctweet_sender_bot)
-                    except LastMctweetFailedTimeWindowNotPassed:
-                        pass
+                    mctweet_sender_bot.check_if_can_send_mctweet()
+                    mctweet.bot_used.is_being_used = True
+                    mctweet.bot_used.save()
+                    mctweet.sending = True
+                    mctweet.save()
+
+                    res = []
+                    mctweet.send(sending_results=res)
+                    return '\n'.join(res)
+            except BotNotLoggedIn:
+                # si al enviar con casperjs resulta que el bot no está logueado se loguea con selenium
+                mctweet_sender_bot.login_twitter_with_webdriver()
+                return 'Bot %s needed to login twitter before sending mctweet' % mctweet_sender_bot.username
+            except Exception as e:
+                if not hasattr(e, 'msg'):
+                    if mctweet and not mctweet.sent_ok:
+                        msg = 'unexpected error on bot %s sending mctweet %i' % (mctweet.bot_used.username, mctweet.pk)
+                    elif mctweet and mctweet.sent_ok:
+                        msg = 'unexpected error on bot %s verifying mctweet %i' % (mctweet.bot_used.username, mctweet.pk)
+                    else:
+                        msg = 'unexpected error in BotHasReachedConsecutiveTUMentions exception block'
+                    settings.LOGGER.exception(msg)
+                else:
+                    msg = e.msg
+
+                return msg
         except MuTweetHasNotSentFTweetsEnough as e:
             ftweet = e.mutweet.get_or_create_ftweet_to_send()
             ftweet.sending = True
             ftweet.bot_used.is_being_used = True
             ftweet.bot_used.save()
             ftweet.save()
-            if pool:
-                log_task_adding('SEND F_TWEET')
-                pool.add_task(ftweet.send)
-            else:
-                try:
-                    ftweet.send()
-                except FailureSendingTweet:
-                    pass
+
+            res = []
+            ftweet.send(sending_results=res)
+            return '\n'.join(res)
 
         except SenderBotHasToFollowPeople as e:
             sender_bot = e.sender_bot
@@ -1229,21 +1222,22 @@ class Tweet(models.Model):
             sender_bot.save()
             # marcamos los twitterusers a seguir por el bot
             sender_bot.mark_twitterusers_to_follow_at_once()
-            if pool:
-                log_task_adding('FOLLOW PEOPLE')
-                pool.add_task(sender_bot.follow_twitterusers)
-            else:
-                try:
-                    sender_bot.follow_twitterusers()
-                except FollowTwitterUsersError:
-                    pass
 
-        except FailureSendingTweet:
-            pass
+            return sender_bot.follow_twitterusers()
+
         except Exception as e:
-            settings.LOGGER.exception('Error getting tumention from queue for bot %s: %s' %
-                                  (self.bot_used.username, self.compose()))
-            raise e
+            default_msg = 'Error getting tumention from queue for bot %s: %s' \
+                          % (self.bot_used.username, self.compose())
+            e.msg = e.msg if hasattr(e, 'msg') else default_msg
+            settings.LOGGER.exception(e.msg)
+            return e.msg
+        finally:
+            if self.sending:
+                self.sending = False
+                self.save()
+            if self.bot_used.is_being_used:
+                self.bot_used.is_being_used = False
+                self.save()
 
 
 class TweetCheckingMention(models.Model):

@@ -115,7 +115,7 @@ TIME_WAITING_NEXT_LOOKUP = 30
 TIME_SLEEPING_AFTER_NO_BOTS_FOUND = 120  # tiempo que se duerme la hebra si no encuentra ningún bot disponible para lanzar tweet
 TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER = 15
 CASPERJS_PAGE_LOAD_TIMEOUT_SENDING_TWEETS = 30000  # ms que casperjs espera a que se cargue twitter para enviar tweet
-CASPERJS_MAX_RETRIES_SENDING_PER_THREAD = 3
+CASPERJS_MAX_RETRIES_SENDING_PER_THREAD = 0
 
 TWEET_LINK_LENGTH = 22
 TWEET_IMG_LENGTH = 23

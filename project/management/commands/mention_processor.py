@@ -1,3 +1,4 @@
+from core.scrapper.exceptions import PageLoadError, FailureSendingTweet
 from project.models import Extractor, Tweet
 from project.exceptions import FatalError, NoRunningProjects, NoAvaiableExtractors
 from twitter_bots import settings
@@ -16,13 +17,22 @@ class Command(BaseCommand):
 
         settings.LOGGER.info('-- INITIALIZED %s --' % MODULE_NAME)
 
+        mention_pk = int(args[0]) if args else None
         try:
-            mention_pk = int(args[0]) if args else None
+            burst_size = int(args[1]) if args else None
+        except IndexError:
+            burst_size = None
+
+        try:
             if mention_pk:
-                Tweet.objects.process_mention(mention_pk)
-                print 'Mention %i processed ok' % mention_pk
+                output = Tweet.objects.process_mention(mention_pk, burst_size=burst_size)
+                print output
             else:
                 raise Exception('Tweet pk needed!')
+        except Tweet.DoesNotExist:
+            print 'Mention %i does not exists!' % mention_pk
+        # except PageLoadError:
+        #     print 'Pageload error. Maybe u need to add this host public ip address to authorized ones on proxy provider'
         except Exception as e:
             raise FatalError(e)
 

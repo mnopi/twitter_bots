@@ -98,16 +98,21 @@ class NoAvailableProxiesToAssignBotsForUse(Exception):
     def __init__(self, bot):
         """Vemos la razón por la que el bot no tiene proxy para poderselos asignar"""
         bot_group = bot.get_group()
+        base_msg = 'No more available proxies for use bot %s.' % bot.username
+
         if not bot_group.is_bot_usage_enabled:
-            settings.LOGGER.warning('Bot %s\'s group "%s" has bot usage disabled' %
-                                    (bot.username, bot_group.__unicode__()))
+            self.msg = 'Bot %s\'s group "%s" has bot usage disabled' \
+                       % (bot.username, bot_group.__unicode__())
         if bot.was_suspended() and not bot_group.reuse_proxies_with_suspended_bots:
-            settings.LOGGER.warning('Suspended bot %s\'s group "%s" has reuse_proxies_with_suspended_bots disabled' %
-                                    (bot.username, bot_group.__unicode__()))
+            self.msg = 'Suspended bot %s\'s group "%s" has reuse_proxies_with_suspended_bots disabled' \
+                       % (bot.username, bot_group.__unicode__())
         if bot_group.is_full_of_bots_using():
-            settings.LOGGER.warning('Bot %s\'s group "%s" is full of bots assigned to each of their proxies (%d per proxy)' %
-                                    (bot.username, bot_group.__unicode__(), bot_group.max_tw_bots_per_proxy_for_usage))
-        settings.LOGGER.error('No more available proxies for use bot %s' % bot.username)
+            self.msg = 'Bot %s\'s group "%s" is full of bots assigned to each of their proxies (%d per proxy)' \
+                       % (bot.username, bot_group.__unicode__(), bot_group.max_tw_bots_per_proxy_for_usage)
+
+        settings.LOGGER.warning(self.msg)
+        settings.LOGGER.error(base_msg)
+        self.msg = base_msg + ' ' + self.msg
 
         # limpiamos de la cola todos los tweets que tuviera que mandar ese bot y todos los mctweets que
         # tuviera que verificar
@@ -134,8 +139,8 @@ class ProjectWithoutUnmentionedTwitterusers(TweetCreationException):
 
 class BotWithoutBotsToMention(TweetCreationException):
     def __init__(self, bot):
-        settings.LOGGER.error('Bot %s has not bots to mention (group: %s)' %
-                                (bot.username, bot.get_group().__unicode__()))
+        self.msg = 'Bot %s has not bots to mention (group: %s)' % (bot.username, bot.get_group().__unicode__())
+        settings.LOGGER.error(self.msg)
 
 
 class BotHasToCheckIfMentioningWorks(Exception):
@@ -160,13 +165,15 @@ class McTweetMustBeVerified(Exception):
 
 class TweetConstructionError(Exception):
     def __init__(self, tweet):
-        settings.LOGGER.warning('Tweet %d is wrong constructed and will be deleted' % tweet.pk)
+        self.msg = 'Tweet %d is wrong constructed and will be deleted' % tweet.pk
+        settings.LOGGER.warning(self.msg)
         tweet.delete()
 
 
 class BotIsAlreadyBeingUsed(Exception):
     def __init__(self, bot):
-        settings.LOGGER.debug('Bot %s is already being used' % bot.username)
+        self.msg = 'Bot %s is already being used' % bot.username
+        settings.LOGGER.debug(self.msg)
 
 
 class BotHasReachedConsecutiveTUMentions(Exception):
@@ -189,18 +196,14 @@ class VerificationTimeWindowNotPassed(Exception):
         mctweet_sender = mctweet.bot_used
         mctweet_receiver = mctweet.mentioned_bots.first()
         sender_time_window = mctweet_sender.get_group().destination_bot_checking_time_window
-        settings.LOGGER.debug(
-            'Destination bot %s can\'t verify mctweet %d sent by %s. He has to wait more time (between %s minutes) '
-            'since was sent (at %s)'
-            %
-            (
-                mctweet_receiver.username,
-                mctweet.pk,
-                mctweet_sender.username,
-                sender_time_window,
-                mctweet.date_sent
-            )
-        )
+        self.msg = 'Destination bot %s can\'t verify mctweet %d sent by %s. He has to wait more time ' \
+                   '(between %s minutes) since was sent (at %s)' %\
+                   (mctweet_receiver.username,
+                    mctweet.pk,
+                    mctweet_sender.username,
+                    sender_time_window,
+                    mctweet.date_sent)
+        settings.LOGGER.debug(self.msg)
 
 
 class BotCantSendMctweet(Exception):
@@ -209,21 +212,23 @@ class BotCantSendMctweet(Exception):
 
 class BotHasNotEnoughTimePassedToTweetAgain(Exception):
     def __init__(self, bot):
-        settings.LOGGER.debug('Bot %s has not enough time passed (between %s minutes) since '
-                              'his last tweet sent (at %s)' %
-                              (bot.username,
-                               bot.get_group().time_between_tweets,
-                               bot.get_last_tweet_sent().date_sent))
+        self.msg = 'Bot %s has not enough time passed (between %s minutes) since his last tweet ' \
+                   'sent (at %s)' \
+                   % (bot.username,
+                      bot.get_group().time_between_tweets,
+                      bot.get_last_tweet_sent().date_sent)
+        settings.LOGGER.debug(self.msg)
 
 
 class MuTweetHasNotSentFTweetsEnough(Exception):
     def __init__(self, mutweet):
         self.mutweet = mutweet
-        settings.LOGGER.debug('Bot %s has not sent ftweets enough (%d/%d) to tweet mutweet %d' %
-                              (mutweet.bot_used.username,
-                               mutweet.tweets_from_feed.filter(tweet__sent_ok=True).count(),
-                               mutweet.get_ftweets_count_to_send_before(),
-                               mutweet.pk))
+        self.msg = 'Bot %s has not sent ftweets enough (%d/%d) to tweet mutweet %d' \
+                   % (mutweet.bot_used.username,
+                      mutweet.tweets_from_feed.filter(tweet__sent_ok=True).count(),
+                      mutweet.get_ftweets_count_to_send_before(),
+                      mutweet.pk)
+        settings.LOGGER.debug(self.msg)
 
 
 class FTweetMustBeSent(Exception):
@@ -234,25 +239,27 @@ class FTweetMustBeSent(Exception):
 class DestinationBotIsBeingUsed(Exception):
     def __init__(self, mctweet):
         destination_bot = mctweet.mentioned_bots.first()
-        settings.LOGGER.debug('Bot %s can\'t verify mctweet from %s because is already '
-                              'being used now' %
-                              (destination_bot.username, mctweet.bot_used.username))
+        self.msg = 'Bot %s can\'t verify mctweet from %s because is already being used now' \
+                   % (destination_bot.username, mctweet.bot_used.username)
+        settings.LOGGER.debug(self.msg)
 
 
 class DestinationBotIsDead(Exception):
     def __init__(self, mctweet):
         destination_bot = mctweet.mentioned_bots.first()
-        settings.LOGGER.warning('Bot %s can\'t verify mctweet %i because is dead. This mctweet will be deleted' %
-                                (destination_bot.username, mctweet.pk))
+        self.msg = 'Bot %s can\'t verify mctweet %i because is dead. This mctweet will be deleted' \
+                   % (destination_bot.username, mctweet.pk)
+        settings.LOGGER.warning()
         mctweet.delete()
 
 
 class LastMctweetFailedTimeWindowNotPassed(Exception):
     def __init__(self, bot):
-        settings.LOGGER.debug('Bot %s not passed %s minutes after last mctweet failed (at %s)'
-                              % (bot.username,
-                                 bot.get_group().mention_fail_time_window,
-                                 bot.get_mctweets_verified().last().tweet_checking_mention.destination_bot_checked_mention_date))
+        self.msg = 'Bot %s not passed %s minutes after last mctweet failed (at %s)' \
+                   % (bot.username,
+                     bot.get_group().mention_fail_time_window,
+                     bot.get_mctweets_verified().last().tweet_checking_mention.destination_bot_checked_mention_date)
+        settings.LOGGER.debug(self.msg)
 
 
 class MethodOnlyAppliesToTuMentions(Exception):
@@ -267,7 +274,8 @@ class MethodOnlyAppliesToTbMentions(Exception):
 
 class SentOkMcTweetWithoutDateSent(Exception):
     def __init__(self, mctweet):
-        settings.LOGGER.warning('Sent ok mctweet %d without date sent! setting to utc_now..' % mctweet.pk)
+        self.msg = 'Sent ok mctweet %d without date sent! setting to utc_now..' % mctweet.pk
+        settings.LOGGER.warning(self.msg)
         mctweet.date_sent = utc_now()
         mctweet.save()
 
@@ -275,7 +283,8 @@ class SentOkMcTweetWithoutDateSent(Exception):
 class SenderBotHasToFollowPeople(Exception):
     def __init__(self, sender_bot):
         self.sender_bot = sender_bot
-        settings.LOGGER.info('Sender bot %s has to follow people' % sender_bot.__unicode__())
+        self.msg = 'Sender bot %s has to follow people' % sender_bot.__unicode__()
+        settings.LOGGER.info(self.msg)
 
 
 class BotHasToWaitToRegister(Exception):

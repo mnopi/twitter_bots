@@ -243,7 +243,11 @@ class TwitterBotManager(models.Manager):
             settings.LOGGER.info('Processing %d pending mentions (1 per available bot)..' % pending_mentions.count())
             jobs = []
             for mention in pending_mentions:
-                # mention.process(cluster)
+                mention.sending = True
+                mention.bot_used.is_being_used = True
+                mention.bot_used.save()
+                mention.save()
+
                 job = cluster.submit(mention.pk)
                 job.id = mention.pk
                 jobs.append(job)

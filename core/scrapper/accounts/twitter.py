@@ -202,14 +202,10 @@ class TwitterScrapper(Scrapper):
             self.check_account_suspended()
         except (TwitterEmailNotConfirmed,
                 TwitterAccountDead,
-                TwitterAccountSuspended):
+                TwitterAccountSuspended) as e:
             self.take_screenshot('twitter_email_not_confirmed_after_login', force_take=True)
             self.user.clear_all_not_sent_ok_tweets()
-            raise LoginTwitterError(self.user)
-        except (PageLoadError,
-                URLError,
-                TwitterBotDontExistsOnTwitterException):
-            raise LoginTwitterError(self.user)
+            raise e
         except Exception as e:
             self.logger.exception('Login on twitter error')
             self.take_screenshot('login_failure', force_take=True)
