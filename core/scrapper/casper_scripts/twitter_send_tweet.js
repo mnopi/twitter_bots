@@ -222,12 +222,12 @@ casper.wait(getRandomIntFromRange(5000, 10000),
     function then() {
         capture('clicked_send_tweet_btn');
 
-        if (this.visible(send_tweet_btn_css))
-        {
-            var msg_drawer = '#message-drawer .message-text',
-                captcha_form = '#captcha-challenge-form',
-                acc_blocked_card = '.PromptbirdPrompt-title';
+        var msg_drawer = '#message-drawer .message-text',
+            captcha_form = '#captcha-challenge-form',
+            acc_blocked_card = '.PromptbirdPrompt-title';
 
+        if (this.visible(msg_drawer) || this.visible(captcha_form))
+        {
             if (this.visible(captcha_form))
             {
                 output.errors.push('captcha_required');
