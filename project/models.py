@@ -902,8 +902,10 @@ class Tweet(models.Model):
                 self.sent_ok = True
                 self.date_sent = utc_now()
                 self.save()
+
                 msg = '%s sent ok tweet %s [%s] with %s' \
                       % (sender.username, self.pk, self.print_type(), settings.SENDING_METHOD)
+
                 settings.LOGGER.info(msg)
                 sending_results.append(msg)
         except Exception as e:
@@ -925,8 +927,8 @@ class Tweet(models.Model):
             sender.is_being_used = False
             sender.save()
 
-            # # cerramos conexión con BD
-            # connection.close()
+            # cerramos conexión con BD
+            connection.close()
 
     def enough_time_passed_since_last(self):
         """
@@ -1242,13 +1244,6 @@ class Tweet(models.Model):
                 return msg
             else:
                 return e.msg
-        finally:
-            if self.sending:
-                self.sending = False
-                self.save()
-            if self.bot_used.is_being_used:
-                self.bot_used.is_being_used = False
-                self.save()
 
 
 class TweetCheckingMention(models.Model):

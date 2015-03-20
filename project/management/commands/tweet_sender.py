@@ -2,6 +2,7 @@
 from Queue import Full
 
 from optparse import make_option
+import socket
 import time
 import psutil
 from core.models import TwitterBot
@@ -15,24 +16,39 @@ from twitter_bots.settings import set_logger
 
 MODULE_NAME = __name__.split('.')[-1]
 
-# CLIENT_IP_PRIVATE = '192.168.1.115'
-# CLIENT_IP_PUBLIC = '88.26.212.82'
-CLIENT_IP_PRIVATE = '192.168.0.115'
-CLIENT_IP_PUBLIC = '77.228.76.30'
+host = socket.gethostname()
 
-DISPY_NODES = [
-    # '46.101.61.145',  # gallina1
-    '88.26.212.82',  # pepino1
-    CLIENT_IP_PRIVATE,  # local
-    # '*',
+if host == 'p1':
+    # corriendo en ofi
+    CLIENT_IP_PRIVATE = '192.168.1.115'
+    CLIENT_IP_PUBLIC = '88.26.212.82'
+    DISPY_NODES = [
+        CLIENT_IP_PRIVATE,  # local
+        '77.228.76.30',  # casa
+        # '*',
+    ]
+else:
+    # corriendo en casa
+    CLIENT_IP_PRIVATE = '192.168.0.115'
+    CLIENT_IP_PUBLIC = '77.228.76.30'
+    DISPY_NODES = [
+        CLIENT_IP_PRIVATE,  # local
+        '88.26.212.82',  # pepino1
+        # '*',
+    ]
+
+DISPY_NODES += [
+    '46.101.61.145',  # gallina1
 ]
 
 
 def process_mention(mention_id):
+    """Esta función es lo que se ejecutará en cada uno de los nodos.
+    Invocará al comando manage.py mention_processor, ubicado en el correspondiente nodo"""
+
     from threading import Timer
-    import time, socket, subprocess
-    # settings.LOGGER.info('Processing mention %i..' % mention_id)
-    # Tweet.objects.process_mention(mention_id)
+    import socket, subprocess
+
     HOSTS = {
         'p1': {
             'manage.py': '/home/robots/Dropbox/dev/proyectos/twitter_bots/manage.py',
@@ -40,7 +56,8 @@ def process_mention(mention_id):
         'rmaja': {
             'python': '/home/rmaja/virtualenvs/twitter_bots/bin/python',
             'manage.py': '/home/rmaja/Dropbox/dev/proyectos/twitter_bots/manage.py',
-        }
+        },
+        'gallina1': {}
     }
 
     # estos son los paths por defecto para intérprete y manage.py
@@ -70,11 +87,6 @@ def process_mention(mention_id):
         # si el timer agota la espera
         return host, 'Timeout exceeded processing mention %i' % mention_id
 
-    # time.sleep(7)
-    # settings.LOGGER.info('..mention %i processed ok' % mention_id)
-    # return host, mention_id
-    # return 'hola',  44
-
 
 def call_process_mention_command(mention, cluster):
     job = cluster.submit(mention.pk)
@@ -86,7 +98,7 @@ def call_process_mention_command(mention, cluster):
     else:
         host, result = job.result
         settings.LOGGER.info('..job %i executed on host %s with result: %s' % (job.id, host, result))
-    cluster.wait()
+    # cluster.wait()
 
 
 class Command(BaseCommand):

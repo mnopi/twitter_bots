@@ -52,29 +52,30 @@ function write_tweet()
     capture('tweet_written');
 }
 
+function do_tweet_writing()
+{
+    capture('tweet_box_loaded');
+
+    casper.wait(getRandomIntFromRange(2000, 5000));
+    write_tweet();
+    casper.wait(getRandomIntFromRange(7000, 15000));
+
+    img_path = casper.cli.get('tweetimg');
+    if (img_path) {
+        casper.wait(getRandomIntFromRange(3000, 5000));
+        form_css = '#timeline > div.timeline-tweet-box > div > form';
+        casper.fillSelectors(form_css, {
+            'input[type="file"][name="media_empty"]': img_path
+        }, false);
+        //img_btn_css = '#global-tweet-dialog-dialog > div.modal-content > div.modal-tweet-form-container > form > div.toolbar.js-toolbar > div.tweet-box-extras > div.photo-selector > div > label > input';
+        //casper.sendKeys(img_btn_css, img_path);
+        casper.wait(getRandomIntFromRange(800, 2000));
+    }
+}
+
 function print_output()
 {
     casper.echo(JSON.stringify(output));
-}
-
-function save_cookies()
-{
-    var fs = require('fs');
-    var cookies = JSON.stringify(casper.cookies);
-    fs.write(cookies_file, cookies, 644);
-}
-
-function restore_cookies()
-{
-    var fs = require('fs');
-    var data = fs.read(cookies_file);
-    casper.cookies = JSON.parse(data);
-}
-
-function remove_old_cookies_file()
-{
-    var fs = require('fs');
-    fs.remove(casper.cli.get('old_cookies'));
 }
 
 function exit()
@@ -158,6 +159,7 @@ casper.then(function () {
     }
 });
 
+
 // hacemos click en la caja de texto para escribir nuevo tweet
 var tweet_box_css = '#tweet-box-mini-home-profile';
 casper.waitUntilVisible(tweet_box_css,
@@ -175,37 +177,32 @@ casper.waitUntilVisible(tweet_box_css,
     }
 );
 
+
 // escribimos el tweet, adjuntamos imagen si fuera necesario
 //var opened_tweet_box_css = '.timeline-tweet-box form.tweet-form .tweet-box-extras';
 var send_tweet_btn_css = '.timeline-tweet-box form.tweet-form .tweet-button button';
 casper.waitUntilVisible(send_tweet_btn_css,
     function then() {
-        capture('tweet_box_loaded');
-
-        this.wait(getRandomIntFromRange(2000, 5000));
-        write_tweet();
-        this.wait(getRandomIntFromRange(7000, 15000));
-
-        img_path = casper.cli.get('tweetimg');
-        if (img_path) {
-            this.wait(getRandomIntFromRange(3000, 5000));
-            form_css = '#timeline > div.timeline-tweet-box > div > form';
-            this.fillSelectors(form_css, {
-                'input[type="file"][name="media_empty"]': img_path
-            }, false);
-            //img_btn_css = '#global-tweet-dialog-dialog > div.modal-content > div.modal-tweet-form-container > form > div.toolbar.js-toolbar > div.tweet-box-extras > div.photo-selector > div > label > input';
-            //casper.sendKeys(img_btn_css, img_path);
-            this.wait(getRandomIntFromRange(800, 2000));
-        }
+        do_tweet_writing();
     },
     function onTimeout()
     {
         // si no ha dado tiempo a mostrar la cajita con el diálogo para escribir el tweet..
-        capture('tweet_dialog_not_loaded', true);
-        output.errors.push('tweet_dialog_not_loaded');
-        exit();
+        capture('tweet_dialog_not_loaded1', true);
+        casper.waitUntilVisible(send_tweet_btn_css,
+            function then() {
+                click(tweet_box_css);
+                do_tweet_writing();
+            },
+            function onTimeout() {
+                capture('tweet_dialog_not_loaded2', true);
+                output.errors.push('tweet_dialog_not_loaded');
+                exit();
+            },
+            5000
+        );
     },
-    pageload_timeout
+    5000
 );
 
 
