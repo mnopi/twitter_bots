@@ -294,8 +294,9 @@ class TwitterBotManager(models.Manager):
 
         if pool:
             pool.wait_completion()
-        # if cluster:
-        #     cluster.wait()
+
+        if cluster:
+            cluster.stats()
 
             # for task_num in range(num_tasks or settings.TOTAL_TASKS_SENDING_TWEETS):
             #     pool.add_task(self.send_twusermention_from_pending_queue, bot)

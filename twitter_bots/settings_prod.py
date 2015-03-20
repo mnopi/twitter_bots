@@ -7,7 +7,7 @@ import os
 #
 # django settings
 settings.PROD_MODE = True
-DEBUG = settings.TEMPLATE_DEBUG = True
+DEBUG = settings.TEMPLATE_DEBUG = False
 ALLOWED_HOSTS = ['localhost', '88.26.212.82', '192.168.1.115']
 
 DATABASE_HOST = 'localhost' if socket.gethostname() == 'p1' else '88.26.212.82'
