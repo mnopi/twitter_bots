@@ -1,4 +1,24 @@
 # -*- coding: utf-8 -*-
+
+from __future__ import absolute_import
+# ^^^ The above is required if you want to import from the celery
+# library.  If you don't have this then `from celery.schedules import`
+# becomes `proj.celery.schedules` in Python 2.x since it allows
+# for relative imports by default.
+
+# Celery settings
+import socket
+
+BROKER_URL = 'amqp://robots:1aragon1@localhost/robots'
+CELERY_RESULT_BACKEND = 'amqp'
+
+#: Only add pickle to this list if your broker is secured
+#: from unwanted access (see userguide/security.html)
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+
+
 import logging
 
 import os
@@ -108,17 +128,51 @@ AUTH_USER_MODEL = "core.User"
 LOGS_DIR = os.path.join(PROJECT_ROOT, 'logs')
 # logger
 
+
 class IgnoreErrorsFilter(logging.Filter):
     def filter(self, record):
         return record.levelname != 'ERROR' and record.levelname != 'CRITICAL' and record.levelname != 'EXCEPTION'
+
+
+class HostnameFormatter(logging.Formatter):
+    def format(self, record):
+        record.message = record.getMessage()
+        if self.usesTime():
+            record.asctime = self.formatTime(record, self.datefmt)
+
+        record.__dict__['hostname'] = socket.gethostname()
+
+        s = self._fmt % record.__dict__
+        if record.exc_info:
+            # Cache the traceback text to avoid converting it multiple times
+            # (it's constant anyway)
+            if not record.exc_text:
+                record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            if s[-1:] != "\n":
+                s = s + "\n"
+            try:
+                s = s + record.exc_text
+            except UnicodeError:
+                # Sometimes filenames have non-ASCII chars, which can lead
+                # to errors when s is Unicode and record.exc_text is str
+                # See issue 8924.
+                # We also use replace for when there are multiple
+                # encodings, e.g. UTF-8 for the filesystem and latin-1
+                # for a script. See issue 13232.
+                s = s + record.exc_text.decode(sys.getfilesystemencoding(),
+                                               'replace')
+        return s
+
 
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
+            '()': HostnameFormatter,
             # 'format': '%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s'
-            'format': "[%(asctime)s] %(module)s:%(lineno)d\t %(levelname)s\t\t%(threadName)s - %(message)s",
+            'format': "[%(asctime)s] %(module)s:%(lineno)d\t %(levelname)s\t\t%(threadName)s@%(hostname)s - %(message)s",
             'datefmt': "%d/%b/%Y %H:%M:%S"
         },
         'simple': {
@@ -200,6 +254,14 @@ LOGGING = {
             'level': 'DEBUG',
             'propagate': False,
         },
+        'core.tasks': {
+            'handlers': [
+                'management_logs_file_info',
+                'management_logs_file_debug'
+            ],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
         'default': {
             'handlers': ['console_info', 'console_error'],
             'level': 'DEBUG',
@@ -241,3 +303,5 @@ LANGUAGES = {
     (SPANISH, 'Spanish'),
     (ENGLISH, 'English'),
 }
+
+

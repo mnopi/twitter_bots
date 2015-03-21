@@ -4,7 +4,7 @@ from Queue import Full
 from optparse import make_option
 import socket
 import time
-import psutil
+from celery.exceptions import TimeoutError
 from core.models import TwitterBot
 from core.scrapper.utils import get_2_args
 from project.models import Tweet, Project
@@ -18,28 +18,23 @@ MODULE_NAME = __name__.split('.')[-1]
 
 host = socket.gethostname()
 
-if host == 'p1':
-    # corriendo en ofi
-    CLIENT_IP_PRIVATE = '192.168.1.115'
-    CLIENT_IP_PUBLIC = '88.26.212.82'
-    DISPY_NODES = [
-        CLIENT_IP_PRIVATE,  # local
-        '77.228.76.30',  # casa
-        # '*',
-    ]
-else:
-    # corriendo en casa
-    CLIENT_IP_PRIVATE = '192.168.0.115'
-    CLIENT_IP_PUBLIC = '77.228.76.30'
-    DISPY_NODES = [
-        CLIENT_IP_PRIVATE,  # local
-        '88.26.212.82',  # pepino1
-        # '*',
-    ]
 
-DISPY_NODES += [
-    '46.101.61.145',  # gallina1
-]
+def do_process_mention(mention_pk):
+    from core import tasks
+    # from django.db import connection
+    #
+    # connection.close()
+    # mention = Tweet.objects.get(pk=mention_pk)
+    try:
+        r = tasks.process_mention.delay(mention_pk)
+        r.get(settings.MENTION_PROCESSING_CELERY_TIMEOUT)
+    except TimeoutError:
+        settings.LOGGER.exception('timeouterror processing mention %s on celery queue' % mention_pk)
+
+
+def test1(mention_pk):
+    time.sleep(4)
+    settings.LOGGER.info('mention: %s' % mention_pk)
 
 
 def process_mention(mention_id):

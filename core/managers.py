@@ -7,6 +7,7 @@ import os
 import time
 
 from django.db import models, connection, transaction
+import multiprocessing
 from core.querysets import TwitterBotQuerySet, ProxyQuerySet
 from project.exceptions import *
 from core.scrapper.thread_pool import ThreadPool
@@ -226,10 +227,10 @@ class TwitterBotManager(models.Manager):
     def put_previous_being_created_to_false(self):
             self.filter(is_being_created=True).update(is_being_created=False)
 
-    def queue_tasks_from_mention_queue(self, pool=None, cluster=None, bot=None):
+    def queue_tasks_from_mention_queue(self, pool=None, bot=None):
         """Consulta la cola de menciones para añadirlas a la cola de tareas"""
         from project.models import Tweet
-        from project.management.commands.tweet_sender import call_process_mention_command
+        from project.management.commands.tweet_sender import do_process_mention
         import random
 
         def pr():
@@ -248,7 +249,11 @@ class TwitterBotManager(models.Manager):
                 mention.bot_used.save()
                 mention.save()
                 if pool:
-                    pool.add_task(call_process_mention_command, mention, cluster)
+                    # pool.apply_async(func=do_process_mention, args=(mention.pk,))
+                    pool.add_task(do_process_mention, mention.pk)
+
+                    # from project.management.commands.tweet_sender import test1
+                    # pool.apply_async(func=test1, args=(mention.pk,))
                 else:
                     mention.process_sending()
         else:
@@ -264,25 +269,15 @@ class TwitterBotManager(models.Manager):
     def perform_sending_tweets(self, bot=None, num_processes=None, max_lookups=None):
         """Mira n veces (max_lookups) en la cola de menciones cada x segundos y encola tweets a enviar"""
 
-        # pool = Pool(processes=num_processes) if num_processes > 1 else None
-        from project.management.commands.tweet_sender import process_mention, DISPY_NODES, CLIENT_IP_PRIVATE, CLIENT_IP_PUBLIC
-        import twitter_bots
-
-        cluster = None
         pool = None
         if num_processes > 1:
-            cluster = dispy.JobCluster(
-                process_mention,
-                ip_addr=CLIENT_IP_PRIVATE,
-                ext_ip_addr=CLIENT_IP_PUBLIC,
-                nodes=DISPY_NODES
-            )
+            # pool = multiprocessing.Pool(num_processes)
             pool = ThreadPool(num_processes)
 
         for l in xrange(max_lookups or 1):
             settings.LOGGER.info('LOOKUP %d' % (l+1))
             try:
-                self.queue_tasks_from_mention_queue(cluster=cluster, pool=pool, bot=bot)
+                self.queue_tasks_from_mention_queue(pool=pool, bot=bot)
             except (EmptyMentionQueue,
                     NoAvailableBot,
                     NoAvailableBots):
@@ -290,10 +285,13 @@ class TwitterBotManager(models.Manager):
 
             time.sleep(settings.TIME_WAITING_NEXT_LOOKUP)
 
-        settings.LOGGER.debug('Waiting completing tasks..')
+        settings.LOGGER.info('Waiting completing tasks..')
 
         if pool:
+            # pool.close()
+            # pool.join()
             pool.wait_completion()
+
         # if cluster:
         #     cluster.wait()
 

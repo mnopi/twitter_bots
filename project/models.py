@@ -1019,9 +1019,9 @@ class Tweet(models.Model):
             else:
                 # comprobamos que el bot destino no esté siendo usando
                 destination_bot = self.mentioned_bots.first()
-                if destination_bot.is_being_used:
-                    raise DestinationBotIsBeingUsed(self)
-                elif destination_bot.is_dead:
+                # if destination_bot.is_being_used:
+                #     raise DestinationBotIsBeingUsed(self)
+                if destination_bot.is_dead:
                     raise DestinationBotIsDead(self)
                 else:
                     # comprobamos que si ya se ha pasado el time window desde que el bot que lanza el tweet
