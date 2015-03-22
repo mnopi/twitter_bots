@@ -5,6 +5,7 @@ import re
 import subprocess
 from threading import Thread, Timer
 import datetime
+from bulk_update.helper import bulk_update
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 
@@ -901,7 +902,6 @@ class Tweet(models.Model):
             else:
                 self.sent_ok = True
                 self.date_sent = utc_now()
-                self.save()
 
                 msg = '%s sent ok tweet %s [%s] with %s' \
                       % (sender.username, self.pk, self.print_type(), settings.SENDING_METHOD)
@@ -919,16 +919,8 @@ class Tweet(models.Model):
             sending_results.append(msg)
             raise e
         finally:
-            # si el tweet sigue en BD se desmarca como enviando
-            if Tweet.objects.filter(pk=self.pk).exists():
-                self.sending = False
-                self.save()
-
+            self.sending = False
             sender.is_being_used = False
-            sender.save()
-
-            # cerramos conexión con BD
-            connection.close()
 
     def enough_time_passed_since_last(self):
         """
@@ -1138,10 +1130,11 @@ class Tweet(models.Model):
         # una sola mención
         sending_mentions_results = []
 
+        sender = self.bot_used
+
         try:
             self.check_if_can_be_sent()
 
-            sender = self.bot_used
             if sender.is_logged_on_twitter():
                 # si el bot es de un grupo que permite envíos de muchos tweets a la vez añadimos
                 # mas tweets a enviar para ese mismo bot
@@ -1165,6 +1158,8 @@ class Tweet(models.Model):
 
                 if pool:
                     pool.wait_completion()
+
+                bulk_update(tweets_queued_for_sender)
             else:
                 # si no está logueado enviamos con webdriver
                 add_task_send_tweet(self, self.send_with_webdriver)
@@ -1189,8 +1184,6 @@ class Tweet(models.Model):
                     return mentioned_bot.verify_mctweet_if_received_ok(mctweet)
                 else:
                     mctweet_sender_bot.check_if_can_send_mctweet()
-                    mctweet.bot_used.is_being_used = True
-                    mctweet.bot_used.save()
                     mctweet.sending = True
                     mctweet.save()
 
@@ -1198,6 +1191,7 @@ class Tweet(models.Model):
 
                     res = []
                     mctweet.send(sending_results=res)
+                    mctweet.save()
                     return '\n'.join(res)
             except BotNotLoggedIn:
                 # si al enviar con casperjs resulta que el bot no está logueado se loguea con selenium
@@ -1230,8 +1224,6 @@ class Tweet(models.Model):
 
         except SenderBotHasToFollowPeople as e:
             sender_bot = e.sender_bot
-            sender_bot.is_being_used = True
-            sender_bot.save()
             # marcamos los twitterusers a seguir por el bot
             sender_bot.mark_twitterusers_to_follow_at_once()
 
@@ -1244,6 +1236,10 @@ class Tweet(models.Model):
                 return msg
             else:
                 return e.msg
+
+        finally:
+            sender.is_being_used = False
+            sender.save()
 
 
 class TweetCheckingMention(models.Model):

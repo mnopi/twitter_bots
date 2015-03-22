@@ -232,6 +232,7 @@ class TwitterBotManager(models.Manager):
         from project.models import Tweet
         from project.management.commands.tweet_sender import do_process_mention
         import random
+        from core.models import TwitterBot
 
         def pr():
             """Esto solo lo usamos para probar el threadpool"""
@@ -243,11 +244,12 @@ class TwitterBotManager(models.Manager):
             .select_related('bot_used').select_related('bot_used__proxy_for_usage__proxies_group')
         if pending_mentions.exists():
             settings.LOGGER.info('Processing %d pending mentions (1 per available bot)..' % pending_mentions.count())
+
+            # ponemos todas las menciones como enviando y a sus bots como usándose
+            pending_mentions.update(sending=True)
+            TwitterBot.objects.filter(pk__in=pending_mentions.values_list('bot_used__pk')).update(is_being_used=True)
+
             for mention in pending_mentions:
-                mention.sending = True
-                mention.bot_used.is_being_used = True
-                mention.bot_used.save()
-                mention.save()
                 if pool:
                     # pool.apply_async(func=do_process_mention, args=(mention.pk,))
                     pool.add_task(do_process_mention, mention.pk)
