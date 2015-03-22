@@ -34,3 +34,4 @@ def process_mention(mention_pk):
     settings.set_logger('project.management.commands.tweet_sender')
     mention = Tweet.objects.get(pk=mention_pk)
     mention.process_sending()
+    settings.LOGGER.info('-- Mention %i processed --' % mention_pk)
