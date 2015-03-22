@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+import socket
 
 from celery import shared_task
 import time
@@ -33,5 +34,6 @@ def tarea1(sleep):
 def process_mention(mention_pk):
     settings.set_logger('project.management.commands.tweet_sender')
     mention = Tweet.objects.get(pk=mention_pk)
-    mention.process_sending()
+    output = mention.process_sending()
     settings.LOGGER.info('-- Mention %i processed --' % mention_pk)
+    return socket.gethostname(), output

@@ -5,6 +5,7 @@ from optparse import make_option
 import socket
 import time
 from celery.exceptions import TimeoutError
+import psutil
 from core.models import TwitterBot
 from core.scrapper.utils import get_2_args
 from project.models import Tweet, Project
@@ -26,8 +27,10 @@ def do_process_mention(mention_pk):
     # connection.close()
     # mention = Tweet.objects.get(pk=mention_pk)
     try:
+        settings.LOGGER.info('Sending mention %s -> celery' % mention_pk)
         r = tasks.process_mention.delay(mention_pk)
-        r.get(settings.MENTION_PROCESSING_CELERY_TIMEOUT)
+        host, output = r.get(settings.MENTION_PROCESSING_CELERY_TIMEOUT)
+        settings.LOGGER.info('-- Mention %s processed. host: %s, output: %s' % (mention_pk, host, output))
     except TimeoutError:
         settings.LOGGER.exception('timeouterror processing mention %s on celery queue' % mention_pk)
 
@@ -133,13 +136,13 @@ class Command(BaseCommand):
             pass
         except Exception as e:
             raise FatalError(e)
-        # finally:
-        #     # quitamos todos los phantomjs que hayan quedado ejecutándose
-        #     phantomjs_to_kill = 'phantomjs_prod' if settings.PROD_MODE else 'phantomjs_dev'
-        #     settings.LOGGER.debug('Killing all %s running processes..' % phantomjs_to_kill)
-        #     for proc in psutil.process_iter():
-        #         if phantomjs_to_kill in proc.name():
-        #             proc.kill()
+        finally:
+            # quitamos todos los phantomjs que hayan quedado ejecutándose
+            phantomjs_to_kill = 'phantomjs_prod' if settings.PROD_MODE else 'phantomjs_dev'
+            settings.LOGGER.debug('Killing all %s running processes..' % phantomjs_to_kill)
+            for proc in psutil.process_iter():
+                if phantomjs_to_kill in proc.name():
+                    proc.kill()
 
         settings.LOGGER.info('-- FINISHED %s --' % MODULE_NAME)
 

@@ -829,7 +829,7 @@ class Tweet(models.Model):
                 scr.delay.seconds(7)
                 msg = 'Tweet %i sent ok with webdriver' % (self.pk)
                 scr.logger.info(msg)
-                if sending_results:
+                if sending_results is not None:
                     sending_results.append(msg)
             except TwitterEmailNotConfirmed as e:
                 # si al intentar enviar el tweet el usuario no estaba realmente confirmado eliminamos su tweet
@@ -849,7 +849,7 @@ class Tweet(models.Model):
             else:
                 msg = e.msg
 
-            if sending_results:
+            if sending_results is not None:
                 sending_results.append(msg)
         finally:
             scr.close_browser()
