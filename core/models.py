@@ -954,7 +954,11 @@ class TwitterBot(models.Model):
                     # una vez que encontramos el último tweet enviado por ese bot vemos si coincide con el
                     # tweet que dice nuestra BD que se le mandó, sin contar con el link
                     mention_text = mention_el.find_element_by_css_selector('.js-tweet-text').text.strip()
-                    if mctweet.compose(with_link=False) in mention_text:
+                    mctweet_text = mctweet.compose(with_link=False)
+
+                    # hacemos comprobación también por si están mal escritas las eñes, acentos, etc
+                    if mctweet_text in mention_text \
+                            or mctweet_text.encode('ascii', 'ignore') in mention_text.encode('ascii', 'ignore'):
                         mention_received_ok_el = mention_el
                         break
 

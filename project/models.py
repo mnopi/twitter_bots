@@ -734,7 +734,7 @@ class Tweet(models.Model):
             '--screenshots=%s/' % screenshots_dir,
             '--take-screenshots=%s' % settings.TAKE_SCREENSHOTS,
             '--pageload-timeout=%i' % settings.CASPERJS_PAGE_LOAD_TIMEOUT_SENDING_TWEETS,
-            '--tweetmsg=%s' % self.compose().encode('utf-8')
+            '--tweetmsg=%s' % self.compose()
         ]
 
         if self.tweet_img:
