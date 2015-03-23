@@ -227,7 +227,7 @@ class TwitterBotManager(models.Manager):
     def put_previous_being_created_to_false(self):
             self.filter(is_being_created=True).update(is_being_created=False)
 
-    def queue_tasks_from_mention_queue(self, pool=None, bot=None):
+    def queue_tasks_from_mention_queue(self, max_tweets=None, bot=None):
         """Consulta la cola de menciones para añadirlas a la cola de tareas"""
         from project.models import Tweet
         from project.management.commands.tweet_sender import do_process_mention
@@ -249,15 +249,14 @@ class TwitterBotManager(models.Manager):
             pending_mentions.update(sending=True)
             TwitterBot.objects.filter(pk__in=pending_mentions.values_list('bot_used__pk')).update(is_being_used=True)
 
-            for mention in pending_mentions:
-                if pool:
-                    # pool.apply_async(func=do_process_mention, args=(mention.pk,))
-                    pool.add_task(do_process_mention, mention.pk)
+            if max_tweets:
+                pending_mentions = pending_mentions[:max_tweets]
 
-                    # from project.management.commands.tweet_sender import test1
-                    # pool.apply_async(func=test1, args=(mention.pk,))
-                else:
-                    mention.process_sending()
+            if max_tweets == 1:
+                pending_mentions[0].process_sending()
+            else:
+                for mention in pending_mentions:
+                    do_process_mention(mention.pk)
         else:
             if Tweet.objects.filter(sending=False, sent_ok=False).exists():
                 if bot:
@@ -268,57 +267,48 @@ class TwitterBotManager(models.Manager):
                 raise EmptyMentionQueue(bot=bot)
 
 
-    def perform_sending_tweets(self, bot=None, num_processes=None, max_lookups=None):
+    def perform_sending_tweets(self, bot=None, max_tweets=None, max_lookups=None):
         """Mira n veces (max_lookups) en la cola de menciones cada x segundos y encola tweets a enviar"""
 
-        pool = None
-        if num_processes > 1:
-            # pool = multiprocessing.Pool(num_processes)
-            pool = ThreadPool(num_processes)
+        def check_task_result(task):
+            if task.failed():
+                settings.LOGGER.warning('-- Task %s failed' % task.task_id)
+            elif task.result:
+                host, output = task.result
+                settings.LOGGER.info('-- Task %s processed. host: %s, output: %s' % (task.task_id, host, output))
+            celery_tasks.remove(task)
+
+        from project.management.commands.tweet_sender import celery_tasks
 
         for l in xrange(max_lookups or 1):
             settings.LOGGER.info('LOOKUP %d' % (l+1))
             try:
-                self.queue_tasks_from_mention_queue(pool=pool, bot=bot)
+                self.queue_tasks_from_mention_queue(max_tweets=max_tweets, bot=bot)
             except (EmptyMentionQueue,
                     NoAvailableBot,
                     NoAvailableBots):
                 pass
 
+            # antes de pasar al siguiente lookup vemos las tareas que se hayan terminado
+            for task in celery_tasks:
+                if task.ready():
+                    check_task_result(task)
+
             time.sleep(settings.TIME_WAITING_NEXT_LOOKUP)
 
-        settings.LOGGER.info('Waiting completing tasks..')
-
-        if pool:
-            # pool.close()
-            # pool.join()
-            pool.wait_completion()
-
-        # if cluster:
-        #     cluster.wait()
-
-            # for task_num in range(num_tasks or settings.TOTAL_TASKS_SENDING_TWEETS):
-            #     pool.add_task(self.send_twusermention_from_pending_queue, bot)
-            # pool.wait_completion()
-
-        # manager = multiprocessing.Manager()
-        # lock = manager.Lock()
-        # pool = multiprocessing.Pool(processes=settings.MAX_THREADS_SENDING_TWEETS)
-        # for i in xrange(settings.TASKS_PER_EXECUTION):
-        #     pool.apply_async(func=unwrap_self_send_tweet, args=(i,lock))
-        # pool.close()
-        # pool.join()
-
-        # threads = []
-        # for bwt in bots_with_tweet:
-        #     bot, tweet = bwt
-        #     thread = threading.Thread(target=bot.send_tweet, args=tweet)
-        #     thread.start()
-        #     threads.append(thread)
-        #
-        # # to wait until all three functions are finished
-        # for thread in threads:
-        #     thread.join()
+        # aquí esperamos a que terminen las pendientes antes de finalizar el tweet sender
+        settings.LOGGER.info('Waiting completing tasks to finish tweet_sender..')
+        has_to_wait = True
+        while has_to_wait:
+            has_to_wait = False
+            for task in celery_tasks:
+                if not task.ready():
+                    has_to_wait = True
+                    time.sleep(5)
+                    settings.LOGGER.info('%i tasks remaining, waiting..' % len(celery_tasks))
+                    break
+                else:
+                    check_task_result(task)
 
     def finish_creations(self, num_threads=None, num_tasks=None, bot=None):
         """Mira qué robots aparecen incompletos y termina de hacer en cada uno lo que quede"""

@@ -19,6 +19,7 @@ MODULE_NAME = __name__.split('.')[-1]
 
 host = socket.gethostname()
 
+celery_tasks = []
 
 def do_process_mention(mention_pk):
     from core import tasks
@@ -27,10 +28,9 @@ def do_process_mention(mention_pk):
     # connection.close()
     # mention = Tweet.objects.get(pk=mention_pk)
     try:
-        settings.LOGGER.info('Sending mention %s -> celery' % mention_pk)
-        r = tasks.process_mention.delay(mention_pk)
-        host, output = r.get(settings.MENTION_PROCESSING_CELERY_TIMEOUT)
-        settings.LOGGER.info('-- Mention %s processed. host: %s, output: %s' % (mention_pk, host, output))
+        task = tasks.process_mention.apply_async(args=(mention_pk,))
+        celery_tasks.append(task)
+        settings.LOGGER.info('Mention %s -> celery' % mention_pk)
     except TimeoutError:
         settings.LOGGER.exception('timeouterror processing mention %s on celery queue' % mention_pk)
 
@@ -124,9 +124,9 @@ class Command(BaseCommand):
             if bot:
                 settings.TAKE_SCREENSHOTS = True
 
-            num_processes, max_lookups = get_2_args(args)
+            max_lookups, max_tweets = get_2_args(args)
 
-            TwitterBot.objects.perform_sending_tweets(bot=bot, num_processes=num_processes, max_lookups=max_lookups)
+            TwitterBot.objects.perform_sending_tweets(bot=bot, max_tweets=max_tweets, max_lookups=max_lookups)
 
             time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER)
         except Full as e:

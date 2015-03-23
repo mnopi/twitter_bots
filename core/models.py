@@ -1116,37 +1116,7 @@ class TwitterBot(models.Model):
         def follow_twitteruser(twitteruser):
             try:
                 scr.logger.debug('performing following %s' % twitteruser.username)
-
                 scr.go_to(settings.URLS['twitter_login'] + twitteruser.username)
-
-                # scr.fill_input_text('#search-query', '@' + twitteruser.username)
-                #
-                # # si el user está entre los posibles resultados..
-                # twuser_on_minibox = scr.get_css_element('li[data-user-screenname="%s"]' % twitteruser.username)
-                # if twuser_on_minibox:
-                #     scr.move_mouse_to_el(twuser_on_minibox)
-                #     scr.delay.seconds(2)
-                #     ActionChains(scr.browser).click().perform()
-                #
-                # # si no aparece en la cajita damos enter y buscamos entre las personas..
-                # else:
-                #     scr.send_special_key(Keys.ENTER)
-                #     scr.wait_to_page_readystate()
-                #     scr.delay.seconds(3)
-                #     search_people_btn_css = '.dashboard.dashboard-left li.search-navigation a[data-nav="users"]'
-                #     scr.click(search_people_btn_css)
-                #
-                #     # miramos en cada uno de los resultados a ver cual es el usuario en cuestión @..
-                #     search_people_results = scr.get_css_elements('ol#stream-items-id li')
-                #     if search_people_results:
-                #         for el in search_people_results:
-                #             el_username = el.find_element_by_css_selector('span.username')
-                #             if el_username and el_username.text.strip('@') == twitteruser.username:
-                #                 scr.click(el_username)
-                #                 break
-                #     else:
-                #         scr.take_screenshot('no_search_results_error')
-                #         raise Exception('No search results for twuser %s' % twitteruser.username)
 
                 # sale el perfil del twuser
                 scr.delay.seconds(3)
@@ -1167,7 +1137,7 @@ class TwitterBot(models.Model):
                     tb_following = None
                     try:
                         tb_following = twitteruser.tb_followings.get(bot=self)
-                    except TwitterBot.MultipleObjectsReturned:
+                    except TwitterBotFollowing.MultipleObjectsReturned:
                         # si tenemos varios registros de tbf entonces eliminamos los demás
                         settings.LOGGER.warning('Multiple tb_following entries for same bot %s, others will be erased'
                                                 % self.username)
@@ -1184,10 +1154,10 @@ class TwitterBot(models.Model):
                         tb_following.date_followed = utc_now()
                     tb_following.save()
 
-                scr.delay.seconds(5)
+                    scr.delay.seconds(5)
 
-                scr.take_screenshot('%s_followed_ok' % twitteruser.username)
-                scr.logger.debug('%s followed ok' % twitteruser.username)
+                    scr.take_screenshot('%s_followed_ok' % twitteruser.username)
+                    scr.logger.debug('%s followed ok' % twitteruser.username)
             except Exception as e:
                 scr.take_screenshot('error_following_user_%s' % twitteruser.username, force_take=True)
                 scr.logger.exception('Error following user %s' % twitteruser.username)
@@ -1210,7 +1180,12 @@ class TwitterBot(models.Model):
                     twusers_to_follow = self.get_twitterusers_to_follow_at_once()
                     settings.LOGGER.info('Bot %s following %d twitterusers..' % (self.username, twusers_to_follow.count()))
                     for twitteruser in twusers_to_follow:
-                        follow_twitteruser(twitteruser)
+                        # nos aseguramos que el twitteruser no esté siendo seguido por otro bot
+                        if twitteruser.tb_followings.count() > 1:
+                            scr.logger.warning('%s is already being followed by another bot')
+                            twitteruser.tb_followings.filter(bot=self).delete()
+                        else:
+                            follow_twitteruser(twitteruser)
                     msg = 'Bot %s followed %d twitterusers ok' % (self.username, twusers_to_follow.count())
                 else:
                     msg = '%s not have to follow anyone for now. current ratio: %.1f, max ratio: %.1f' \
