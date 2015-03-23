@@ -734,7 +734,7 @@ class Tweet(models.Model):
             '--screenshots=%s/' % screenshots_dir,
             '--take-screenshots=%s' % settings.TAKE_SCREENSHOTS,
             '--pageload-timeout=%i' % settings.CASPERJS_PAGE_LOAD_TIMEOUT_SENDING_TWEETS,
-            '--tweetmsg=%s' % self.compose()
+            '--tweetmsg=%s' % self.compose().encode('utf-8')
         ]
 
         if self.tweet_img:
@@ -1212,6 +1212,8 @@ class Tweet(models.Model):
                     msg = e.msg
 
                 return msg
+            finally:
+                connection.close()
         except MuTweetHasNotSentFTweetsEnough as e:
             ftweet = e.mutweet.get_or_create_ftweet_to_send()
             ftweet.sending = True
