@@ -252,8 +252,9 @@ class TwitterBotManager(models.Manager):
             if max_tweets:
                 pending_mentions = pending_mentions[:max_tweets]
 
-            if max_tweets == 1:
-                pending_mentions[0].process_sending()
+            if max_tweets == 1 or bot:
+                # pending_mentions[0].process_sending()
+                do_process_mention(pending_mentions[0].pk) # todo:quitar esto, es para revisar si con celery se escribe bien tweet con casperjs en worker remoto
             else:
                 for mention in pending_mentions:
                     do_process_mention(mention.pk)
