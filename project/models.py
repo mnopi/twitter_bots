@@ -921,6 +921,7 @@ class Tweet(models.Model):
         finally:
             self.sending = False
             sender.is_being_used = False
+            connection.close()
 
     def enough_time_passed_since_last(self):
         """
