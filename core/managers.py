@@ -363,8 +363,9 @@ class TwitterBotManager(models.Manager):
             time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_BOT_CREATION_FINISHER)
 
     def check_proxies(self, bots):
-        for bot in bots:
-            bot.check_proxy_ok()
+        bots_without_proxy_ok = bots.without_proxy_ok()
+        for bot in bots_without_proxy_ok:
+            bot.assign_proxy()
 
     def get_distinct_proxies(self, bots):
         """Devuelve los distintos proxies que tienen los bots (se pasan por parámetro en formato queryset)"""
@@ -397,6 +398,12 @@ class TwitterBotManager(models.Manager):
 
     def with_proxy_connecting_ok(self):
         return self.get_queryset().with_proxy_connecting_ok()
+
+    def with_proxy_ok(self):
+        return self.get_queryset().with_proxy_ok()
+
+    def without_proxy_ok(self):
+        return self.get_queryset().without_proxy_ok()
 
     def uncompleted(self):
         return self.get_queryset().unregistered()

@@ -24,6 +24,11 @@ class TwitterBotQuerySet(MyQuerySet):
     q__usable_regardless_of_proxy = q__not_dead_and_not_being_created & q__completed
     q__unusable_regardless_of_proxy = ~q__not_dead_and_not_being_created | ~q__completed
 
+    q__with_proxy_connecting_ok = Q(proxy_for_usage__is_unavailable_for_use=False) &\
+                                  Q(proxy_for_usage__is_in_proxies_txts=True)
+
+    q__with_proxy_ok = Q(proxy_for_usage__isnull=False) & q__with_proxy_connecting_ok
+
 
     def with_some_account_registered(self):
         return self.filter(Q(email_registered_ok=True) | Q(twitter_registered_ok=True))
@@ -94,16 +99,16 @@ class TwitterBotQuerySet(MyQuerySet):
 
     def with_proxy_connecting_ok(self):
         """Filtra por los bots que tengan sus proxies funcionando correctamente"""
-        return self.filter(
-            proxy_for_usage__is_unavailable_for_use=False,
-            proxy_for_usage__is_in_proxies_txts=True,
-        )
+        return self.filter(self.q__with_proxy_connecting_ok)
 
     def with_proxy_not_connecting_ok(self):
-        return self.filter(
-            Q(proxy_for_usage__is_unavailable_for_use=True) |
-            Q(proxy_for_usage__is_in_proxies_txts=False)
-        )
+        return self.filter(~self.q__with_proxy_connecting_ok)
+
+    def with_proxy_ok(self):
+        return self.filter(self.q__with_proxy_ok)
+
+    def without_proxy_ok(self):
+        return self.filter(~self.q__with_proxy_ok)
 
     def unregistered(self):
         return self.filter(twitter_registered_ok=False)
@@ -148,12 +153,21 @@ class TwitterBotQuerySet(MyQuerySet):
 
     def without_tweet_to_send_queue_full(self):
         """Saca bots que no tengan llena su cola de tweets pendientes de enviar llena"""
-        valid_pks = [
-            bot.pk
-            for bot in self.twitteable_regardless_of_proxy()._annotate_tweets_queued_to_send()
-            if bot.tweets_queued_to_send < settings.MAX_QUEUED_TWEETS_TO_SEND_PER_BOT
-        ]
-        return self.filter(pk__in=valid_pks)
+
+        # valid_pks = [
+        #     bot.pk
+        #     for bot in self._annotate_tweets_queued_to_send()
+        #     if bot.tweets_queued_to_send < settings.MAX_QUEUED_TWEETS_TO_SEND_PER_BOT
+        # ]
+
+        with_enough_space_on_queue_pks = []
+
+        for bot in self:
+            tweets_queued_to_send = bot.tweets.filter(sending=False, sent_ok=False).count()
+            if tweets_queued_to_send < settings.MAX_QUEUED_TWEETS_TO_SEND_PER_BOT:
+                with_enough_space_on_queue_pks.append(bot.pk)
+
+        return self.filter(pk__in=with_enough_space_on_queue_pks)
 
     def order_by__tweets_queued_to_send(self):
         raise NotImplementedError

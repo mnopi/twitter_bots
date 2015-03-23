@@ -88,7 +88,7 @@ class TweetManager(MyManager):
                 #   - que no tenga llena su cola de menciones pendientes por enviar
                 bots_to_send_mentions = None
 
-                bots_for_project = TwitterBot.objects.usable_regardless_of_proxy()\
+                bots_for_project = TwitterBot.objects.twitteable_regardless_of_proxy()\
                     .using_in_project(project)
                 if bots_for_project.exists():
                     # antes de filtrar por proxies ok comprobamos en cada uno si sus proxy sigue funcionando

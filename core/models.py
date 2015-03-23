@@ -1164,7 +1164,20 @@ class TwitterBot(models.Model):
 
                 # una vez que ya aparece el botón de seguir como pulsado se guarda el seguimiento en BD
                 if already_following_btn_visible:
-                    tb_following = twitteruser.tb_followings.get(bot=self)
+                    tb_following = None
+                    try:
+                        tb_following = twitteruser.tb_followings.get(bot=self)
+                    except TwitterBot.MultipleObjectsReturned:
+                        # si tenemos varios registros de tbf entonces eliminamos los demás
+                        settings.LOGGER.warning('Multiple tb_following entries for same bot %s, others will be erased'
+                                                % self.username)
+                        tb_followings = twitteruser.tb_followings.filter(bot=self)
+                        for i, tbf in enumerate(tb_followings):
+                            if i == 0:
+                                tb_following = tbf
+                            else:
+                                tbf.delete()
+
                     tb_following.performed_follow = True
                     tb_following.followed_ok = True
                     if not tb_following.date_followed:

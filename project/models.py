@@ -1240,6 +1240,7 @@ class Tweet(models.Model):
         finally:
             sender.is_being_used = False
             sender.save()
+            connection.close()
 
 
 class TweetCheckingMention(models.Model):
