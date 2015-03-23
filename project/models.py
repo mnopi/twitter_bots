@@ -1235,7 +1235,7 @@ class Tweet(models.Model):
         except Exception as e:
             if not hasattr(e, 'msg'):
                 msg = 'Error getting tumention from queue for bot %s: %s' % (self.bot_used.username, self.compose())
-                settings.LOGGER.exception(e.msg)
+                settings.LOGGER.exception(msg)
                 return msg
             else:
                 return e.msg
