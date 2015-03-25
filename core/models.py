@@ -1138,20 +1138,7 @@ class TwitterBot(models.Model):
 
                 # una vez que ya aparece el botón de seguir como pulsado se guarda el seguimiento en BD
                 if already_following_btn_visible:
-                    tb_following = None
-                    try:
-                        tb_following = twitteruser.tb_followings.get(bot=self)
-                    except TwitterBotFollowing.MultipleObjectsReturned:
-                        # si tenemos varios registros de tbf entonces eliminamos los demás
-                        settings.LOGGER.warning('Multiple tb_following entries for same bot %s, others will be erased'
-                                                % self.username)
-                        tb_followings = twitteruser.tb_followings.filter(bot=self)
-                        for i, tbf in enumerate(tb_followings):
-                            if i == 0:
-                                tb_following = tbf
-                            else:
-                                tbf.delete()
-
+                    tb_following = twitteruser.tb_followings.get(bot=self)
                     tb_following.performed_follow = True
                     tb_following.followed_ok = True
                     if not tb_following.date_followed:
@@ -1186,7 +1173,7 @@ class TwitterBot(models.Model):
                     for twitteruser in twusers_to_follow:
                         # nos aseguramos que el twitteruser no esté siendo seguido por otro bot
                         if twitteruser.tb_followings.count() > 1:
-                            scr.logger.warning('%s is already being followed by another bot')
+                            scr.logger.warning('%s is already being followed by another bot' % twitteruser.username)
                             twitteruser.tb_followings.filter(bot=self).delete()
                         else:
                             follow_twitteruser(twitteruser)
@@ -1205,7 +1192,6 @@ class TwitterBot(models.Model):
                 scr.close_browser()
                 self.is_being_used = False
                 self.save()
-                connection.close()
         except Exception as e:
             msg = 'Error on bot %s following twitterusers.' % self.username
             if not hasattr(e, 'msg'):
@@ -1220,8 +1206,8 @@ class TwitterBot(models.Model):
         from project.models import TwitterUser
 
         # vemos si quedan seguimientos pendientes por hacer
-        follows_pending = self.tb_followings.filter(performed_follow=False)
-        if not follows_pending.exists():
+        pending_tb_followings = self.tb_followings.filter(performed_follow=False)
+        if not pending_tb_followings.exists():
             # si no quedaban pendientes sacamos un proyecto al azar donde opere su grupo de bots
             random_project = self.get_group().projects.order_by('?').first()
 
@@ -1238,6 +1224,17 @@ class TwitterBot(models.Model):
                 following_entries.append(TwitterBotFollowing(bot=self, twitteruser=twuser))
 
             TwitterBotFollowing.objects.bulk_create(following_entries)
+        else:
+            # si ya tiene usuarios pendientes de seguir comprobamos que no estén marcados para seguir por otros bots
+            for pending_tb_followings in pending_tb_followings:
+                twitteruser_pending_to_follow = pending_tb_followings.twitteruser
+
+                same_twitteruser_tb_followings = twitteruser_pending_to_follow.tb_followings
+                if same_twitteruser_tb_followings.count() > 1:
+                    settings.LOGGER.warning('Multiple tb_following entries for same twitteruser %s. '
+                                            'will be erased for bot %s'
+                                            % (twitteruser_pending_to_follow.username, self.username))
+                    self.tb_followings.filter(twitteruser=twitteruser_pending_to_follow).delete()
 
     def get_twitterusers_to_follow_at_once(self):
         """Saca twitterusers pendientes de ser seguidos por el bot"""

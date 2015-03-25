@@ -310,9 +310,9 @@ class TweetManager(MyManager):
         else:
             settings.LOGGER.info('There are no mctweets not verified to delete')
 
-    def process_mention(self, mention_pk, burst_size=None):
+    def process_mention(self, mention_pk, burst_limit=None):
         mention = self.get(pk=mention_pk)
-        return mention.process_sending(burst_size=burst_size)
+        return mention.process_sending(burst_size=burst_limit)
 
 
     #
@@ -349,7 +349,7 @@ class TweetManager(MyManager):
 
 class ProjectManager(models.Manager):
 
-    def check_bots_on_all_running(self):
+    def check_if_running_projects_have_bots(self):
         """Comprueba que haya bots en todos los proyectos que estén marcados en ejecución"""
         running_projects = self.running()
         for project in running_projects:

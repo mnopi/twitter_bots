@@ -15,6 +15,7 @@ import feedparser
 import psutil
 import tweepy
 from tweepy.error import TweepError
+from core import tasks
 from core.scrapper.captcha_resolvers import DeathByCaptchaResolver
 from core.scrapper.exceptions import *
 from core.scrapper.thread_pool import ThreadPool
@@ -876,6 +877,9 @@ class Tweet(models.Model):
                                   self.print_type(),
                                   self.compose()))
 
+        # mensaje que se añadirá a sending_results
+        msg = None
+
         # try global para capturar la salida de la excepción, por si se está ejecutando en otro hilo
         try:
             # intentamos enviar con casperjs. si no es posible logueamos usando webdriver,
@@ -907,7 +911,6 @@ class Tweet(models.Model):
                       % (sender.username, self.pk, self.print_type(), settings.SENDING_METHOD)
 
                 settings.LOGGER.info(msg)
-                sending_results.append(msg)
         except Exception as e:
             if not hasattr(e, 'msg'):
                 msg = 'Error on bot %s (%s) sending tweet with id=%i)' \
@@ -916,12 +919,13 @@ class Tweet(models.Model):
             else:
                 msg = e.msg
 
-            sending_results.append(msg)
             raise e
         finally:
             self.sending = False
             sender.is_being_used = False
             connection.close()
+            if sending_results is not None:
+                sending_results.append(msg)
 
     def enough_time_passed_since_last(self):
         """
@@ -1112,18 +1116,8 @@ class Tweet(models.Model):
         else:
             return False
 
-    def process_sending(self, burst_size=None):
-        """Procesa el tweet de la cola para ver qué tarea tiene que realizar el tweet sender con este tweet"""
-
-        def log_task_adding(task_name):
-            settings.LOGGER.debug('Adding task [%s] to pool. (total unfinished: %d)' % (task_name, pool.tasks.unfinished_tasks))
-
-        def add_task_send_tweet(tweet, send_method):
-            if pool:
-                log_task_adding('SEND MU_TWEET')
-                pool.add_task(send_method, sending_results=sending_mentions_results)
-            else:
-                send_method(sending_results=sending_mentions_results)
+    def send_as_mutweet(self, burst_limit=None):
+        """El tweet se envía con el método propio para los mutweets"""
 
         pool = None
 
@@ -1132,88 +1126,81 @@ class Tweet(models.Model):
         sending_mentions_results = []
 
         sender = self.bot_used
+        if sender.is_logged_on_twitter():
+            # si el bot es de un grupo que permite envíos de muchos tweets a la vez añadimos
+            # mas tweets a enviar para ese mismo bot
+            sender_group = sender.get_group()
+            max_tweets_at_once = burst_limit or str_interval_to_random_num(sender_group.max_tweets_at_once)
+            tweets_queued_for_sender = sender.tweets.pending_to_send()[:max_tweets_at_once]
+            num_tweets_to_send = tweets_queued_for_sender.count()
+            if num_tweets_to_send < max_tweets_at_once:
+                settings.LOGGER.warning('Not enough mentions created for bot %s sending %i at once (only %i queued for now)'
+                                        % (sender.username, max_tweets_at_once, num_tweets_to_send))
+            settings.LOGGER.info('%s sending %i tweets at once..' % (sender.username, num_tweets_to_send))
+
+            if num_tweets_to_send > 1:
+                pool = ThreadPool(num_tweets_to_send)
+
+            sender.set_cookies_files_for_casperjs()
+
+            for i, tweet in enumerate(tweets_queued_for_sender):
+                settings.LOGGER.info('%s sending tweet %i/%i' % (sender.username, i+1, num_tweets_to_send))
+                if pool:
+                    settings.LOGGER.debug('Adding task [SEND MU_TWEET %d] to pool. (total unfinished: %d)'
+                                          % (tweet.pk, pool.tasks.unfinished_tasks))
+                    pool.add_task(tweet.send, sending_results=sending_mentions_results)
+                else:
+                    tweet.send(sending_results=sending_mentions_results)
+
+            if pool:
+                pool.wait_completion()
+
+            bulk_update(tweets_queued_for_sender)
+        else:
+            # si no está logueado enviamos con webdriver
+            self.send_with_webdriver(sending_results=sending_mentions_results)
+
+        sal = ''
+        for i, result in enumerate(sending_mentions_results):
+            sal += 'Tweet %i/%i: %s\n' % (i+1, len(sending_mentions_results), result)
+        return sal
+
+    def process_sending(self, burst_limit=None, use_celery=True):
+        """Procesa el el tumention de la cola para ver qué tarea tiene que realizar el tweet sender con este tweet"""
 
         try:
             self.check_if_can_be_sent()
 
-            if sender.is_logged_on_twitter():
-                # si el bot es de un grupo que permite envíos de muchos tweets a la vez añadimos
-                # mas tweets a enviar para ese mismo bot
-                sender_group = sender.get_group()
-                max_tweets_at_once = burst_size or str_interval_to_random_num(sender_group.max_tweets_at_once)
-                tweets_queued_for_sender = sender.tweets.pending_to_send()[:max_tweets_at_once]
-                num_tweets_to_send = tweets_queued_for_sender.count()
-                if num_tweets_to_send < max_tweets_at_once:
-                    settings.LOGGER.warning('Not enough mentions created for bot %s sending %i at once (only %i queued for now)'
-                                            % (sender.username, max_tweets_at_once, num_tweets_to_send))
-                settings.LOGGER.info('%s sending %i tweets at once..' % (sender.username, num_tweets_to_send))
-
-                if num_tweets_to_send > 1:
-                    pool = ThreadPool(num_tweets_to_send)
-
-                sender.set_cookies_files_for_casperjs()
-
-                for i, tweet in enumerate(tweets_queued_for_sender):
-                    settings.LOGGER.info('%s sending tweet %i/%i' % (sender.username, i+1, num_tweets_to_send))
-                    add_task_send_tweet(tweet, tweet.send)
-
-                if pool:
-                    pool.wait_completion()
-
-                bulk_update(tweets_queued_for_sender)
+            # si las comprobaciones fueron bien enviamos tweet
+            if use_celery:
+                tasks.add_task__send_mutweet(self, burst_limit)
             else:
-                # si no está logueado enviamos con webdriver
-                add_task_send_tweet(self, self.send_with_webdriver)
-
-            sal = ''
-            for i, result in enumerate(sending_mentions_results):
-                sal += 'Tweet %i/%i: %s\n' % (i+1, len(sending_mentions_results), result)
-            return sal
+                self.send_as_mutweet(burst_limit=burst_limit)
 
         except BotHasReachedConsecutiveTUMentions as e:
             mctweet_sender_bot = e.bot
-            mctweet = None
+            mctweet = mctweet_sender_bot.get_or_create_mctweet()
+            if mctweet.sent_ok:
+                mctweet.check_if_can_be_verified()
+                mctweet.tweet_checking_mention.destination_bot_is_checking_mention = True
+                mctweet.tweet_checking_mention.save()
+                mentioned_bot = mctweet.mentioned_bots.first()
 
-            try:
-                mctweet = mctweet_sender_bot.get_or_create_mctweet()
-                if mctweet.sent_ok:
-                    mctweet.check_if_can_be_verified()
-                    mctweet.tweet_checking_mention.destination_bot_is_checking_mention = True
-                    mctweet.tweet_checking_mention.save()
-                    mentioned_bot = mctweet.mentioned_bots.first()
-
-                    return mentioned_bot.verify_mctweet_if_received_ok(mctweet)
+                if use_celery:
+                    tasks.add_task__verify_mctweet_if_received_ok(mctweet)
                 else:
-                    mctweet_sender_bot.check_if_can_send_mctweet()
-                    mctweet.sending = True
+                    mentioned_bot.verify_mctweet_if_received_ok(mctweet)
+            else:
+                mctweet_sender_bot.check_if_can_send_mctweet()
+                mctweet.sending = True
+                mctweet.save()
+
+                if use_celery:
+                    tasks.add_task__send_single_tweet(mctweet)
+                else:
+                    mctweet.send()
                     mctweet.save()
 
-                    mctweet_sender_bot.set_cookies_files_for_casperjs()
-
-                    res = []
-                    mctweet.send(sending_results=res)
-                    mctweet.save()
-                    return '\n'.join(res)
-            except BotNotLoggedIn:
-                # si al enviar con casperjs resulta que el bot no está logueado se loguea con selenium
-                mctweet_sender_bot.login_twitter_with_webdriver()
-                return 'Bot %s (%s) needed to login twitter before sending mctweet' \
-                       % (mctweet_sender_bot.username, mctweet_sender_bot.real_name)
-            except Exception as e:
-                if not hasattr(e, 'msg'):
-                    if mctweet and not mctweet.sent_ok:
-                        msg = 'unexpected error on bot %s sending mctweet %i' % (mctweet.bot_used.username, mctweet.pk)
-                    elif mctweet and mctweet.sent_ok:
-                        msg = 'unexpected error on bot %s verifying mctweet %i' % (mctweet.bot_used.username, mctweet.pk)
-                    else:
-                        msg = 'unexpected error in BotHasReachedConsecutiveTUMentions exception block'
-                    settings.LOGGER.exception(msg)
-                else:
-                    msg = e.msg
-
-                return msg
-            finally:
-                connection.close()
         except MuTweetHasNotSentFTweetsEnough as e:
             ftweet = e.mutweet.get_or_create_ftweet_to_send()
             ftweet.sending = True
@@ -1221,29 +1208,22 @@ class Tweet(models.Model):
             ftweet.bot_used.save()
             ftweet.save()
 
-            res = []
-            ftweet.send(sending_results=res)
-            return '\n'.join(res)
+            if use_celery:
+                tasks.add_task__send_single_tweet(ftweet)
+            else:
+                ftweet.send()
+                ftweet.save()
 
         except SenderBotHasToFollowPeople as e:
             sender_bot = e.sender_bot
+
             # marcamos los twitterusers a seguir por el bot
             sender_bot.mark_twitterusers_to_follow_at_once()
 
-            return sender_bot.follow_twitterusers()
-
-        except Exception as e:
-            if not hasattr(e, 'msg'):
-                msg = 'Error getting tumention from queue for bot %s: %s' % (self.bot_used.username, self.compose())
-                settings.LOGGER.exception(msg)
-                return msg
+            if use_celery:
+                tasks.add_task__follow_twitterusers(sender_bot)
             else:
-                return e.msg
-
-        finally:
-            sender.is_being_used = False
-            sender.save()
-            connection.close()
+                sender_bot.follow_twitterusers()
 
 
 class TweetCheckingMention(models.Model):

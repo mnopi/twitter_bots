@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from multiprocessing import Pool
+from bulk_update.helper import bulk_update
 import dispy
 from django.db.models import Count, Q, Max, Manager
 from django.db.models.query import QuerySet
@@ -8,10 +9,12 @@ import time
 
 from django.db import models, connection, transaction
 import multiprocessing
+from core import tasks
 from core.querysets import TwitterBotQuerySet, ProxyQuerySet
+from core.tasks import celery_tasks_tweet_sender, log_task_adding_to_celery
 from project.exceptions import *
 from core.scrapper.thread_pool import ThreadPool
-from core.scrapper.utils import utc_now
+from core.scrapper.utils import utc_now, str_interval_to_random_num
 from twitter_bots import settings
 from threading import Lock, BoundedSemaphore
 mutex = Lock()
@@ -227,37 +230,35 @@ class TwitterBotManager(models.Manager):
     def put_previous_being_created_to_false(self):
             self.filter(is_being_created=True).update(is_being_created=False)
 
-    def queue_tasks_from_mention_queue(self, max_tweets=None, bot=None):
-        """Consulta la cola de menciones para añadirlas a la cola de tareas"""
+    def send_new_tumentions_from_queue(self, limit=None, bot=None):
+        """Consulta la cola de menciones, si hay nuevas se envían
+
+        :limit hace que de las nuevas menciones sólo se envíen un máximo que le demos
+        """
+
         from project.models import Tweet
-        from project.management.commands.tweet_sender import do_process_mention
-        import random
         from core.models import TwitterBot
 
-        def pr():
-            """Esto solo lo usamos para probar el threadpool"""
-            settings.LOGGER.debug('starting..')
-            time.sleep(random.randint(5,10))
-            settings.LOGGER.debug('..done!')
-
-        pending_mentions = Tweet.objects.get_queued_twitteruser_mentions_to_send(by_bot=bot)\
+        # obtenemos las menciones nuevas para poder enviar, una para cada bot
+        new_tumentions = Tweet.objects.get_queued_twitteruser_mentions_to_send(by_bot=bot)\
             .select_related('bot_used').select_related('bot_used__proxy_for_usage__proxies_group')
-        if pending_mentions.exists():
-            settings.LOGGER.info('Processing %d pending mentions (1 per available bot)..' % pending_mentions.count())
+        if new_tumentions.exists():
+            settings.LOGGER.info('Processing pending mentions for %d bots..' % new_tumentions.count())
 
             # ponemos todas las menciones como enviando y a sus bots como usándose
-            pending_mentions.update(sending=True)
-            TwitterBot.objects.filter(pk__in=pending_mentions.values_list('bot_used__pk')).update(is_being_used=True)
+            new_tumentions.update(sending=True)
+            TwitterBot.objects.filter(pk__in=new_tumentions.values_list('bot_used__pk')).update(is_being_used=True)
 
-            if max_tweets:
-                pending_mentions = pending_mentions[:max_tweets]
+            if limit:
+                new_tumentions = new_tumentions[:limit]
 
-            if max_tweets == 1 or bot:
-                # pending_mentions[0].process_sending()
-                do_process_mention(pending_mentions[0].pk) # todo:quitar esto, es para revisar si con celery se escribe bien tweet con casperjs en worker remoto
+            if limit == 1 or bot:
+                # si es solo 1 mención o bien un bot dado, entonces no usamos celery
+                # para poder debuguear toda la tarea
+                new_tumentions[0].process_sending(use_celery=False)
             else:
-                for mention in pending_mentions:
-                    do_process_mention(mention.pk)
+                for tumention in new_tumentions:
+                    tumention.process_sending()
         else:
             if Tweet.objects.filter(sending=False, sent_ok=False).exists():
                 if bot:
@@ -268,23 +269,31 @@ class TwitterBotManager(models.Manager):
                 raise EmptyMentionQueue(bot=bot)
 
 
-    def perform_sending_tweets(self, bot=None, max_tweets=None, max_lookups=None):
-        """Mira n veces (max_lookups) en la cola de menciones cada x segundos y encola tweets a enviar"""
+    def perform_send_tumentions_from_queue(self, bot=None, max_lookups=1, limit_per_lookup=None):
+        """ Produce el envío de las menciones que hayan en la cola
+            - Mira n veces (max_lookups) la cola cada x segundos buscando tweets nuevos (por defecto 1)
+            - En cada lookup se procesan como máximo n menciones nuevas encontradas (limit_per_lookup).
+              Por defecto se envían todas las que hayan disponibles.
+        """
 
-        def check_task_result(task):
+        def log_celery_task_result(task):
             if task.failed():
                 settings.LOGGER.warning('-- Task %s failed' % task.task_id)
             elif task.result:
                 host, output = task.result
                 settings.LOGGER.info('-- Task %s processed. host: %s, output: %s' % (task.task_id, host, output))
-            celery_tasks.remove(task)
 
         from project.management.commands.tweet_sender import celery_tasks
+        from project.models import Tweet, Project
 
-        for l in xrange(max_lookups or 1):
+        Tweet.objects.clean_not_ok()
+        self.filter(is_being_used=True).update(is_being_used=False)
+        Project.objects.check_if_running_projects_have_bots()
+
+        for l in xrange(max_lookups):
             settings.LOGGER.info('LOOKUP %d' % (l+1))
             try:
-                self.queue_tasks_from_mention_queue(max_tweets=max_tweets, bot=bot)
+                self.send_new_tumentions_from_queue(limit=limit_per_lookup, bot=bot)
             except (EmptyMentionQueue,
                     NoAvailableBot,
                     NoAvailableBots):
@@ -293,7 +302,8 @@ class TwitterBotManager(models.Manager):
             # antes de pasar al siguiente lookup vemos las tareas que se hayan terminado
             for task in celery_tasks:
                 if task.ready():
-                    check_task_result(task)
+                    log_celery_task_result(task)
+                    celery_tasks.remove(task)
 
             time.sleep(settings.TIME_WAITING_NEXT_LOOKUP)
 
@@ -309,7 +319,8 @@ class TwitterBotManager(models.Manager):
                     settings.LOGGER.info('%i tasks remaining, waiting..' % len(celery_tasks))
                     break
                 else:
-                    check_task_result(task)
+                    log_celery_task_result(task)
+                    celery_tasks.remove(task)
 
     def finish_creations(self, num_threads=None, num_tasks=None, bot=None):
         """Mira qué robots aparecen incompletos y termina de hacer en cada uno lo que quede"""
@@ -364,6 +375,7 @@ class TwitterBotManager(models.Manager):
 
         distinct_proxies = bots.values_list('proxy_for_usage__proxy', flat=True).distinct()
         return Proxy.objects.filter(proxy__in=distinct_proxies)
+
 
     #
     # Proxy methods to queryset

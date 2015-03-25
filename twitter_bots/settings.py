@@ -11,6 +11,9 @@ import socket
 
 BROKER_URL = 'amqp://robots:1aragon1@localhost/robots'
 CELERY_RESULT_BACKEND = 'amqp'
+# BROKER_URL = 'redis://localhost:6379/0'
+# CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_AMQP_TASK_RESULT_EXPIRES = 60*30
 
 #: Only add pickle to this list if your broker is secured
 #: from unwanted access (see userguide/security.html)
@@ -190,7 +193,7 @@ LOGGING = {
     },
     'handlers': {
         'console_info': {
-            'level': 'INFO',
+            'level': 'DEBUG',
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
             'stream': sys.stdout,

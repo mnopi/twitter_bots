@@ -113,10 +113,6 @@ class Command(BaseCommand):
         settings.LOGGER.info('-- INITIALIZED %s --' % MODULE_NAME)
 
         try:
-            Tweet.objects.clean_not_ok()
-            TwitterBot.objects.filter(is_being_used=True).update(is_being_used=False)
-            Project.objects.check_bots_on_all_running()
-
             bot = TwitterBot.objects.get(username=options['bot']) \
                 if 'bot' in options and options['bot'] \
                 else None
@@ -124,9 +120,9 @@ class Command(BaseCommand):
             if bot:
                 settings.TAKE_SCREENSHOTS = True
 
-            max_lookups, max_tweets = get_2_args(args)
+            max_lookups, limit_per_lookup = get_2_args(args)
 
-            TwitterBot.objects.perform_sending_tweets(bot=bot, max_tweets=max_tweets, max_lookups=max_lookups)
+            TwitterBot.objects.perform_send_tumentions_from_queue(bot=bot, max_lookups=max_lookups or 1, limit_per_lookup=limit_per_lookup)
 
             time.sleep(settings.TIME_SLEEPING_FOR_RESPAWN_TWEET_SENDER)
         except Full as e:

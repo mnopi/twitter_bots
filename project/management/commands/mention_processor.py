@@ -21,13 +21,13 @@ class Command(BaseCommand):
 
         mention_pk = int(args[0]) if args else None
         try:
-            burst_size = int(args[1]) if args else None
+            burst_limit = int(args[1]) if args else None
         except IndexError:
-            burst_size = None
+            burst_limit = None
 
         try:
             if mention_pk:
-                output = Tweet.objects.process_mention(mention_pk, burst_size=burst_size)
+                output = Tweet.objects.process_mention(mention_pk, burst_limit=burst_limit)
                 print output
             else:
                 raise Exception('Tweet pk needed!')
