@@ -855,6 +855,10 @@ class Tweet(models.Model):
             if sending_results is not None:
                 sending_results.append(msg)
         finally:
+            self.sending = False
+            self.save()
+            self.bot_used.is_being_used = False
+            self.bot_used.save()
             scr.close_browser()
 
     def send(self, retries=0, sending_results=None):

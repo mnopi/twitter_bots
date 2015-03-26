@@ -1027,6 +1027,8 @@ class TwitterBot(models.Model):
                     scr.take_screenshot('error_verifying', force_take=True)
                     raise e
                 finally:
+                    scr.user.is_being_used = False
+                    scr.user.save()
                     scr.close_browser()
 
                     try:
