@@ -97,6 +97,7 @@ def xsum(numbers):
 def process_mention(mention_pk):
     from project.models import Tweet
 
+    mention = None
     try:
         settings.set_logger('project.management.commands.tweet_sender')
         mention = Tweet.objects.get(pk=mention_pk)
@@ -104,6 +105,9 @@ def process_mention(mention_pk):
         settings.LOGGER.info('-- Mention %i processed --' % mention_pk)
         return socket.gethostname(), output
     finally:
+        if mention.bot_used.is_being_used:
+            mention.bot_used.is_being_used = False
+            mention.bot_used.save()
         connection.close()
 
 
@@ -111,6 +115,7 @@ def process_mention(mention_pk):
 def send_as_mutweet(mention_pk, burst_limit=None):
     from project.models import Tweet
 
+    mention = None
     try:
         settings.set_logger('project.management.commands.tweet_sender')
         mention = Tweet.objects.get(pk=mention_pk)
@@ -118,6 +123,9 @@ def send_as_mutweet(mention_pk, burst_limit=None):
         log_task_processed_on_celery('send_as_mutweet %i' % mention_pk)
         return socket.gethostname(), output
     finally:
+        if mention.bot_used.is_being_used:
+            mention.bot_used.is_being_used = False
+            mention.bot_used.save()
         connection.close()
 
 
@@ -125,6 +133,7 @@ def send_as_mutweet(mention_pk, burst_limit=None):
 def verify_mctweet_if_received_ok(mctweet_pk):
     from project.models import Tweet
 
+    mentioned_bot = None
     try:
         settings.set_logger('project.management.commands.tweet_sender')
         mctweet = Tweet.objects.get(pk=mctweet_pk)
@@ -133,6 +142,9 @@ def verify_mctweet_if_received_ok(mctweet_pk):
         log_task_processed_on_celery('verify_mctweet_if_received_ok %i' % mctweet_pk)
         return socket.gethostname(), output
     finally:
+        if mentioned_bot.is_being_used:
+            mentioned_bot.is_being_used = False
+            mentioned_bot.save()
         connection.close()
 
 
@@ -141,6 +153,7 @@ def send_single_tweet(tweet_pk):
     from core.scrapper.exceptions import BotNotLoggedIn
     from project.models import Tweet
 
+    tweet = None
     try:
         settings.set_logger('project.management.commands.tweet_sender')
         tweet = Tweet.objects.get(pk=tweet_pk)
@@ -159,6 +172,9 @@ def send_single_tweet(tweet_pk):
         output = '\n'.join(sending_results)
         return socket.gethostname(), output
     finally:
+        if tweet.bot_used.is_being_used:
+            tweet.bot_used.is_being_used = False
+            tweet.bot_used.save()
         connection.close()
 
 
@@ -166,6 +182,7 @@ def send_single_tweet(tweet_pk):
 def follow_twitterusers(bot_pk):
     from core.models import TwitterBot
 
+    bot = None
     try:
         settings.set_logger('project.management.commands.tweet_sender')
         bot = TwitterBot.objects.get(pk=bot_pk)
@@ -173,4 +190,7 @@ def follow_twitterusers(bot_pk):
         log_task_processed_on_celery('%s follow_twitterusers' % bot.username)
         return socket.gethostname(), output
     finally:
+        if bot.is_being_used:
+            bot.is_being_used = False
+            bot.save()
         connection.close()

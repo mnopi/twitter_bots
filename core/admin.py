@@ -39,6 +39,8 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'username',
         'get_group',
         'is_being_created',
+        'is_being_used',
+        'last_tweet_date',
         'is_dead',
         'date_death',
         'is_suspended',
@@ -55,6 +57,9 @@ class TwitterBotAdmin(admin.ModelAdmin):
         'proxy_for_usage',
         'get_webdriver',
     )
+
+    def last_tweet_date(self, obj):
+        return obj.tweets.latest('date_sent').date_sent
 
     list_select_related = (
         'proxy_for_registration',
