@@ -830,10 +830,16 @@ class Tweet(models.Model):
                     scr.click(send_tweet_btn_css)
                 check_if_sent_ok()
                 scr.delay.seconds(7)
+
+                self.sent_ok = True
+                self.date_sent = utc_now()
+
                 msg = 'Tweet %i sent ok with webdriver' % (self.pk)
+
                 scr.logger.info(msg)
                 if sending_results is not None:
                     sending_results.append(msg)
+
             except TwitterEmailNotConfirmed as e:
                 # si al intentar enviar el tweet el usuario no estaba realmente confirmado eliminamos su tweet
                 scr.logger.warning('Tweet %i will be deleted' % self.pk)
@@ -930,8 +936,6 @@ class Tweet(models.Model):
             connection.close()
             if sending_results is not None:
                 sending_results.append(msg)
-            else:
-                return msg
 
     def enough_time_passed_since_last(self):
         """
@@ -1132,44 +1136,48 @@ class Tweet(models.Model):
         sending_mentions_results = []
 
         sender = self.bot_used
-        if sender.is_logged_on_twitter():
-            # si el bot es de un grupo que permite envíos de muchos tweets a la vez añadimos
-            # mas tweets a enviar para ese mismo bot
-            sender_group = sender.get_group()
-            max_tweets_at_once = burst_limit or str_interval_to_random_num(sender_group.max_tweets_at_once)
-            tweets_queued_for_sender = sender.tweets.pending_to_send()[:max_tweets_at_once]
-            num_tweets_to_send = tweets_queued_for_sender.count()
-            if num_tweets_to_send < max_tweets_at_once:
-                settings.LOGGER.warning('Not enough mentions created for bot %s sending %i at once (only %i queued for now)'
-                                        % (sender.username, max_tweets_at_once, num_tweets_to_send))
-            settings.LOGGER.info('%s sending %i tweets at once..' % (sender.username, num_tweets_to_send))
+        try:
+            if sender.is_logged_on_twitter():
+                # si el bot es de un grupo que permite envíos de muchos tweets a la vez añadimos
+                # mas tweets a enviar para ese mismo bot
+                sender_group = sender.get_group()
+                max_tweets_at_once = burst_limit or str_interval_to_random_num(sender_group.max_tweets_at_once)
+                tweets_queued_for_sender = sender.tweets.pending_to_send()[:max_tweets_at_once]
+                num_tweets_to_send = tweets_queued_for_sender.count()
+                if num_tweets_to_send < max_tweets_at_once:
+                    settings.LOGGER.warning('Not enough mentions created for bot %s sending %i at once (only %i queued for now)'
+                                            % (sender.username, max_tweets_at_once, num_tweets_to_send))
+                settings.LOGGER.info('%s sending %i tweets at once..' % (sender.username, num_tweets_to_send))
 
-            if num_tweets_to_send > 1:
-                pool = ThreadPool(num_tweets_to_send)
+                if num_tweets_to_send > 1:
+                    pool = ThreadPool(num_tweets_to_send)
 
-            sender.set_cookies_files_for_casperjs()
+                sender.set_cookies_files_for_casperjs()
 
-            for i, tweet in enumerate(tweets_queued_for_sender):
-                settings.LOGGER.info('%s sending tweet %i/%i' % (sender.username, i+1, num_tweets_to_send))
+                for i, tweet in enumerate(tweets_queued_for_sender):
+                    settings.LOGGER.info('%s sending tweet %i/%i' % (sender.username, i+1, num_tweets_to_send))
+                    if pool:
+                        settings.LOGGER.debug('Adding task [SEND MU_TWEET %d] to pool. (total unfinished: %d)'
+                                              % (tweet.pk, pool.tasks.unfinished_tasks))
+                        pool.add_task(tweet.send, sending_results=sending_mentions_results)
+                    else:
+                        tweet.send(sending_results=sending_mentions_results)
+
                 if pool:
-                    settings.LOGGER.debug('Adding task [SEND MU_TWEET %d] to pool. (total unfinished: %d)'
-                                          % (tweet.pk, pool.tasks.unfinished_tasks))
-                    pool.add_task(tweet.send, sending_results=sending_mentions_results)
-                else:
-                    tweet.send(sending_results=sending_mentions_results)
+                    pool.wait_completion()
 
-            if pool:
-                pool.wait_completion()
+                bulk_update(tweets_queued_for_sender)
+            else:
+                # si no está logueado enviamos con webdriver
+                self.send_with_webdriver(sending_results=sending_mentions_results)
 
-            bulk_update(tweets_queued_for_sender)
-        else:
-            # si no está logueado enviamos con webdriver
-            self.send_with_webdriver(sending_results=sending_mentions_results)
-
-        sal = ''
-        for i, result in enumerate(sending_mentions_results):
-            sal += 'Tweet %i/%i: %s\n' % (i+1, len(sending_mentions_results), result)
-        return sal
+            sal = ''
+            for i, result in enumerate(sending_mentions_results):
+                sal += 'Tweet %i/%i: %s\n' % (i+1, len(sending_mentions_results), result)
+            return sal
+        finally:
+            sender.is_being_used = False
+            sender.save()
 
     def process_sending(self, burst_limit=None, use_celery=True):
         """Procesa el el tumention de la cola para ver qué tarea tiene que realizar el tweet sender con este tweet"""
@@ -1212,7 +1220,6 @@ class Tweet(models.Model):
                         except (BotNotLoggedIn, CaptchaRequiredTweet):
                             # si al enviar con casperjs resulta que el bot no está logueado se envía con webdriver
                             mctweet.send_with_webdriver()
-                            mctweet.save()
             except Exception as e:
                 if not hasattr(e, 'msg'):
                     settings.LOGGER.exception('Error processing BotHasReachedConsecutiveTUMentions exception block')

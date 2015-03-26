@@ -2,7 +2,6 @@
 
 import time
 from urllib2 import URLError
-from core.managers import mutex
 import twitter_bots.settings as settings
 from utils import utc_now
 

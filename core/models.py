@@ -966,12 +966,12 @@ class TwitterBot(models.Model):
 
         from project.models import TweetCheckingMention
 
+        scr = None
         try:
             if not mctweet.mentioned_bots.exists():
                 raise Exception('You can\'t check mention over tweet %i without bot mentions' % mctweet.pk)
             else:
                 tcm = TweetCheckingMention.objects.get(tweet=mctweet)
-                scr = None
                 # esto contendrá la cajita de la mención recibida
                 try:
                     # nos logueamos con el bot destino y comprobamos
@@ -1027,8 +1027,6 @@ class TwitterBot(models.Model):
                     scr.take_screenshot('error_verifying', force_take=True)
                     raise e
                 finally:
-                    scr.user.is_being_used = False
-                    scr.user.save()
                     scr.close_browser()
 
                     try:
@@ -1046,6 +1044,8 @@ class TwitterBot(models.Model):
                 msg = msg + ' Reason: ' + e.msg
             return msg
         finally:
+            scr.user.is_being_used = False
+            scr.user.save()
             connection.close()
 
     def has_to_follow_people(self):

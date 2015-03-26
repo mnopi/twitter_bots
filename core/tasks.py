@@ -7,6 +7,7 @@ import socket
 from celery import shared_task
 from celery.exceptions import TimeoutError
 from django.db import connection
+from core.scrapper.exceptions import CaptchaRequiredTweet
 from twitter_bots import settings
 
 
@@ -145,16 +146,17 @@ def send_single_tweet(tweet_pk):
         tweet = Tweet.objects.get(pk=tweet_pk)
         sender = tweet.bot_used
         sender.set_cookies_files_for_casperjs()
+        sending_results = []
         try:
-            output = tweet.send()
+            tweet.send(sending_results=sending_results)
             tweet.save()
-        except BotNotLoggedIn as e:
-            # si al enviar con casperjs resulta que el bot no está logueado se loguea con selenium
-            sender.login_twitter_with_webdriver()
-            output = 'Bot %s (%s) needed to login twitter before sending tweet %d [%s]' \
-                     % (sender.username, sender.real_name, tweet.pk, tweet.print_type())
+        except (BotNotLoggedIn, CaptchaRequiredTweet):
+            # si al enviar con casperjs resulta que el bot no está logueado se envía con webdriver
+            sending_results = []
+            tweet.send_with_webdriver(sending_results=sending_results)
 
         log_task_processed_on_celery('send_single_tweet %i [%s]' % (tweet_pk, tweet.print_type()))
+        output = '\n'.join(sending_results)
         return socket.gethostname(), output
     finally:
         connection.close()
