@@ -1,20 +1,13 @@
 # -*- coding: utf-8 -*-
-from multiprocessing import Pool
-from bulk_update.helper import bulk_update
-import dispy
-from django.db.models import Count, Q, Max, Manager
-from django.db.models.query import QuerySet
+from django.db.models import Manager
 import os
-import time
 
 from django.db import models, connection, transaction
-import multiprocessing
-from core import tasks
 from core.querysets import TwitterBotQuerySet, ProxyQuerySet
-from core.tasks import celery_tasks_tweet_sender, log_task_adding_to_celery
+from core.tasks import log_celery_task_result
 from project.exceptions import *
 from core.scrapper.thread_pool import ThreadPool
-from core.scrapper.utils import utc_now, str_interval_to_random_num
+from core.scrapper.utils import utc_now
 from twitter_bots import settings
 from threading import Lock, BoundedSemaphore
 mutex = Lock()
@@ -276,14 +269,7 @@ class TwitterBotManager(models.Manager):
               Por defecto se envían todas las que hayan disponibles.
         """
 
-        def log_celery_task_result(task):
-            if task.failed():
-                settings.LOGGER.warning('-- Task %s failed' % task.task_id)
-            elif task.result:
-                host, output = task.result
-                settings.LOGGER.info('-- Task %s processed. host: %s, output: %s' % (task.task_id, host, output))
-
-        from project.management.commands.tweet_sender import celery_tasks
+        from project.management.commands.tweet_sender import ctm
         from project.models import Tweet, Project
 
         Tweet.objects.clean_not_ok()
@@ -300,10 +286,10 @@ class TwitterBotManager(models.Manager):
                 pass
 
             # antes de pasar al siguiente lookup vemos las tareas que se hayan terminado
-            for task in celery_tasks:
-                if task.ready():
+            for task in ctm.celery_tasks_tweet_sender:
+                if task.ready() and task.result:
                     log_celery_task_result(task)
-                    celery_tasks.remove(task)
+                    ctm.celery_tasks_tweet_sender.remove(task)
 
             time.sleep(settings.TIME_WAITING_NEXT_LOOKUP)
 
@@ -311,16 +297,19 @@ class TwitterBotManager(models.Manager):
         settings.LOGGER.info('Waiting completing tasks to finish tweet_sender..')
         has_to_wait = True
         while has_to_wait:
-            has_to_wait = False
-            for task in celery_tasks:
-                if not task.ready():
+            for task in ctm.celery_tasks_tweet_sender:
+                if task.ready() and task.result:
+                    log_celery_task_result(task)
+                    ctm.celery_tasks_tweet_sender.remove(task)
+                else:
                     has_to_wait = True
                     time.sleep(5)
-                    settings.LOGGER.info('%i tasks remaining, waiting..' % len(celery_tasks))
+                    settings.LOGGER.info('%i tasks remaining, waiting..' % len(ctm.celery_tasks_tweet_sender))
                     break
-                else:
-                    log_celery_task_result(task)
-                    celery_tasks.remove(task)
+
+            time.sleep(2)
+            if not ctm.celery_tasks_tweet_sender:
+                has_to_wait = False
 
     def finish_creations(self, num_threads=None, num_tasks=None, bot=None):
         """Mira qué robots aparecen incompletos y termina de hacer en cada uno lo que quede"""

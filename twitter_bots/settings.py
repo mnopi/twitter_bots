@@ -13,7 +13,8 @@ BROKER_URL = 'amqp://robots:1aragon1@localhost/robots'
 CELERY_RESULT_BACKEND = 'amqp'
 # BROKER_URL = 'redis://localhost:6379/0'
 # CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
-CELERY_AMQP_TASK_RESULT_EXPIRES = 60*30
+# CELERY_AMQP_TASK_RESULT_EXPIRES = 60*30
+# BROKER_POOL_LIMIT = 100
 
 #: Only add pickle to this list if your broker is secured
 #: from unwanted access (see userguide/security.html)

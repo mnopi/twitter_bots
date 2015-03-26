@@ -1048,13 +1048,19 @@ class TwitterBot(models.Model):
 
     def has_to_follow_people(self):
         """Nos dice si el robot tiene que ponerse a seguir gente, es decir, si su grupo está configurado
-        para seguir gente y ha pasado el periodo ventana desde la última vez que se puso a seguir"""
+        para seguir gente y se cumplen 2 condiciones:
+
+            - ha pasado el periodo ventana desde la última vez que se puso a seguir
+            - ha pasado el mínimo del periodo ventana desde que se siguió al último twitteruser
+        """
         bot_group = self.get_group()
         if bot_group.has_following_activated:
             time_window_to_follow = bot_group.time_window_to_follow
             tw_secs = generate_random_secs_from_hour_interval(time_window_to_follow)
-            return not self.date_last_following or \
-                   has_elapsed_secs_since_time_ago(self.date_last_following, tw_secs)
+            following_timewindow_passed = not self.date_last_following or \
+                                          has_elapsed_secs_since_time_ago(self.date_last_following, tw_secs)
+
+            return following_timewindow_passed
         else:
             return False
 

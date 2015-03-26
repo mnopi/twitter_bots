@@ -18,6 +18,21 @@ class ConnectionError(PageLoadError):
     pass
 
 
+class MyURLError(PageLoadError):
+    def __init__(self):
+        self.msg = 'URLError'
+
+
+class MyBadStatusLine(PageLoadError):
+    def __init__(self):
+        self.msg = 'BadStatusLine'
+
+
+class MyWebDriverException(PageLoadError):
+    def __init__(self):
+        self.msg = 'WebDriverException'
+
+
 class TwitterEmailNotFound(Exception):
     """Esta excepción se lanza cuando no se encuenta en la bandeja de entrada el email de confirmación
     que tiene que enviar twitter después del registro"""
@@ -316,7 +331,7 @@ class PageNotReadyState(PageLoadError):
         except URLError as e:
             # scrapper.logger.error('URLError: cannot retrieve URL from scrapper. Proxy used: %s' %
             #                       scrapper.user.proxy_for_usage.__unicode__())
-            raise e
+            raise MyURLError
 
 
 class NoElementToClick(Exception):
@@ -326,7 +341,7 @@ class NoElementToClick(Exception):
             scrapper.logger.error('no element %s present on %s, so can\'t be clicked' %
                                   (el_str, scrapper.browser.current_url))
         except URLError as e:
-            raise e
+            raise MyURLError
 
 
 class ErrorDownloadingPicFromGoogle(Exception):

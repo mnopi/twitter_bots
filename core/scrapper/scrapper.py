@@ -18,7 +18,8 @@ from core.managers import mutex
 from .delay import Delay
 from .exceptions import RequestAttemptsExceededException, ProxyConnectionError, ProxyTimeoutError, \
     InternetConnectionError, ProxyUrlRequestError, IncompatibleUserAgent, PageNotReadyState, NoElementToClick, \
-    BlankPageError, ProxyAccessDeniedError, ErrorDownloadingPicFromGoogle, PageLoadError
+    BlankPageError, ProxyAccessDeniedError, ErrorDownloadingPicFromGoogle, PageLoadError, MyURLError, MyBadStatusLine, \
+    MyWebDriverException
 import my_phantomjs_webdriver
 from project.models import ProxiesGroup
 from utils import *
@@ -434,13 +435,13 @@ class Scrapper(object):
                 self.logger.debug('go_to: %s' % url)
                 self.take_screenshot('go_to')
         except URLError:
-            raise PageLoadError
+            raise MyURLError
         except BadStatusLine:
             self.logger.error('Bad status line getting %s using proxy %s' % (url, self.user.proxy_for_usage.__unicode__()))
-            raise PageLoadError
+            raise MyBadStatusLine
         except WebDriverException:
             self.logger.error('WebDriverException. Proxy: %s' % self.user.proxy_for_usage.__unicode__())
-            raise PageLoadError
+            raise MyWebDriverException
         except (TimeoutException,
                 BlankPageError,
                 ProxyAccessDeniedError) as e:

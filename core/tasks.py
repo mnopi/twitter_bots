@@ -10,65 +10,70 @@ from django.db import connection
 from twitter_bots import settings
 
 
-celery_tasks_tweet_sender = []
-
-
 def log_task_adding_to_celery(task_descr):
-    settings.LOGGER.info('Task [%s] -> celery' % task_descr)
-
+        settings.LOGGER.info('Task [%s] -> celery' % task_descr)
 
 def log_task_timeout_on_celery(task_descr):
     settings.LOGGER.exception('TimeoutError processing on celery queue: %s' % task_descr)
 
-
 def log_task_processed_on_celery(task_descr):
     settings.LOGGER.info('-- Task |%s| processed --' % task_descr)
 
-
-def add_task__send_mutweet(mutweet, burst_limit):
-    task_descr = 'send_mutweet %i' % mutweet.pk
-
-    try:
-        task = send_as_mutweet.apply_async(args=(mutweet.pk,), kwargs={'burst_limit': burst_limit})
-        celery_tasks_tweet_sender.append(task)
-        log_task_adding_to_celery(task_descr)
-    except TimeoutError:
-        log_task_timeout_on_celery(task_descr)
+def log_celery_task_result(task):
+    if task.failed():
+        settings.LOGGER.warning('-- Task %s failed' % task.task_id)
+    elif task.result:
+        host, output = task.result
+        settings.LOGGER.info('-- Task %s processed. host: %s, output: %s' % (task.task_id, host, output))
+    else:
+        settings.LOGGER.warning('Task %s not failed without result' % task.task_id)
 
 
-def add_task__verify_mctweet_if_received_ok(mctweet):
-    destination_bot = mctweet.mentioned_bots.first()
-    task_descr = '%s verify_mctweet_if_received_ok %i from %s' \
-                 % (destination_bot.username, mctweet.pk, mctweet.bot_used.username)
+class CeleryTasksManager(object):
+    def __init__(self):
+        self.celery_tasks_tweet_sender = []
 
-    try:
-        task = verify_mctweet_if_received_ok.apply_async(args=(mctweet.pk,))
-        celery_tasks_tweet_sender.append(task)
-        log_task_adding_to_celery(task_descr)
-    except TimeoutError:
-        log_task_timeout_on_celery(task_descr)
+    def add_task__send_mutweet(self, mutweet, burst_limit):
+        task_descr = 'send_mutweet %i' % mutweet.pk
 
+        try:
+            task = send_as_mutweet.apply_async(args=(mutweet.pk,), kwargs={'burst_limit': burst_limit})
+            self.celery_tasks_tweet_sender.append(task)
+            log_task_adding_to_celery(task_descr)
+        except TimeoutError:
+            log_task_timeout_on_celery(task_descr)
 
-def add_task__send_single_tweet(tweet):
-    task_descr = 'send_single_tweet %i [%s]' % (tweet, tweet.print_type())
+    def add_task__verify_mctweet_if_received_ok(self, mctweet):
+        destination_bot = mctweet.mentioned_bots.first()
+        task_descr = '%s verify_mctweet_if_received_ok %i from %s' \
+                     % (destination_bot.username, mctweet.pk, mctweet.bot_used.username)
 
-    try:
-        task = send_single_tweet.apply_async(args=(tweet.pk,))
-        celery_tasks_tweet_sender.append(task)
-        log_task_adding_to_celery(task_descr)
-    except TimeoutError:
-        log_task_timeout_on_celery(task_descr)
+        try:
+            task = verify_mctweet_if_received_ok.apply_async(args=(mctweet.pk,))
+            self.celery_tasks_tweet_sender.append(task)
+            log_task_adding_to_celery(task_descr)
+        except TimeoutError:
+            log_task_timeout_on_celery(task_descr)
 
+    def add_task__send_single_tweet(self, tweet):
+        task_descr = 'send_single_tweet %i [%s]' % (tweet.pk, tweet.print_type())
 
-def add_task__follow_twitterusers(bot):
-    task_descr = '%s follow_twitterusers' % bot.username
+        try:
+            task = send_single_tweet.apply_async(args=(tweet.pk,))
+            self.celery_tasks_tweet_sender.append(task)
+            log_task_adding_to_celery(task_descr)
+        except TimeoutError:
+            log_task_timeout_on_celery(task_descr)
 
-    try:
-        task = follow_twitterusers.apply_async(args=(bot.pk,))
-        celery_tasks_tweet_sender.append(task)
-        log_task_adding_to_celery(task_descr)
-    except TimeoutError:
-        log_task_timeout_on_celery(task_descr)
+    def add_task__follow_twitterusers(self, bot):
+        task_descr = '%s follow_twitterusers' % bot.username
+
+        try:
+            task = follow_twitterusers.apply_async(args=(bot.pk,))
+            self.celery_tasks_tweet_sender.append(task)
+            log_task_adding_to_celery(task_descr)
+        except TimeoutError:
+            log_task_timeout_on_celery(task_descr)
 
 
 @shared_task
@@ -108,7 +113,7 @@ def send_as_mutweet(mention_pk, burst_limit=None):
     try:
         settings.set_logger('project.management.commands.tweet_sender')
         mention = Tweet.objects.get(pk=mention_pk)
-        output = mention.send_as_tumention(burst_limit)
+        output = mention.send_as_mutweet(burst_limit)
         log_task_processed_on_celery('send_as_mutweet %i' % mention_pk)
         return socket.gethostname(), output
     finally:

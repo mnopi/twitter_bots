@@ -20,6 +20,7 @@ from core.scrapper.captcha_resolvers import DeathByCaptchaResolver
 from core.scrapper.exceptions import *
 from core.scrapper.thread_pool import ThreadPool
 from project.exceptions import *
+from project.management.commands.tweet_sender import ctm
 from project.managers import TargetUserManager, TweetManager, ProjectManager, ExtractorManager, ProxiesGroupManager, \
     TwitterUserManager, McTweetManager, FeedItemManager, HashtagManager
 from core.scrapper.utils import is_gte_than_days_ago, utc_now, is_lte_than_seconds_ago, naive_to_utc, \
@@ -889,9 +890,8 @@ class Tweet(models.Model):
                     self.send_with_casperjs()
                 elif settings.SENDING_METHOD == 'webdriver':
                     self.send_with_webdriver()
-            except (CaptchaRequiredTweet,
-                BotNotLoggedIn) as e:
-                # si pide captcha o no está logueado le borramos las cookies para que vuelva a loguearse con webdriver
+            except (BotNotLoggedIn, CaptchaRequiredTweet) as e:
+                # si no está logueado le borramos las cookies para que vuelva a tuitear con webdriver
                 sender.remove_cookies()
                 raise e
             except (PageloadTimeoutExpired,
@@ -926,6 +926,8 @@ class Tweet(models.Model):
             connection.close()
             if sending_results is not None:
                 sending_results.append(msg)
+            else:
+                return msg
 
     def enough_time_passed_since_last(self):
         """
@@ -1173,33 +1175,45 @@ class Tweet(models.Model):
 
             # si las comprobaciones fueron bien enviamos tweet
             if use_celery:
-                tasks.add_task__send_mutweet(self, burst_limit)
+                ctm.add_task__send_mutweet(self, burst_limit)
             else:
                 self.send_as_mutweet(burst_limit=burst_limit)
 
         except BotHasReachedConsecutiveTUMentions as e:
-            mctweet_sender_bot = e.bot
-            mctweet = mctweet_sender_bot.get_or_create_mctweet()
-            if mctweet.sent_ok:
-                mctweet.check_if_can_be_verified()
-                mctweet.tweet_checking_mention.destination_bot_is_checking_mention = True
-                mctweet.tweet_checking_mention.save()
-                mentioned_bot = mctweet.mentioned_bots.first()
+            try:
+                mctweet_sender_bot = e.bot
+                mctweet = mctweet_sender_bot.get_or_create_mctweet()
+                if mctweet.sent_ok:
+                    mctweet.check_if_can_be_verified()
+                    mctweet.tweet_checking_mention.destination_bot_is_checking_mention = True
+                    mctweet.tweet_checking_mention.save()
+                    mentioned_bot = mctweet.mentioned_bots.first()
 
-                if use_celery:
-                    tasks.add_task__verify_mctweet_if_received_ok(mctweet)
+                    if use_celery:
+                        ctm.add_task__verify_mctweet_if_received_ok(mctweet)
+                    else:
+                        mentioned_bot.verify_mctweet_if_received_ok(mctweet)
                 else:
-                    mentioned_bot.verify_mctweet_if_received_ok(mctweet)
-            else:
-                mctweet_sender_bot.check_if_can_send_mctweet()
-                mctweet.sending = True
-                mctweet.save()
-
-                if use_celery:
-                    tasks.add_task__send_single_tweet(mctweet)
-                else:
-                    mctweet.send()
+                    mctweet_sender_bot.check_if_can_send_mctweet()
+                    mctweet.sending = True
                     mctweet.save()
+
+                    if use_celery:
+                        ctm.add_task__send_single_tweet(mctweet)
+                    else:
+                        mctweet_sender_bot.set_cookies_files_for_casperjs()
+                        try:
+                            mctweet.send()
+                            mctweet.save()
+                        except (BotNotLoggedIn, CaptchaRequiredTweet):
+                            # si al enviar con casperjs resulta que el bot no está logueado se envía con webdriver
+                            mctweet.send_with_webdriver()
+                            mctweet.save()
+            except Exception as e:
+                if not hasattr(e, 'msg'):
+                    settings.LOGGER.exception('Error processing BotHasReachedConsecutiveTUMentions exception block')
+                else:
+                    settings.LOGGER.debug(e.msg)
 
         except MuTweetHasNotSentFTweetsEnough as e:
             ftweet = e.mutweet.get_or_create_ftweet_to_send()
@@ -1209,8 +1223,9 @@ class Tweet(models.Model):
             ftweet.save()
 
             if use_celery:
-                tasks.add_task__send_single_tweet(ftweet)
+                ctm.add_task__send_single_tweet(ftweet)
             else:
+                ftweet.bot_used.set_cookies_files_for_casperjs()
                 ftweet.send()
                 ftweet.save()
 
@@ -1221,7 +1236,7 @@ class Tweet(models.Model):
             sender_bot.mark_twitterusers_to_follow_at_once()
 
             if use_celery:
-                tasks.add_task__follow_twitterusers(sender_bot)
+                ctm.add_task__follow_twitterusers(sender_bot)
             else:
                 sender_bot.follow_twitterusers()
 
