@@ -249,7 +249,7 @@ class DestinationBotIsDead(Exception):
         destination_bot = mctweet.mentioned_bots.first()
         self.msg = 'Bot %s can\'t verify mctweet %i because is dead. This mctweet will be deleted' \
                    % (destination_bot.username, mctweet.pk)
-        settings.LOGGER.warning()
+        settings.LOGGER.warning(self.msg)
         mctweet.delete()
 
 
