@@ -973,6 +973,8 @@ class Tweet(models.Model):
 
         sender_bot = self.bot_used
 
+        sender_bot.check_break_time()
+
         if sender_bot.has_to_follow_people():
             raise SenderBotHasToFollowPeople(sender_bot)
 
@@ -1250,6 +1252,9 @@ class Tweet(models.Model):
                 ctm.add_task__follow_twitterusers(sender_bot)
             else:
                 sender_bot.follow_twitterusers()
+
+        except BotIsTakingABreak:
+            pass
 
 
 class TweetCheckingMention(models.Model):
@@ -1962,6 +1967,7 @@ class ProxiesGroup(models.Model):
     is_bot_usage_enabled = models.BooleanField(default=False)
     max_tw_bots_per_proxy_for_usage = models.PositiveIntegerField(null=False, blank=False, default=12)
 
+    #
     # tweet behaviour
     time_between_tweets = models.CharField(max_length=10, null=False, blank=False, default='2-7')  # '2-5' -> entre 2 y 5 minutos
     max_tweets_at_once = models.CharField(max_length=10, null=False, blank=False, default='15-20')
@@ -1972,6 +1978,10 @@ class ProxiesGroup(models.Model):
     has_mentions = models.BooleanField(default=False)
     max_num_mentions_per_tweet = models.PositiveIntegerField(null=False, blank=False, default=1)
     feedtweets_per_twitteruser_mention = models.CharField(max_length=10, null=False, blank=False, default='0-3')
+    # se para el bot durante break_duration horas cada break_interval horas, por ejemplo, para que
+    # se pare entre 5-10 horas cada 24-30 horas
+    break_duration = models.CharField(max_length=10, null=False, blank=False, default='5-10')
+    break_interval = models.CharField(max_length=10, null=False, blank=False, default='24-30')
 
     #
     # mentioning check behaviour

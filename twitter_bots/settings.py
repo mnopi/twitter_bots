@@ -87,7 +87,7 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
 
-        "NAME": "twitter_bots_dev",
+        "NAME": "twitter_bots_spare_time",
         "USER": "root",
         "PASSWORD": "1aragon1",
         "HOST": "127.0.0.1",

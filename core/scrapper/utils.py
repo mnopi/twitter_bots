@@ -253,6 +253,10 @@ def has_elapsed_secs_since_time_ago(datetime_ago, secs):
     return is_lte_than_seconds_ago(datetime_ago, secs)
 
 
+def has_elapsed_mins_since_time_ago(datetime_ago, mins):
+    return is_lte_than_seconds_ago(datetime_ago, mins*60)
+
+
 def has_elapsed_days_since_time_ago(datetime_ago, days):
     return is_lte_than_days_ago(datetime_ago, days)
 

@@ -5,7 +5,8 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models, connection
 from selenium.common.exceptions import NoSuchElementException, WebDriverException
 from project.exceptions import NoMoreAvailableProxiesForRegistration, NoAvailableProxiesToAssignBotsForUse,\
-    TweetCreationException, LastMctweetFailedTimeWindowNotPassed, BotHasToWaitToRegister, CancelCreation
+    TweetCreationException, LastMctweetFailedTimeWindowNotPassed, BotHasToWaitToRegister, CancelCreation, \
+    BotIsTakingABreak
 from core.scrapper.scrapper import Scrapper, INVALID_EMAIL_DOMAIN_MSG
 from core.scrapper.accounts.hotmail import HotmailScrapper
 from core.scrapper.accounts.twitter import TwitterScrapper
@@ -71,6 +72,11 @@ class TwitterBot(models.Model):
     is_following = models.BooleanField(default=False)
     date_last_following = models.DateTimeField(null=True, blank=True)
     following_ratio = models.DecimalField(null=True, blank=True, max_digits=2, decimal_places=1)
+
+    # sobre los periodos de descanso
+    next_break_date_start = models.DateTimeField(null=True, blank=True)
+    current_break_date_start = models.DateTimeField(null=True, blank=True)
+    current_break_duration = models.PositiveIntegerField(null=True, blank=True)
 
     # RELATIONSHIPS
     proxy_for_registration = models.ForeignKey('Proxy', null=True, blank=True, related_name='twitter_bots_registered', on_delete=models.DO_NOTHING)
@@ -1251,6 +1257,60 @@ class TwitterBot(models.Model):
 
         to_follow_pks = self.tb_followings.filter(performed_follow=False).values_list('twitteruser', flat=True)
         return TwitterUser.objects.filter(pk__in=to_follow_pks)
+
+    def check_break_time(self):
+        # si ya tiene puesta la fecha a partir de la cual debe pararse, entonces comprobamos si deja o no de pararse
+        if self.current_break_date_start:
+            # comprobamos si el bot ya pasó el parón, en ese caso seteamos cuándo se hará el siguiente
+            break_passed = has_elapsed_secs_since_time_ago(self.current_break_date_start, self.current_break_duration*60)
+            if break_passed:
+                self.set_next_break_date_start()
+                self.current_break_date_start = None
+                self.current_break_duration = None
+                self.save()
+            else:
+                raise BotIsTakingABreak(self)
+
+        else:
+            # si no tiene asignada la fecha del siguiente parón se la asignamos
+            if not self.next_break_date_start:
+                self.set_next_break_date_start()
+                self.save()
+
+            has_to_take_a_break = utc_now() >= self.next_break_date_start
+            if has_to_take_a_break:
+                self.current_break_date_start = self.next_break_date_start
+                self.next_break_date_start = None
+                self.set_current_break_duration()
+                self.save()
+                raise BotIsTakingABreak(self)
+
+            # si no tiene que tomar el descanso pero no tuvo seteado la duración del break (porque se interrumpiera el proceso)
+            elif not self.current_break_duration:
+                self.set_current_break_duration()
+                self.save()
+
+    def set_current_break_duration(self):
+        """le añade un número de minutos para el break"""
+        bot_group = self.get_group()
+        break_duration_min = int(bot_group.break_duration.split('-')[0]) * 60
+        break_duration_max = int(bot_group.break_duration.split('-')[1]) * 60
+        self.current_break_duration = random.randint(break_duration_min, break_duration_max)
+
+    def set_next_break_date_start(self):
+        """le añadimos la hora a la que comenzará el siguiente parón, la cual será:
+            1h .. (max(break_interval) - max(break_duration))
+        """
+        bot_group = self.get_group()
+        max_break_interval = int(bot_group.break_interval.split('-')[1])
+        max_break_duration = int(bot_group.break_duration.split('-')[1])
+        # máximo de horas que el bot puede estar tuiteando desde el último parón
+        max_hours_tweeting_streak = max_break_interval - max_break_duration
+        next_break_start1 = 1*60*60  # 1h
+        next_break_start2 = max_hours_tweeting_streak*60*60
+        next_break_seconds_to_start = random.randint(next_break_start1, next_break_start2)
+        self.next_break_date_start = utc_now() + datetime.timedelta(seconds=next_break_seconds_to_start)
+
 
 class Proxy(models.Model):
     proxy = models.CharField(max_length=21, null=False, blank=True)

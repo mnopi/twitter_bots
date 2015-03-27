@@ -383,3 +383,10 @@ class HashtagExtractionWithoutResults(Exception):
 
 class ProjectWithoutBotsToSendMentions(Exception):
     pass
+
+
+class BotIsTakingABreak(Exception):
+    def __init__(self, bot):
+        self.msg = 'Bot %s is taking a break (started: %s, duration: %s mins)' \
+                   % (bot.username, datetime_to_str(bot.current_break_date_start), bot.current_break_duration)
+        settings.LOGGER.debug(self.msg)
