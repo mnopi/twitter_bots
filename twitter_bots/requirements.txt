@@ -16,7 +16,7 @@ numpy==1.9.1
 oauthlib==0.7.2
 psutil==2.2.1
 pytz==2014.10
-requests==2.4.3
+requests==2.20.0
 requests-oauthlib==0.4.1
 selenium==2.44.0
 simplejson==3.6.5
